@@ -194,6 +194,8 @@ case ${generic_target} in
   bpf-*-*)				fmt=elf ;;
   epiphany-*-*)				fmt=elf ;;
 
+  etca-*-*)				fmt=elf ;;
+
   fr30-*-*)				fmt=elf ;;
   frv-*-*linux*)			fmt=elf em=linux;;
   frv-*-*)				fmt=elf ;;

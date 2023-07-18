@@ -1,4 +1,8 @@
 2023-07-18 MegaIng <trampchamp@hotmail.de>
+	* configure.ac: Build gas.
+	* configure: Rebuilt.
+
+2023-07-18 MegaIng <trampchamp@hotmail.de>
 	* configure.ac: Build opcodes.
 	* configure: Rebuilt.
 

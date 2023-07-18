@@ -26,7 +26,7 @@
 #include "libbfd.h"
 
 
-const bfd_arch_info_type bfd_ggx_arch =
+const bfd_arch_info_type bfd_etca_arch =
         {
                 16,               /* 16 bits in a word.  */
                 32,               /* 32 bits in an address.  */
