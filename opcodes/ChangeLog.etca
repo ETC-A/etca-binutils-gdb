@@ -1,0 +1,8 @@
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+
+	* etca-opc.c, etca-dis.c: Created.
+	* Makefile.am: Build the etca source files.
+	* configure.ac: Add etca support.
+	* Makefile.in, configure: Rebuilt.
+	* disassemble.c, disassemble.h: Add etca support.
+	(ARCH_etca): Define.

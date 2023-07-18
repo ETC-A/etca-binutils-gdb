@@ -49,6 +49,7 @@
 #define ARCH_d30v
 #define ARCH_dlx
 #define ARCH_epiphany
+#define ARCH_etca
 #define ARCH_fr30
 #define ARCH_frv
 #define ARCH_ft32
@@ -249,6 +250,11 @@ disassembler (enum bfd_architecture a,
 #ifdef ARCH_epiphany
     case bfd_arch_epiphany:
       disassemble = print_insn_epiphany;
+      break;
+#endif
+#ifdef ARCH_etca
+      case bfd_arch_etca:
+      disassemble = print_insn_etca;
       break;
 #endif
 #ifdef ARCH_fr30

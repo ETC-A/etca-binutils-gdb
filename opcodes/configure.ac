@@ -275,6 +275,7 @@ if test x${all_targets} = xfalse ; then
 	bfd_d10v_arch)		ta="$ta d10v-dis.lo d10v-opc.lo" ;;
 	bfd_d30v_arch)		ta="$ta d30v-dis.lo d30v-opc.lo" ;;
 	bfd_dlx_arch)		ta="$ta dlx-dis.lo" ;;
+	bfd_etca_arch)		ta="$ta etca-dis.lo etca-opc.lo" ;;
 	bfd_fr30_arch)		ta="$ta fr30-asm.lo fr30-desc.lo fr30-dis.lo fr30-ibld.lo fr30-opc.lo" using_cgen=yes ;;
 	bfd_frv_arch)		ta="$ta frv-asm.lo frv-desc.lo frv-dis.lo frv-ibld.lo frv-opc.lo" using_cgen=yes ;;
 	bfd_ft32_arch)		ta="$ta ft32-opc.lo ft32-dis.lo" ;;
