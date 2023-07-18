@@ -1,0 +1,10 @@
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+	* targets.c: Add etca support.
+	* Makefile.am: Ditto.
+	* Makefile.in: Rebuilt.
+	* cpu-etca.c, elf32-etca.c: New files.
+	* archures.c: Add etca support.
+	* configure.in: Add etca support.
+	* configure: Rebuilt.
+	* config.bfd, archures.c: Add etca support.
+	* bfd-in2.h: Rebuilt.

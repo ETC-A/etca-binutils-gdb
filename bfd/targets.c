@@ -732,6 +732,7 @@ extern const bfd_target elf64_le_vec;
 extern const bfd_target bpf_elf64_le_vec;
 extern const bfd_target bpf_elf64_be_vec;
 extern const bfd_target epiphany_elf32_vec;
+extern const bfd_target etca_elf32_vec;
 extern const bfd_target fr30_elf32_vec;
 extern const bfd_target frv_elf32_vec;
 extern const bfd_target frv_elf32_fdpic_vec;
@@ -1071,6 +1072,8 @@ static const bfd_target * const _bfd_target_vector[] =
 #endif
 
 	&epiphany_elf32_vec,
+
+	&etca_elf32_vec,
 
 	&fr30_elf32_vec,
 

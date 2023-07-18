@@ -511,6 +511,11 @@ case "${targ}" in
     targ_underscore=yes
     ;;
 
+  etca-*-elf)
+    targ_defvec=etca_elf32_vec
+    ;;
+
+
   fido-*-elf* )
     targ_defvec=m68k_elf32_vec
     ;;

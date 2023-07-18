@@ -1139,12 +1139,12 @@ case "${target}" in
   d30v-*-*)
     noconfigdirs="$noconfigdirs gdb"
     ;;
-  fr30-*-elf*)
-    noconfigdirs="$noconfigdirs gdb"
-    ;;
   etca-*-*)
     noconfigdirs="$noconfigdirs ${libgcj} gdb sim"
-    noconfigdirs="$noconfigdirs bfd binutils opcodes gas ld gprof"
+    noconfigdirs="$noconfigdirs binutils opcodes gas ld gprof"
+    ;;
+  fr30-*-elf*)
+    noconfigdirs="$noconfigdirs gdb"
     ;;
   ft32-*-*)
     noconfigdirs="$noconfigdirs target-rda gprof"

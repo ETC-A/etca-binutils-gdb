@@ -1629,6 +1629,8 @@ enum bfd_architecture
 #define bfd_mach_mn10300       300
 #define bfd_mach_am33          330
 #define bfd_mach_am33_2        332
+  bfd_arch_etca,
+#define bfd_mach_etca      1
   bfd_arch_fr30,
 #define bfd_mach_fr30          0x46523330
   bfd_arch_frv,

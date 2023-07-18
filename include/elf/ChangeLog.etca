@@ -1,0 +1,5 @@
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+
+	* common.h (EM_ETCA): Define.
+	* etca.h: New file.
+

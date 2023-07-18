@@ -1,4 +1,8 @@
-2029-07-18 MegaIng <trampchamp@hotmail.de>
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+	* configure.ac: Build bfd.
+	* configure: Rebuilt.
+
+2023-07-18 MegaIng <trampchamp@hotmail.de>
     * config.sub: Add ggx support.
     * configure.ac: Ditto.
     * configure: Rebuilt.
