@@ -195,12 +195,12 @@ md_apply_fix (fixS *fixP ATTRIBUTE_UNUSED, valueT * valP ATTRIBUTE_UNUSED, segT 
   /* Empty for now.  */
 }
 
-/* Put number into target byte order (big endian).  */
+/* Put number into target byte order (little endian).  */
 
 void
 md_number_to_chars (char *ptr, valueT use, int nbytes)
 {
-  number_to_chars_bigendian (ptr, use, nbytes);
+  number_to_chars_littleendian (ptr, use, nbytes);
 }
 
 /* Translate internal representation of relocation info to BFD target

@@ -1,3 +1,7 @@
+2023-07-19 MegaIng <trampchamp@hotmail.de>
+	* cpu-etca.c: 32bit address -> 16bit address
+	* elf32-etca.c: big endian -> little endian
+
 2023-07-18 MegaIng <trampchamp@hotmail.de>
 	* targets.c: Add etca support.
 	* Makefile.am: Ditto.

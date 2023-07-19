@@ -1,5 +1,9 @@
-2023-07-18 MegaIng <trampchamp@hotmail.de>g>
+2023-07-19 MegaIng <trampchamp@hotmail.de>
+	* config/tc-etca.c: big endian -> little endian
 
-+	* config/tc-etca.h: New file.
-+	* config/tc-etca.c: New file.
+
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+
+	* config/tc-etca.h: New file.
+	* config/tc-etca.c: New file.
 	* configure.tgt: Add support for etca.

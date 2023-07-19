@@ -27,8 +27,8 @@
 #include "libbfd.h"
 #include "elf-bfd.h"
 
-#define TARGET_BIG_SYM		etca_elf32_vec
-#define TARGET_BIG_NAME		"elf32-etca"
+#define TARGET_LITTLE_SYM	etca_elf32_vec
+#define TARGET_LITTLE_NAME	"elf32-etca"
 #define ELF_ARCH		    bfd_arch_etca
 #define ELF_MACHINE_CODE	EM_ETCA
 #define ELF_MAXPAGESIZE  	1

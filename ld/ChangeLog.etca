@@ -1,0 +1,6 @@
+2023-07-18 MegaIng <trampchamp@hotmail.de>
+	* configure.tgt: Add etca support.
+	* Makefile.am: Add etca files.
+	* Makefile.in: Rebuilt.
+	* emulparams/elf32etca.sh: New file.
+	* scripttempl/etca.sc: New file.

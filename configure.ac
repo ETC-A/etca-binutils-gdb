@@ -1141,7 +1141,7 @@ case "${target}" in
     ;;
   etca-*-*)
     noconfigdirs="$noconfigdirs ${libgcj} gdb sim"
-    noconfigdirs="$noconfigdirs binutils ld gprof"
+    noconfigdirs="$noconfigdirs gprof"
     ;;
   fr30-*-elf*)
     noconfigdirs="$noconfigdirs gdb"

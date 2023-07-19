@@ -29,7 +29,7 @@
 const bfd_arch_info_type bfd_etca_arch =
         {
                 16,               /* 16 bits in a word.  */
-                32,               /* 32 bits in an address.  */
+                16,               /* 16 bits in an address.  */
                 8,                /*  8 bits in a byte.  */
                 bfd_arch_etca,    /* enum bfd_architecture arch.  */
                 bfd_mach_etca,
