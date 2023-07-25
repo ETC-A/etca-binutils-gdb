@@ -46,8 +46,8 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
         goto fail;
     }
 
-    switch (opcode >> 6) { /* top two bits are the mode*/
-        case 0b00: /* ri */
+    switch (opcode >> 6) { /* top two bits are the (general) format. */
+        case 0b00: /* rr */
             opc_info = &etca_base_rr[opcode & 0xF];
             if (opc_info->format != ETCA_IF_BASE_RR) {
                 fpr(stream, "bad");

@@ -20,7 +20,8 @@
    Foundation, 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 #define TC_ETCA 1
-#define TARGET_BYTES_BIG_ENDIAN 1
+// ETCa is little endian.
+#define TARGET_BYTES_BIG_ENDIAN 0
 #define WORKING_DOT_WORD
 
 /* This macro is the BFD target name to use when creating the output
@@ -32,10 +33,16 @@
 
 #define md_undefined_symbol(NAME)           0
 
+// We should deefine this at some point, to produce efficient NOP instructions
+// for alignment based on what extensions are available. TODO
+// #define md_do_align
+
 /* These macros must be defined, but is will be a fatal assembler
    error if we ever hit them.  */
 #define md_estimate_size_before_relax(A, B) (as_fatal (_("estimate size\n")),0)
 #define md_convert_frag(B, S, F)            as_fatal (_("convert_frag\n"))
+
+#define md_number_to_chars number_to_chars_littleendian
 
 /* PC relative operands are relative to the start of the opcode, and
    the operand is always one byte into the opcode.  */
@@ -44,5 +51,11 @@
 */
 #define md_pcrel_from(FIX) 		(as_fatal (_("md_pcrel_from\n")),0)
 
+/* Prevent GAS from folding expressions such as %rh0 + 1 into %rh1. */
+#define md_register_arithmetic 0
 
 #define md_section_align(SEGMENT, SIZE)     (SIZE)
+
+// TODO define this to the name of a function etca_address_bytes(void)
+// which returns the number of bytes in an address for the current target.
+// #define TC_ADDRESS_BYTES etca_address_bytes

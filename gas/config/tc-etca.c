@@ -27,18 +27,29 @@
 #include <assert.h>
 
 const char comment_chars[] = ";";
-const char line_separator_chars[] = ";";
+/* Additional characters beyond newline which should be treated as line separators.
+  ETCa has none. */
+const char line_separator_chars[] = "";
 const char line_comment_chars[] = ";";
+
+/* These are extra characters (beyond $ . _ and alphanum) which may appear
+   in ETCa operands. % is a register prefix and [ is used for memory operands.
+   We only need to give ones that might start operands. This affects the way in
+   which GAS removes whitespace before passign the string to `md_assemble`. */
+const char *tc_symbol_chars = "%[";
 
 static int pending_reloc;
 static htab_t opcode_hash_control;
 
 const pseudo_typeS md_pseudo_table[] =
-	{
-		{0, 0, 0}
-	};
+        {
+                {0, 0, 0}
+        };
 
-const char FLT_CHARS[] = "rRsSfFdDxXpP";
+/* Characters which indicate a floating point constant, 
+   for example 0f0.5. */
+const char FLT_CHARS[] = "rRsSfFdD";
+/* Characters which may be used as the exponent char in a float number. */
 const char EXP_CHARS[] = "eE";
 
 struct etca_opcode_set {
@@ -47,81 +58,93 @@ struct etca_opcode_set {
     size_t potential_iformats;
     const struct etca_opc_info *opcodes[];
 };
+
+// These next few things will shortly be subsumed in opcodes/etca.h
+
+// We use the term "arg" in place of "operand" to avoid
+// confusion with "opcode" in abbreviations. Possible
+// arg types in ETCa are registers, memory addressing modes,
+// and regular GAS expressions.
 enum etca_argtype {
     ERROR,
     REG,
     EXPR
 };
-/* This macro should always be large enough to contain all combinations of etca_argtype*/
+/* This macro should always be large enough to contain all combinations of etca_argtype */
+// (note 010 is an octal literal representing 8)
 #define ARGS(a, b) ((a * 010) + b)
 
 struct etca_argument {
     enum etca_argtype type;
     union {
-	struct {
-	    uint8_t index;
-	    int8_t size;
-	} reg;
-	expressionS expr;
+        struct {
+            uint8_t index;
+            int8_t size;
+        } reg;
+        expressionS expr;
     };
 };
 
-int8_t parse_size_byte(char value);
+int8_t parse_size_attr(char value);
 
-int8_t parse_size_byte(char value) {
+int8_t parse_size_attr(char value) {
     switch (value) {
-	case 'h':
-	    return 0b00;
-	case 'x':
-	    return 0b01;
-	case 'd':
-	    return 0b10;
-	case 'q':
-	    return 0b11;
+        case 'h':
+            return 0b00;
+        case 'x':
+            return 0b01;
+        case 'd':
+            return 0b10;
+        case 'q':
+            return 0b11;
     }
     return -1;
 }
+
+#define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
+
+void foo() { }
 
 char *parse_register_name(char *str, struct etca_argument *result);
 
 char *parse_register_name(char *str, struct etca_argument *result) {
     if (*str == 'r') { /* Numeric register reference */
-	str++;
-	if ((result->reg.size = parse_size_byte(*str)) > 0) {
-	    str++;
-	} else {
-	    /* TODO: pedantic check */
-	}
-	/* Probably should be rewritten to use something like strtol and provide a good error message */
-	if (*str == '1' && '0' <= *(str + 1) && *(str + 1) <= '5') {
-	    result->reg.index = 10 + (*(str + 1) - '0');
-	    str += 2;
-	} else if ('0' <= *str && *str <= '9') {
-	    result->reg.index = *str - '0';
-	    str++;
-	} else {
-	    result->type = ERROR;
-	    return NULL;
-	}
-	return str;
+        str++;
+        if (TRY_PARSE_SIZE_ATTR(result->reg.size, *str)) {
+            str++;
+        } else {
+            /* TODO: pedantic check */
+        }
+        /* Probably should be rewritten to use something like strtol and provide a good error message */
+        if (*str == '1' && '0' <= *(str + 1) && *(str + 1) <= '5') {
+            result->reg.index = 10 + (*(str + 1) - '0');
+            str += 2;
+        } else if ('0' <= *str && *str <= '9') {
+            result->reg.index = *str - '0';
+            str++;
+        } else {
+            result->type = ERROR;
+            return NULL;
+        }
+        return str;
     } else {
-	const char (*reg_name)[3];
-	for (reg_name = &etca_register_saf_names[0],
-		     result->reg.index = 0;
-	     result->reg.index < 16;
-	     result->reg.index++, reg_name++) {
-	    if ((*reg_name)[0] == *str && (*reg_name)[1] == *(str + 1)) {
-		str += 2;
-		if ((result->reg.size = parse_size_byte(*str)) > 0) {
-		    str++;
-		} else {
-		    /* TODO: pedantic check */
-		}
-		return str;
-	    }
-	}
-	result->type = ERROR;
-	return NULL;
+        const char (*reg_name)[3];
+        for (reg_name = &etca_register_saf_names[0],
+                     result->reg.index = 0;
+             result->reg.index < 16;
+             result->reg.index++, reg_name++) {
+            if ((*reg_name)[0] == *str && (*reg_name)[1] == *(str + 1)) {
+                str += 2;
+                if ((result->reg.size = parse_size_attr(*str)) > 0) {
+                    str++;
+                } else {
+                    /* TODO: pedantic check */
+                }
+                return str;
+            }
+        }
+        result->type = ERROR;
+        return NULL;
     }
 }
 
@@ -129,21 +152,21 @@ char *parse_operand(char *str, struct etca_argument *result);
 
 char *parse_operand(char *str, struct etca_argument *result) {
     while (*str == ' ')
-	str++;
+        str++;
     switch (*str) {
-	case '%':
-	    result->type = REG;
-	    str++;
-	    return parse_register_name(str, result);
-	default: {
-	    char *save = input_line_pointer;
-	    input_line_pointer = str;
-	    expression(&result->expr);
-	    str = input_line_pointer;
-	    input_line_pointer = save;
-	    result->type = EXPR;
-	    return str;
-	}
+        case '%':
+            result->type = REG;
+            str++;
+            return parse_register_name(str, result);
+        default: {
+            char *save = input_line_pointer;
+            input_line_pointer = str;
+            expression(&result->expr);
+            str = input_line_pointer;
+            input_line_pointer = save;
+            result->type = EXPR;
+            return str;
+        }
     }
 }
 
@@ -151,9 +174,9 @@ const struct etca_opc_info *find_opcode(struct etca_opcode_set *opc_set, enum et
 
 const struct etca_opc_info *find_opcode(struct etca_opcode_set *opc_set, enum etca_iformat target) {
     for (size_t i = 0; i < opc_set->count; ++i) {
-	if (opc_set->opcodes[i]->format == target) {
-	    return opc_set->opcodes[i];
-	}
+        if (opc_set->opcodes[i]->format == target) {
+            return opc_set->opcodes[i];
+        }
     }
     return NULL;
 }
@@ -167,25 +190,25 @@ void add_opcode_to_table(const struct etca_opc_info *opcode);
 
 void add_opcode_to_table(const struct etca_opc_info *opcode) {
     if (opcode->name) {
-	/* TODO: allocating the arrays here dynamically is inefficient and we can never free them. */
-	struct etca_opcode_set *opc_set = str_hash_find(opcode_hash_control, opcode->name);
-	if (opc_set) {
-	    opc_set = XRESIZEVAR(
-	    struct etca_opcode_set, opc_set, sizeof(struct etca_opcode_set) +
-					     sizeof(struct etca_opc_info *) * (opc_set->count + 1));
-	    opc_set->count = opc_set->count + 1;
-	    opc_set->potential_iformats |= opcode->format;
-	    opc_set->opcodes[opc_set->count - 1] = opcode;
-	} else {
-	    opc_set = XNEWVAR(
-	    struct etca_opcode_set, sizeof(struct etca_opcode_set) +
-				    sizeof(struct etca_opc_info *) * (1));
-	    opc_set->name = opcode->name;
-	    opc_set->count = 1;
-	    opc_set->potential_iformats = opcode->format;
-	    opc_set->opcodes[0] = opcode;
-	}
-	str_hash_insert(opcode_hash_control, opcode->name, opc_set, 1);
+        /* TODO: allocating the arrays here dynamically is inefficient and we can never free them. */
+        struct etca_opcode_set *opc_set = str_hash_find(opcode_hash_control, opcode->name);
+        if (opc_set) {
+            opc_set = XRESIZEVAR(
+            struct etca_opcode_set, opc_set, sizeof(struct etca_opcode_set) +
+                                             sizeof(struct etca_opc_info *) * (opc_set->count + 1));
+            opc_set->count = opc_set->count + 1;
+            opc_set->potential_iformats |= opcode->format;
+            opc_set->opcodes[opc_set->count - 1] = opcode;
+        } else {
+            opc_set = XNEWVAR(
+            struct etca_opcode_set, sizeof(struct etca_opcode_set) +
+                                    sizeof(struct etca_opc_info *) * (1));
+            opc_set->name = opcode->name;
+            opc_set->count = 1;
+            opc_set->potential_iformats = opcode->format;
+            opc_set->opcodes[0] = opcode;
+        }
+        str_hash_insert(opcode_hash_control, opcode->name, opc_set, 1);
     }
 
 }
@@ -202,15 +225,15 @@ md_begin(void) {
 
     /* Insert names into hash table.  */
     for (count = 0, opcode = etca_base_rr; count++ < 16; opcode++) {
-	add_opcode_to_table(opcode);
+        add_opcode_to_table(opcode);
     }
     /* Insert names into hash table.  */
     for (count = 0, opcode = etca_base_ri; count++ < 16; opcode++) {
-	add_opcode_to_table(opcode);
+        add_opcode_to_table(opcode);
     }
     /* Insert names into hash table.  */
     for (count = 0, opcode = etca_base_jmp; count++ < 16; opcode++) {
-	add_opcode_to_table(opcode);
+        add_opcode_to_table(opcode);
     }
     bfd_set_arch_mach(stdoutput, TARGET_ARCH, 0);
 }
@@ -237,25 +260,25 @@ md_assemble(char *str) {
 
     /* Drop leading whitespace.  */
     while (*str == ' ')
-	str++;
+        str++;
 
     /* Find the op code end.  */
     op_start = str;
     op_end = str;
     while ((*op_end) && !is_end_of_line[(*op_end) & 0xff] && (*op_end) != ' ') {
-	op_end++;
-	nlen++;
+        op_end++;
+        nlen++;
     }
 
     if (nlen == 0) {
-	as_bad(_("can't find opcode "));
+        as_bad(_("can't find opcode "));
     }
     /* Check for a size marker before looking up the opcode*/
     if (nlen > 1) {
-	if ((size_marker = parse_size_byte(*(op_end - 1))) > 0) {
-	    op_end--;
-	    *op_end = ' '; /* Replace the size marker with a space: We dealt with it, it's no longer needed*/
-	}
+        if ((size_marker = parse_size_attr(*(op_end - 1))) > 0) {
+            op_end--;
+            *op_end = ' '; /* Replace the size marker with a space: We dealt with it, it's no longer needed*/
+        }
     }
 
     pend = *op_end;
@@ -265,93 +288,93 @@ md_assemble(char *str) {
     *op_end = pend;
 
     if (opc_set == NULL) {
-	as_bad(_("unknown opcode %s"), op_start);
-	return;
+        as_bad(_("unknown opcode %s"), op_start);
+        return;
     }
     str = op_end;
     while (ISSPACE(*str)) str++;
 
     char *arg_end = parse_operand(str, &a);
     if (!arg_end) {
-	as_bad("Expected at least on argument");
-	return;
+        as_bad("Expected at least on argument");
+        return;
     }
     str = arg_end;
     while (ISSPACE(*str)) str++;
 
     if (*str == ',') {
-	str++;
-	while (ISSPACE(*str)) str++;
-	arg_end = parse_operand(str, &b);
-	if (!arg_end) {
-	    as_bad("Expected a second argument after ','");
-	    return;
-	}
-	str = arg_end;
+        str++;
+        while (ISSPACE(*str)) str++;
+        arg_end = parse_operand(str, &b);
+        if (!arg_end) {
+            as_bad("Expected a second argument after ','");
+            return;
+        }
+        str = arg_end;
     }
     switch (ARGS(a.type, b.type)) {
-	case ARGS(REG, REG):
-	    if ((opc_set->potential_iformats & ETCA_IF_BASE_RR) == 0) {
-		as_bad("Illegal argument combination reg-reg for opcode %s", opc_set->name);
-		return;
-	    }
-	    if ((a.reg.index > 7) || (b.reg.index > 7)) {
-		as_bad("Illegal register index");
-		return;
-	    }
-	    opcode = find_opcode(opc_set, ETCA_IF_BASE_RR);
-	    output = frag_more(2);
-	    output[idx++] = (0b00000000 | (((size_marker > 0) ? size_marker : 0b01) << 4) | opcode->opcode);
-	    output[idx++] = (a.reg.index << 5) | (b.reg.index << 2) | 0b00;
-	    break;
-	case ARGS(REG, EXPR):
-	    if ((opc_set->potential_iformats & ETCA_IF_BASE_RI) == 0) {
-		as_bad("Illegal argument combination reg-imm for opcode %s", opc_set->name);
-		return;
-	    }
-	    if ((a.reg.index > 7)) {
-		as_bad("Illegal register index");
-		return;
-	    }
-	    opcode = find_opcode(opc_set, ETCA_IF_BASE_RI);
-	    output = frag_more(2);  /* TODO: For the general case, we need to use a fixup here */
-	    if (b.expr.X_op != O_constant) {
-		as_bad("Can't deal with complex expressions right now :-(");
-		return;
-	    }
-	    output[idx++] = (0b01000000 | (((size_marker > 0) ? size_marker : 0b01) << 4) | opcode->opcode);
-	    output[idx++] = (a.reg.index << 5) | (b.expr.X_add_number & 0x1F);
-	    break;
-	case ARGS(EXPR, ERROR):
-	    if ((opc_set->potential_iformats & ETCA_IF_BASE_JMP) == 0) {
-		as_bad("Illegal argument combination imm for opcode %s", opc_set->name);
-		return;
-	    }
-	    opcode = find_opcode(opc_set, ETCA_IF_BASE_JMP);
-	    output = frag_more(2);  /* TODO: For the general case, we need to use a fixup here */
-	    if (a.expr.X_op != O_constant) {
-		as_bad("Can't deal with complex expressions right now :-(");
-		return;
-	    }
-	    output[idx++] = (0b10000000 | ((a.expr.X_add_number & 0x100) ? 0x10 : 0) | opcode->opcode);
-	    output[idx++] = a.expr.X_add_number & 0xFF;
-	    break;
-	default:
-	    as_bad("Illegal argument combination %o", ARGS(a.type, b.type));
-	    return;
+        case ARGS(REG, REG):
+            if ((opc_set->potential_iformats & ETCA_IF_BASE_RR) == 0) {
+                as_bad("Illegal argument combination reg-reg for opcode %s", opc_set->name);
+                return;
+            }
+            if ((a.reg.index > 7) || (b.reg.index > 7)) {
+                as_bad("Illegal register index");
+                return;
+            }
+            opcode = find_opcode(opc_set, ETCA_IF_BASE_RR);
+            output = frag_more(2);
+            output[idx++] = (0b00000000 | (((size_marker > 0) ? size_marker : 0b01) << 4) | opcode->opcode);
+            output[idx++] = (a.reg.index << 5) | (b.reg.index << 2) | 0b00;
+            break;
+        case ARGS(REG, EXPR):
+            if ((opc_set->potential_iformats & ETCA_IF_BASE_RI) == 0) {
+                as_bad("Illegal argument combination reg-imm for opcode %s", opc_set->name);
+                return;
+            }
+            if ((a.reg.index > 7)) {
+                as_bad("Illegal register index");
+                return;
+            }
+            opcode = find_opcode(opc_set, ETCA_IF_BASE_RI);
+            output = frag_more(2);  /* TODO: For the general case, we need to use a fixup here */
+            if (b.expr.X_op != O_constant) {
+                as_bad("Can't deal with complex expressions right now :-(");
+                return;
+            }
+            output[idx++] = (0b01000000 | (((size_marker > 0) ? size_marker : 0b01) << 4) | opcode->opcode);
+            output[idx++] = (a.reg.index << 5) | (b.expr.X_add_number & 0x1F);
+            break;
+        case ARGS(EXPR, ERROR):
+            if ((opc_set->potential_iformats & ETCA_IF_BASE_JMP) == 0) {
+                as_bad("Illegal argument combination imm for opcode %s", opc_set->name);
+                return;
+            }
+            opcode = find_opcode(opc_set, ETCA_IF_BASE_JMP);
+            output = frag_more(2);  /* TODO: For the general case, we need to use a fixup here */
+            if (a.expr.X_op != O_constant) {
+                as_bad("Can't deal with complex expressions right now :-(");
+                return;
+            }
+            output[idx++] = (0b10000000 | ((a.expr.X_add_number & 0x100) ? 0x10 : 0) | opcode->opcode);
+            output[idx++] = a.expr.X_add_number & 0xFF;
+            break;
+        default:
+            as_bad("Illegal argument combination %o", ARGS(a.type, b.type));
+            return;
     }
 
 
     while (ISSPACE(*str)) {
-	str++;
+        str++;
     }
 
 
     if (*str != 0)
-	as_warn("extra stuff on line ignored");
+        as_warn("extra stuff on line ignored");
 
     if (pending_reloc)
-	as_bad("Something forgot to clean up\n");
+        as_bad("Something forgot to clean up\n");
 }
 
 /* Turn a string in input_line_pointer into a floating point constant
@@ -367,28 +390,28 @@ md_atof(int type, char *litP, int *sizeP) {
     int i;
 
     switch (type) {
-	case 'f':
-	    prec = 2;
-	    break;
+        case 'f':
+            prec = 2;
+            break;
 
-	case 'd':
-	    prec = 4;
-	    break;
+        case 'd':
+            prec = 4;
+            break;
 
-	default:
-	    *sizeP = 0;
-	    return _("bad call to md_atof");
+        default:
+            *sizeP = 0;
+            return _("bad call to md_atof");
     }
 
     t = atof_ieee(input_line_pointer, type, words);
     if (t)
-	input_line_pointer = t;
+        input_line_pointer = t;
 
     *sizeP = prec * 2;
 
     for (i = prec - 1; i >= 0; i--) {
-	md_number_to_chars(litP, (valueT) words[i], 2);
-	litP += 2;
+        md_number_to_chars(litP, (valueT) words[i], 2);
+        litP += 2;
     }
 
     return NULL;
@@ -397,9 +420,9 @@ md_atof(int type, char *litP, int *sizeP) {
 const char *md_shortopts = "";
 
 struct option md_longopts[] =
-	{
-		{NULL, no_argument, NULL, 0}
-	};
+        {
+                {NULL, no_argument, NULL, 0}
+        };
 size_t md_longopts_size = sizeof(md_longopts);
 
 /* We have no target specific options yet, so these next
@@ -445,12 +468,12 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
     rel->howto = bfd_reloc_type_lookup(stdoutput, r_type);
 
     if (rel->howto == NULL) {
-	as_bad_where(fixp->fx_file, fixp->fx_line,
-		     _("Cannot represent relocation type %s"),
-		     bfd_get_reloc_code_name(r_type));
-	/* Set howto to a garbage value so that we can keep going.  */
-	rel->howto = bfd_reloc_type_lookup(stdoutput, BFD_RELOC_32);
-	assert(rel->howto != NULL);
+        as_bad_where(fixp->fx_file, fixp->fx_line,
+                     _("Cannot represent relocation type %s"),
+                     bfd_get_reloc_code_name(r_type));
+        /* Set howto to a garbage value so that we can keep going.  */
+        rel->howto = bfd_reloc_type_lookup(stdoutput, BFD_RELOC_32);
+        assert(rel->howto != NULL);
     }
 
     return rel;
