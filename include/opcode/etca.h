@@ -222,6 +222,8 @@ struct etca_extension {
     struct etca_cpuid cpi;
 };
 
+/* Any other operand-related #define configuration should go here as well. */
+#define MAX_OPERANDS 2
 #define CLASS_WIDTH 2
 
 enum etca_register_class {
@@ -277,7 +279,36 @@ enum {
     about the scale, base, index, and (potential) displacement will be present.
     */
     Memory
-}
+};
+
+/* A bitfield used to represent arg kinds.
+
+The kind of a register is just its class.
+The kind of an immediate includes (at least one) size and a size.
+The kind of a displacement includes (at least one) size.
+The kind of a memory operand includes the 'memory' bit, and also 
+the information about the displacement if there is one.
+
+In instruction templates, it is acceptable for only the 'memory' bit
+to be set even if the template is capable of assembling displacements.
+*/
+struct etca_arg_kind {
+    unsigned int reg_class:CLASS_WIDTH;
+    unsigned int imm5:1;
+    unsigned int imm8:1;
+    unsigned int immAny:1;
+    unsigned int immZ:1;
+    unsigned int immS:1;
+    unsigned int disp8:1;
+    unsigned int disp9:1;
+    unsigned int disp12:1;
+    unsigned int dispPtr:1;
+    unsigned int dispAny:1;
+    unsigned int memory:1;
+};
+
+/* Signed so that -1 can represent "no register." */
+typedef signed char reg_num;
 
 /* A single operand to an ETCa instruction. Operands can be types of registers,
   immediates, displacements, or memory references. Some instructions have
@@ -287,8 +318,33 @@ enum {
   We use the term "arg" in place of "operand" to prevent confusion with
   "opcode" and "operation" in abbreviations. */
 struct etca_arg {
+    struct etca_arg_kind kind;
+    union {
+        reg_num gpr_reg_num;
+        reg_num ctrl_reg_num;
+    } reg;
 
-}
+    /* Non-null if we have an expression immediate. If we have an immediate,
+        but this is NULL, then the exact value is in known_imm. */
+    struct expressionS *imm_expr;
+    /* The exact value of an immediate if we have one and imm_expr is NULL. */
+    uint64_t known_imm;
+
+    /* See imm_expr, but for displacements. */
+    struct expressionS *disp_expr;
+    /* See known_imm, but for displacements. */
+    uint64_t known_disp;
+
+    struct {
+        /* -1 if we don't have a base register. */
+        reg_num base_reg;
+        /* -1 if we don't have an index register. */
+        reg_num index_reg;
+        /* The (log) value of the scale. If there's no index_reg,
+            this _should_ be zero, but it also shouldn't matter. */
+        unsigned char scale;
+    } memory;
+};
 
 enum etca_iformat {
     ETCA_IF_ILLEGAL = 0x0001,   /* An illegal/unknown instruction, which we can't further decode */

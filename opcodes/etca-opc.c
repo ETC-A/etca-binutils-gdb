@@ -62,6 +62,12 @@ const struct etca_extension etca_extensions[ETCA_EXTCOUNT] = {
 #undef EXTENSION
 #undef FEATURE
 
+/* An instruction template. */
+struct etca_template {
+    // other things go here
+    struct etca_arg_kind operand_kinds[MAX_OPERANDS];
+};
+
 const char etca_register_saf_names[16][3] = {
     "a0", "a1", "a2",
     "s0", "s1",
