@@ -62,10 +62,72 @@ const struct etca_extension etca_extensions[ETCA_EXTCOUNT] = {
 #undef EXTENSION
 #undef FEATURE
 
-/* An instruction template. */
+// forward declare this
+struct etca_template;
+/* A template-assembler function. 
+Takes the template being assembled, and should confirm that it actually handles that template.
+Similarly, should confirm that the number of arguments given is expected. 
+The void* is free to use by the assembler function and the opcodes that use
+its templates to pass extra information.
+Please add an example of why we'd want to do that when one comes up...? */
+typedef void(*assembler)(struct etca_template*, size_t num_args, struct etca_arg*, void*);
+
+/* An instruction template. This represents a mostly syntactic
+distinction between instructions: what kinds of operands are permissible?
+However they can also be used to distinguish encodings (particularly, those
+that require different extensions). For example, base and exop instructions
+have separate templates.
+*/
 struct etca_template {
-    // other things go here
-    struct etca_arg_kind operand_kinds[MAX_OPERANDS];
+    /* Name the template, for documentation, and possibly assertion error messages. */
+    const char name[16];
+    /* What extensions are required for this template?
+    The assembler may perform additional checks; for example the MO2 args
+    of r,[ip+d] overlap with the MO1 r,[d] and we must check that the
+    appropriate one is actually available. */
+    struct etca_cpuid_pattern cpuid_pattern;
+    /* The function that assembles this template. */
+    assembler assembler;
+    /* The kinds of args that this template can handle. */
+    struct etca_arg_kind arg_kinds[MAX_OPERANDS];
+};
+
+#define MAX_SET_TEMPLATES 8
+
+struct etca_template_set {
+    struct etca_template *templates[MAX_SET_TEMPLATES];
+};
+
+typedef struct etca_template etca_templateS;
+
+etca_templateS templ_baseRR = {
+    .name = "baseRR",
+    .cpuid_pattern = ETCA_PAT(BASE),
+    .assembler = NULL /* TODO */,
+    .arg_kinds = {
+        { .reg_class=Reg },
+        { .reg_class=Reg }
+    }
+};
+
+etca_templateS templ_baseRIS = {
+    .name = "baseRI(S)",
+    .cpuid_pattern = ETCA_PAT(BASE),
+    .assembler = NULL /* TODO */,
+    .arg_kinds = {
+        { .reg_class=Reg },
+        { .imm5=1, .immS=1 }
+    }
+};
+
+etca_templateS templ_baseRIZ = {
+    .name = "baseRI(Z)",
+    .cpuid_pattern = ETCA_PAT(BASE),
+    .assembler = NULL /* TODO */,
+    .arg_kinds = {
+        { .reg_class=Reg },
+        { .imm5=1, .immZ=1}
+    }
 };
 
 const char etca_register_saf_names[16][3] = {

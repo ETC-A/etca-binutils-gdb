@@ -187,6 +187,10 @@ struct etca_cpuid {
 #define ETCA_CPI_CC     ETCA_CPI_OF_EXT(CC)
 #define ETCA_CPI_MMAI   ETCA_CPI_OF_EXT(MMAI)
 
+/* A CPUID pattern of extensions that are required for some purpose.
+We can require either "all" or "any" of the extensions.
+The pattern requiring all of no extensions always matches,
+the pattern requiring any of no extensions always fails. */
 struct etca_cpuid_pattern {
     /* 0 if we only need _any_ of the given extensions,
        nonzero if we need _all_ of them. */
@@ -214,6 +218,21 @@ struct etca_cpuid_pattern {
     ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT3(ext1, ext2, ext3)})
 #define ETCA_PAT_AND3(ext1, ext2, ext3) \
     ((struct etca_cpuid_pattern){1, ETCA_EXT_PAT3(ext1, ext2, ext3)})
+
+/* Return 0 if the pattern does not match, 1 otherwise. */
+unsigned
+etca_match_cpuid_pattern(struct etca_cpuid_pattern *pat, struct etca_cpuid *cpuid)
+{
+    if (pat->match_all) {
+        return (pat->pat.cpuid1 == (pat->pat.cpuid1 & cpuid->cpuid1))
+            && (pat->pat.cpuid2 == (pat->pat.cpuid2 & cpuid->cpuid2))
+            && (pat->pat.feat   == (pat->pat.feat   & cpuid->feat));
+    } else {
+        return (pat->pat.cpuid1 & cpuid->cpuid1)
+            || (pat->pat.cpuid2 & cpuid->cpuid2)
+            || (pat->pat.feat   & cpuid->feat);
+    }
+}
 
 struct etca_extension {
     const char *name;
@@ -343,6 +362,8 @@ struct etca_arg {
         /* The (log) value of the scale. If there's no index_reg,
             this _should_ be zero, but it also shouldn't matter. */
         unsigned char scale;
+        /* Nonzero if we have an [ip+d] arg, zero otherwise. */
+        unsigned char have_ip;
     } memory;
 };
 
