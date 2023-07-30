@@ -150,7 +150,7 @@ struct etca_cpuid {
     uint64_t feat;
 };
 
-#define MK_ETCA_CPI(cp1, cp2, feat) ((struct etca_cpuid){(cp1), (cp2), (feat)})
+#define MK_ETCA_CPI(cp1, cp2, feat) {(cp1), (cp2), (feat)}
 #define ETCA_CPI_OF_EXT(ext) MK_ETCA_CPI(ETCA_CP1_##ext, ETCA_CP2_##ext, ETCA_FT_##ext)
 
 #define ETCA_CPI_BASE   MK_ETCA_CPI(0, 0, 0)
@@ -220,19 +220,8 @@ struct etca_cpuid_pattern {
     ((struct etca_cpuid_pattern){1, ETCA_EXT_PAT3(ext1, ext2, ext3)})
 
 /* Return 0 if the pattern does not match, 1 otherwise. */
-unsigned
-etca_match_cpuid_pattern(struct etca_cpuid_pattern *pat, struct etca_cpuid *cpuid)
-{
-    if (pat->match_all) {
-        return (pat->pat.cpuid1 == (pat->pat.cpuid1 & cpuid->cpuid1))
-            && (pat->pat.cpuid2 == (pat->pat.cpuid2 & cpuid->cpuid2))
-            && (pat->pat.feat   == (pat->pat.feat   & cpuid->feat));
-    } else {
-        return (pat->pat.cpuid1 & cpuid->cpuid1)
-            || (pat->pat.cpuid2 & cpuid->cpuid2)
-            || (pat->pat.feat   & cpuid->feat);
-    }
-}
+extern unsigned
+etca_match_cpuid_pattern(const struct etca_cpuid_pattern *pat, const struct etca_cpuid *cpuid);
 
 struct etca_extension {
     const char *name;
@@ -249,24 +238,24 @@ enum etca_register_class {
     /* Not a register. */
     RegClassNone,
     /* A general-purpose register. */
-    Reg,
+    GPR,
     /* A control register. */
-    CReg
+    CTRL
 // no enum case for things like the instruction pointer;
 // references to the instruction pointer are handled in
 // etca_mem_arg.
 };
 
-// This enum generates bit indices into the etca_arg_type bitfield.
+// This enum generates bit indices into the etca_arg_kind bitfield.
 enum {
     Class = CLASS_WIDTH - 1,
     /* A 5-bit immediate in base or exop formats. */
     Imm5,
     /* An 8-bit immediate in the `int` instruction format, and by the i8
-    FI/MO2 instruction templates. One of the sign attributes below will be
+    FI/MO2 instruction formats. One of the sign attributes below will be
     marked whenever this is present. */
     Imm8,
-    /* An unqualified immediate. Used by FI/MO2 instruction templates.
+    /* An unqualified immediate. Used by FI/MO2 instruction formats.
     To validate the size of an immediate, you need to also retrieve
     the signedness, and obtain an operand size attribute. That size attribute
     might come from an instruction being assembled, or from an instruction
@@ -307,9 +296,6 @@ The kind of an immediate includes (at least one) size and a size.
 The kind of a displacement includes (at least one) size.
 The kind of a memory operand includes the 'memory' bit, and also 
 the information about the displacement if there is one.
-
-In instruction templates, it is acceptable for only the 'memory' bit
-to be set even if the template is capable of assembling displacements.
 */
 struct etca_arg_kind {
     unsigned int reg_class:CLASS_WIDTH;
@@ -329,67 +315,65 @@ struct etca_arg_kind {
 /* Signed so that -1 can represent "no register." */
 typedef signed char reg_num;
 
-/* A single operand to an ETCa instruction. Operands can be types of registers,
-  immediates, displacements, or memory references. Some instructions have
-  implicit operands (like push and pop). Those operands must be representable
-  by this struct.
 
-  We use the term "arg" in place of "operand" to prevent confusion with
-  "opcode" and "operation" in abbreviations. */
-struct etca_arg {
-    struct etca_arg_kind kind;
-    union {
-        reg_num gpr_reg_num;
-        reg_num ctrl_reg_num;
-    } reg;
+// This enum generates bit indices into the etca_params_kind bitfield.
+enum {
+    EMPTY,
+    REG,
+    MEM,
+    IMM,
+    REG_IMM,
+    REG_REG,
+    REG_MEM,
+    MEM_REG,
+    MEM_IMM,
 
-    /* Non-null if we have an expression immediate. If we have an immediate,
-        but this is NULL, then the exact value is in known_imm. */
-    struct expressionS *imm_expr;
-    /* The exact value of an immediate if we have one and imm_expr is NULL. */
-    uint64_t known_imm;
-
-    /* See imm_expr, but for displacements. */
-    struct expressionS *disp_expr;
-    /* See known_imm, but for displacements. */
-    uint64_t known_disp;
-
-    struct {
-        /* -1 if we don't have a base register. */
-        reg_num base_reg;
-        /* -1 if we don't have an index register. */
-        reg_num index_reg;
-        /* The (log) value of the scale. If there's no index_reg,
-            this _should_ be zero, but it also shouldn't matter. */
-        unsigned char scale;
-        /* Nonzero if we have an [ip+d] arg, zero otherwise. */
-        unsigned char have_ip;
-    } memory;
+    REG_CTRL,
 };
 
+/* A bitfield used to represent a legal combinations of argument types
+*/
+struct etca_params_kind {
+    uint32_t e: 1; // No Arguments (Empty)
+    uint32_t r: 1; // Single Register
+    uint32_t m: 1; // Single Memory
+    uint32_t i: 1; // Single Immediate
+    uint32_t ri: 1; // Register-Immediate (any size immediate)
+    uint32_t rr: 1; // Register-Register
+    uint32_t rm: 1; // Register-Memory
+    uint32_t mr: 1; // Memory-Register
+    uint32_t mi: 1; // Memory-Immediate
+
+    uint32_t rc: 1; // register, Control reg
+};
+
+/* The various instruction formats to be used to get a specific assembler or disassembler function */
 enum etca_iformat {
-    ETCA_IF_ILLEGAL = 0x0001,   /* An illegal/unknown instruction, which we can't further decode */
-    ETCA_IF_BASE_RR = 0x0002,   /* 00 SS CCCC 	RRR RRR 00 */
-    ETCA_IF_BASE_RI = 0x0004,   /* 01 SS CCCC 	RRR IIIII */
-    ETCA_IF_BASE_JMP = 0x0008,  /* 100 D CCCC 	DDDDDDDD */
-    ETCA_IF_SPECIAL = 0x0010,   /* Some other encoding. Specialized logic is required*/
+    ETCA_IF_ILLEGAL,   /* An illegal/unknown instruction, which we can't further encode/decode */
+    ETCA_IF_SPECIAL,   /* A macro style instruction that takes over *before* argument pairing*/
+    ETCA_IF_MACRO,     /* A macro style instruction that takes over *after* argument pairing */
+    ETCA_IF_BASE_ABM,  /* A base instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
+    ETCA_IF_EXOP_ABM,  /* A exop instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
+    ETCA_IF_BASE_JMP,  /* A base cond jump (or SaF cond call) with a 9bit displacement */
+    ETCA_IFORMAT_COUNT
 };
 
 struct etca_opc_info {
     const char *name;
     enum etca_iformat format;
     uint16_t opcode; /* Exact meaning depends on format */
-    struct etca_cpuid requirements;
+    union etca_opc_params_field {
+        struct etca_params_kind kinds;
+        uint32_t uint;
+    } params;
+    struct etca_cpuid_pattern requirements;
+    char try_next_assembly; /* bool - will be set correctly during md_begin*/
 };
 
 extern const char etca_register_saf_names[16][3];
 
 extern const struct etca_extension etca_extensions[ETCA_EXTCOUNT];
 
-/* The various groups of etca instructions. They are seperated into different tables to make decoding easier. */
-extern const struct etca_opc_info etca_base_rr[];
-extern const struct etca_opc_info etca_base_ri[];
-extern const struct etca_opc_info etca_base_jmp[];
-
+extern struct etca_opc_info etca_opcodes[];
 
 #endif /* _ETCA_H_ */

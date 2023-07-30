@@ -38,14 +38,14 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
     int status;
     stream = info->stream;
     unsigned char opcode;
-    unsigned char buffer[8];
     fpr = info->fprintf_func;
-    const struct etca_opc_info *opc_info;
 
     if ((status = info->read_memory_func(addr, &opcode, 1, info))) {
         goto fail;
     }
-
+#if 0
+    unsigned char buffer[8];
+    const struct etca_opc_info *opc_info;
     switch (opcode >> 6) { /* top two bits are the (general) format. */
         case 0b00: /* rr */
             opc_info = &etca_base_rr[opcode & 0xF];
@@ -100,9 +100,10 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
             fpr(stream, "bad");
             break;
     }
+#endif
+    fpr(stream, "bad");
 
     return 2;
-
     fail:
     info->memory_error_func(status, addr, info);
     return -1;

@@ -62,73 +62,19 @@ const struct etca_extension etca_extensions[ETCA_EXTCOUNT] = {
 #undef EXTENSION
 #undef FEATURE
 
-// forward declare this
-struct etca_template;
-/* A template-assembler function. 
-Takes the template being assembled, and should confirm that it actually handles that template.
-Similarly, should confirm that the number of arguments given is expected. 
-The void* is free to use by the assembler function and the opcodes that use
-its templates to pass extra information.
-Please add an example of why we'd want to do that when one comes up...? */
-typedef void(*assembler)(struct etca_template*, size_t num_args, struct etca_arg*, void*);
-
-/* An instruction template. This represents a mostly syntactic
-distinction between instructions: what kinds of operands are permissible?
-However they can also be used to distinguish encodings (particularly, those
-that require different extensions). For example, base and exop instructions
-have separate templates.
-*/
-struct etca_template {
-    /* Name the template, for documentation, and possibly assertion error messages. */
-    const char name[16];
-    /* What extensions are required for this template?
-    The assembler may perform additional checks; for example the MO2 args
-    of r,[ip+d] overlap with the MO1 r,[d] and we must check that the
-    appropriate one is actually available. */
-    struct etca_cpuid_pattern cpuid_pattern;
-    /* The function that assembles this template. */
-    assembler assembler;
-    /* The kinds of args that this template can handle. */
-    struct etca_arg_kind arg_kinds[MAX_OPERANDS];
-};
-
-#define MAX_SET_TEMPLATES 8
-
-struct etca_template_set {
-    struct etca_template *templates[MAX_SET_TEMPLATES];
-};
-
-typedef struct etca_template etca_templateS;
-
-etca_templateS templ_baseRR = {
-    .name = "baseRR",
-    .cpuid_pattern = ETCA_PAT(BASE),
-    .assembler = NULL /* TODO */,
-    .arg_kinds = {
-        { .reg_class=Reg },
-        { .reg_class=Reg }
+unsigned
+etca_match_cpuid_pattern(const struct etca_cpuid_pattern *pat, const struct etca_cpuid *cpuid)
+{
+    if (pat->match_all) {
+        return (pat->pat.cpuid1 == (pat->pat.cpuid1 & cpuid->cpuid1))
+               && (pat->pat.cpuid2 == (pat->pat.cpuid2 & cpuid->cpuid2))
+               && (pat->pat.feat   == (pat->pat.feat   & cpuid->feat));
+    } else {
+        return (pat->pat.cpuid1 & cpuid->cpuid1)
+               || (pat->pat.cpuid2 & cpuid->cpuid2)
+               || (pat->pat.feat   & cpuid->feat);
     }
-};
-
-etca_templateS templ_baseRIS = {
-    .name = "baseRI(S)",
-    .cpuid_pattern = ETCA_PAT(BASE),
-    .assembler = NULL /* TODO */,
-    .arg_kinds = {
-        { .reg_class=Reg },
-        { .imm5=1, .immS=1 }
-    }
-};
-
-etca_templateS templ_baseRIZ = {
-    .name = "baseRI(Z)",
-    .cpuid_pattern = ETCA_PAT(BASE),
-    .assembler = NULL /* TODO */,
-    .arg_kinds = {
-        { .reg_class=Reg },
-        { .imm5=1, .immZ=1}
-    }
-};
+}
 
 const char etca_register_saf_names[16][3] = {
     "a0", "a1", "a2",
@@ -138,58 +84,61 @@ const char etca_register_saf_names[16][3] = {
     "s2", "s3", "s4",
 };
 
-const struct etca_opc_info etca_base_rr[16] = {
-        {"add",   ETCA_IF_BASE_RR, 0, ETCA_CPI_BASE},
-        {"sub",   ETCA_IF_BASE_RR, 1, ETCA_CPI_BASE},
-        {"rsub",  ETCA_IF_BASE_RR, 2, ETCA_CPI_BASE},
-        {"cmp",   ETCA_IF_BASE_RR, 3, ETCA_CPI_BASE},
-        {"or",    ETCA_IF_BASE_RR, 4, ETCA_CPI_BASE},
-        {"xor",   ETCA_IF_BASE_RR, 5, ETCA_CPI_BASE},
-        {"and",   ETCA_IF_BASE_RR, 6, ETCA_CPI_BASE},
-        {"test",  ETCA_IF_BASE_RR, 7, ETCA_CPI_BASE},
-        {"movz",  ETCA_IF_BASE_RR, 8, ETCA_CPI_BASE},
-        {"movs",  ETCA_IF_BASE_RR, 9, ETCA_CPI_BASE},
-        {"load",  ETCA_IF_BASE_RR, 10, ETCA_CPI_BASE},
-        {"store", ETCA_IF_BASE_RR, 11, ETCA_CPI_BASE},
-        {0,      ETCA_IF_ILLEGAL, 12, ETCA_CPI_BASE},
-        {0,      ETCA_IF_ILLEGAL, 13, ETCA_CPI_BASE},
-        {0,      ETCA_IF_ILLEGAL, 14, ETCA_CPI_BASE},
-        {0,      ETCA_IF_ILLEGAL, 15, ETCA_CPI_BASE},
+#define PARAMS1(a) ((union etca_opc_params_field) {.uint = (1 << a)})
+#define PARAMS2(a,b) ((union etca_opc_params_field) {.uint = (1 << a)|(1 << b)})
+#define PARAMS3(a,b,c) ((union etca_opc_params_field) {.uint = (1 << a)|(1 << b)|(1 << c)})
+#define PARAMS4(a,b,c,d) ((union etca_opc_params_field) {.uint = (1 << a)|(1 << b)|(1 << c)|(1 << d)})
+#define PARAMS5(a,b,c,d,e) ((union etca_opc_params_field) {.uint = (1 << a)|(1 << b)|(1 << c)|(1 << d)|(1<<e)})
+
+#define ANY_ABM PARAMS5(REG_IMM, REG_REG, REG_MEM, MEM_REG, MEM_IMM)
+
+struct etca_opc_info etca_opcodes[] = {
+        /* name, iformat, opcode, params, requirements, try_next*/
+        {"add",    ETCA_IF_BASE_ABM, 0, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"sub",    ETCA_IF_BASE_ABM, 1, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"rsub",   ETCA_IF_BASE_ABM, 2, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"comp",   ETCA_IF_BASE_ABM, 3, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"or",     ETCA_IF_BASE_ABM, 4, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"xor",    ETCA_IF_BASE_ABM, 5, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"and" ,   ETCA_IF_BASE_ABM, 6, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"test",   ETCA_IF_BASE_ABM, 7, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"movz",   ETCA_IF_BASE_ABM, 8, ANY_ABM, ETCA_PAT(BASE), 0},
+        {"mocvs",   ETCA_IF_BASE_ABM, 9, ANY_ABM, ETCA_PAT(BASE), 0},
+        
+        {"load",   ETCA_IF_BASE_ABM, 10, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
+        {"load",   ETCA_IF_BASE_ABM, 10, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), ETCA_PAT(MMAI), 0},
+        {"store",  ETCA_IF_BASE_ABM, 11, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
+        {"store",  ETCA_IF_BASE_ABM, 11, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), ETCA_PAT(MMAI), 0},
+
+        {"slo",    ETCA_IF_BASE_ABM, 12, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0}, /* Or do we need to communicate stricter conditions here?*/
+
+        {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
+        {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
+
+#define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), ETCA_PAT(BASE), 0}
+        BASE_JMP("jz",   0),
+        BASE_JMP("jnz",  1),
+        BASE_JMP("jn",   2),
+        BASE_JMP("jnn",  3),
+        BASE_JMP("jc",   4),
+        BASE_JMP("jnc",  5),
+        BASE_JMP("jv",   6),
+        BASE_JMP("jnv",  7),
+        BASE_JMP("jbe",  8),
+        BASE_JMP("ja",   9),
+        BASE_JMP("jl",  10),
+        BASE_JMP("jge", 11),
+        BASE_JMP("jle", 12),
+        BASE_JMP("jg",  13),
+        BASE_JMP("jmp", 14),
+#undef BASE_JMP
+        
+        {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), ETCA_PAT(BASE), 0}
 };
 
-const struct etca_opc_info etca_base_ri[16] = {
-        {"add",     ETCA_IF_BASE_RI, 0, ETCA_CPI_BASE},
-        {"sub",     ETCA_IF_BASE_RI, 1, ETCA_CPI_BASE},
-        {"rsub",    ETCA_IF_BASE_RI, 2, ETCA_CPI_BASE},
-        {"cmp",     ETCA_IF_BASE_RI, 3, ETCA_CPI_BASE},
-        {"or",      ETCA_IF_BASE_RI, 4, ETCA_CPI_BASE},
-        {"xor",     ETCA_IF_BASE_RI, 5, ETCA_CPI_BASE},
-        {"and",     ETCA_IF_BASE_RI, 6, ETCA_CPI_BASE},
-        {"test",    ETCA_IF_BASE_RI, 7, ETCA_CPI_BASE},
-        {"movz",    ETCA_IF_BASE_RI, 8, ETCA_CPI_BASE},
-        {"movs",    ETCA_IF_BASE_RI, 9, ETCA_CPI_BASE},
-        {"load",    ETCA_IF_BASE_RI, 10, ETCA_CPI_BASE},
-        {"store",   ETCA_IF_BASE_RI, 11, ETCA_CPI_BASE},
-        {"slo",     ETCA_IF_BASE_RI, 12, ETCA_CPI_BASE},
-        {0,         ETCA_IF_ILLEGAL, 13, ETCA_CPI_BASE},
-        {"readcr",  ETCA_IF_BASE_RI, 14, ETCA_CPI_BASE},
-        {"writecr", ETCA_IF_BASE_RI, 15, ETCA_CPI_BASE},
-};
-const struct etca_opc_info etca_base_jmp[16] = {
-        {"jz",    ETCA_IF_BASE_JMP, 0,  ETCA_CPI_BASE},
-        {"jnz",   ETCA_IF_BASE_JMP, 1,  ETCA_CPI_BASE},
-        {"jn",    ETCA_IF_BASE_JMP, 2,  ETCA_CPI_BASE},
-        {"jnn",   ETCA_IF_BASE_JMP, 3,  ETCA_CPI_BASE},
-        {"jc",    ETCA_IF_BASE_JMP, 4,  ETCA_CPI_BASE},
-        {"jnc",   ETCA_IF_BASE_JMP, 5,  ETCA_CPI_BASE},
-        {"jv",    ETCA_IF_BASE_JMP, 6,  ETCA_CPI_BASE},
-        {"jnv",   ETCA_IF_BASE_JMP, 7,  ETCA_CPI_BASE},
-        {"jbe",   ETCA_IF_BASE_JMP, 8,  ETCA_CPI_BASE},
-        {"ja",    ETCA_IF_BASE_JMP, 9,  ETCA_CPI_BASE},
-        {"jl",    ETCA_IF_BASE_JMP, 10, ETCA_CPI_BASE},
-        {"jge",   ETCA_IF_BASE_JMP, 11, ETCA_CPI_BASE},
-        {"jle",   ETCA_IF_BASE_JMP, 12, ETCA_CPI_BASE},
-        {"jg",    ETCA_IF_BASE_JMP, 13, ETCA_CPI_BASE},
-        {"jmp",   ETCA_IF_BASE_JMP, 14, ETCA_CPI_BASE},
-        {"never", ETCA_IF_BASE_JMP, 15, ETCA_CPI_BASE},
-};
+#undef PARAMS1
+#undef PARAMS2
+#undef PARAMS3
+#undef PARAMS4
+#undef PARAMS5
+#undef ANY_ABM
