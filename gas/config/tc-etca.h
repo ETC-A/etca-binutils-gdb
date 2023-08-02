@@ -33,6 +33,10 @@
 
 #define md_undefined_symbol(NAME)           0
 
+/* We need to postprocess our arguments a bit */
+#define md_after_parse_args()		etca_after_parse_args ()
+extern void etca_after_parse_args (void);
+
 // We should deefine this at some point, to produce efficient NOP instructions
 // for alignment based on what extensions are available. TODO
 // #define md_do_align

@@ -25,7 +25,7 @@
 #define EXTENSION(abbr) { #abbr ,  ETCA_EXT_ ## abbr , ETCA_CPI_ ## abbr }
 #define FEATURE(abbr) { #abbr ,  ETCA_FEAT_ ## abbr , ETCA_CPI_ ## abbr }
 
-const struct etca_extension etca_extensions[ETCA_EXTCOUNT] = {
+const struct etca_extension etca_extensions[ETCA_EXTCOUNT + 1] = {
         EXTENSION(BASE),
 
         EXTENSION(FI),
@@ -57,6 +57,7 @@ const struct etca_extension etca_extensions[ETCA_EXTCOUNT] = {
         FEATURE(UMA),
         FEATURE(CC),
         FEATURE(MMAI),
+	{NULL}
 };
 
 #undef EXTENSION
@@ -132,6 +133,24 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_JMP("jg",  13),
         BASE_JMP("jmp", 14),
 #undef BASE_JMP
+
+#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_BASE_JMP, (0b0010000|opcode), PARAMS1(IMM), ETCA_PAT(SAF), 0}
+	SAF_COND_CALL("callz",   0),
+	SAF_COND_CALL("callnz",  1),
+	SAF_COND_CALL("calln",   2),
+	SAF_COND_CALL("callnn",  3),
+	SAF_COND_CALL("callc",   4),
+	SAF_COND_CALL("callnc",  5),
+	SAF_COND_CALL("callv",   6),
+	SAF_COND_CALL("callnv",  7),
+	SAF_COND_CALL("callbe",  8),
+	SAF_COND_CALL("calla",   9),
+	SAF_COND_CALL("calll",  10),
+	SAF_COND_CALL("callge", 11),
+	SAF_COND_CALL("callle", 12),
+	SAF_COND_CALL("callg",  13),
+	SAF_COND_CALL("call", 14),
+#undef BASE_CALL
         
         {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), ETCA_PAT(BASE), 0}
 };

@@ -296,6 +296,13 @@ The kind of an immediate includes (at least one) size and a size.
 The kind of a displacement includes (at least one) size.
 The kind of a memory operand includes the 'memory' bit, and also 
 the information about the displacement if there is one.
+
+In the assembler, all sizes that are guaranteed to fit should be marked.
+This means that a displacement of 300 should have `disp9,disp23,dispPtr,dispAny` all active.
+Same goes for immediates.
+
+ TODO: We might want to consider "multiplying out" (immZ, immS) x (imm5, imm8)
+       For matching operands, we need to know which of those are legal.
 */
 struct etca_arg_kind {
     unsigned int reg_class:CLASS_WIDTH;
@@ -310,6 +317,9 @@ struct etca_arg_kind {
     unsigned int dispPtr:1;
     unsigned int dispAny:1;
     unsigned int memory:1;
+    unsigned int nested_memory:1;
+    unsigned int predec:1;
+    unsigned int postinc:1;
 };
 
 /* Signed so that -1 can represent "no register." */
@@ -332,7 +342,11 @@ enum {
 };
 
 /* A bitfield used to represent a legal combinations of argument types
-*/
+ * Not all combinations that can appear are listed here. Specifically
+ * the `mov` pseduop is special cased so that stuff only needed by it
+ * does not need to be considered here. This for example includes
+ * ASP-style pre- and post-decrement and other nested memory locations
+ */
 struct etca_params_kind {
     uint32_t e: 1; // No Arguments (Empty)
     uint32_t r: 1; // Single Register
@@ -350,11 +364,12 @@ struct etca_params_kind {
 /* The various instruction formats to be used to get a specific assembler or disassembler function */
 enum etca_iformat {
     ETCA_IF_ILLEGAL,   /* An illegal/unknown instruction, which we can't further encode/decode */
-    ETCA_IF_SPECIAL,   /* A macro style instruction that takes over *before* argument pairing*/
-    ETCA_IF_MACRO,     /* A macro style instruction that takes over *after* argument pairing */
+    ETCA_IF_SPECIAL,   /* A pseudo instruction that takes over *before* argument pairing*/
+    ETCA_IF_PSEUDO,    /* A pseudo instruction that takes over *after* argument pairing */
     ETCA_IF_BASE_ABM,  /* A base instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_EXOP_ABM,  /* A exop instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_BASE_JMP,  /* A base cond jump (or SaF cond call) with a 9bit displacement */
+    ETCA_IF_EXOP_JMP,  /* A exop jump (or SaF-EXOP call) with a 8/16/32/64 bit displacement */
     ETCA_IFORMAT_COUNT
 };
 
@@ -370,10 +385,13 @@ struct etca_opc_info {
     char try_next_assembly; /* bool - will be set correctly during md_begin*/
 };
 
+/* Two letter names, not including the size marker, but with a 0 terminator. */
 extern const char etca_register_saf_names[16][3];
 
-extern const struct etca_extension etca_extensions[ETCA_EXTCOUNT];
+/* For convenience, we have an extra extensions name=NULL to mark the end of the list. */
+extern const struct etca_extension etca_extensions[ETCA_EXTCOUNT + 1];
 
+/* For convenience, we have an extra opcode with name=NULL  to mark the end of the list. */
 extern struct etca_opc_info etca_opcodes[];
 
 #endif /* _ETCA_H_ */
