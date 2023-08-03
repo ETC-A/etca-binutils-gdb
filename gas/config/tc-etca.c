@@ -171,7 +171,7 @@ const char line_comment_chars[] = ";";
 /* These are extra characters (beyond $ . _ and alphanum) which may appear
    in ETCa operands. % is a register prefix and [ is used for memory operands.
    We only need to give ones that might start operands. This affects the way in
-   which GAS removes whitespace before passign the string to `md_assemble`. */
+   which GAS removes whitespace before passing the string to `md_assemble`. */
 const char *tc_symbol_chars = "%[";
 
 static int pending_reloc;
@@ -253,7 +253,7 @@ static char *parse_register_name(char *str, struct etca_arg *result) {
     }
 }
 
-/* Parse a potentially complex immediate expression and analyze it as far as possible
+/* Parse a potentially complex immediate expression and analyze it as far as possible.
  */
 static char *parse_immediate(char *str, struct etca_arg *result) {
     char *save = input_line_pointer;
@@ -282,7 +282,7 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
     return str;
 }
 
-/* Parse a none-nested memory location, setting the fields in result correctly
+/* Parse a non-nested memory location, setting the fields in result correctly.
  */
 static char *parse_memory_location(char *str ATTRIBUTE_UNUSED, struct etca_arg *result ATTRIBUTE_UNUSED) {
     as_fatal("Memory location syntax not implemented");
@@ -296,7 +296,7 @@ static char *parse_memory_upper(char *str, struct etca_arg *result) {
     return NULL;
 }
 
-/* Parse an arbitrary component, deferring to the correct parse_* function
+/* Parse an arbitrary component, deferring to the correct parse_* function.
  */
 char *parse_operand(char *str, struct etca_arg *result) {
     while (ISSPACE(*str)) str++;
@@ -344,7 +344,7 @@ md_begin(void) {
     bfd_set_arch_mach(stdoutput, TARGET_ARCH, 0);
 }
 
-/* Based on the list of parsed arguments, correctly set pi->params
+/* Based on the list of parsed arguments, correctly set pi->params.
  */
 bool compute_params(struct parse_info *pi) {
 #define IS_REG(arg) ((arg).kind.reg_class == GPR)
@@ -562,12 +562,12 @@ const char *md_shortopts = "";
  *  -march=name                  (name being either a predefined name or a custom one)
  *  -march=cpuid:CP1.CP2.FEAT    (hex notation of the CPUID, name is the hexid)
  *  -march=extensions(.ABBR)+    (name defaults to `base`)
- *  the first two options can also have a `+ABBR(,ABBR)+` postfix which adds those
+ *  the first two options can also have a `+ABBR(,ABBR)*` postfix which adds those
  *  extensions on top of the predefined set.
  *  Having an extension mentioned multiple times is not a problem.
  *  There is also `-mcpuid:CP1.CP2.FEAT` which is a shortcut for -march=cpuid
  *  that doesn't support extensions. (and conflicts with -march)
- *  -mextensions:ABBR(,ABBR)* can be added to all of these options as well.
+ *  -mextensions=ABBR(,ABBR)* can be added to all of these options as well.
  *
  *  Using a custom name is supported to make it for people creating custom implementations
  *  to use a name for their architecture in the Makefiles which will get reflected in
@@ -677,13 +677,13 @@ md_parse_option(int c, const char *arg) {
 		settings.march[MARCH_LEN - 1] = '\0';
 		strncpy(settings.march, arg, MARCH_LEN - 1);
 		if (settings.march[MARCH_LEN - 1] != '\0') {
-		    as_warn("Architecture name to long, truncating");
+		    as_warn("Architecture name too long, truncating");
 		    settings.march[MARCH_LEN - 1] = '\0';
 		}
 		return 1;
 	    } else { /* we have a list of extensions */
 		if (after_name - arg >= MARCH_LEN) {
-		    as_warn("Architecture name to long, truncating");
+		    as_warn("Architecture name too long, truncating");
 		    strncpy(settings.march, arg, MARCH_LEN - 1);
 		    settings.march[MARCH_LEN - 1] = '\0';
 		} else {
