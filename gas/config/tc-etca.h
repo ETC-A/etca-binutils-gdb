@@ -48,12 +48,10 @@ extern void etca_after_parse_args (void);
 
 #define md_number_to_chars number_to_chars_littleendian
 
-/* PC relative operands are relative to the start of the opcode, and
-   the operand is always one byte into the opcode.  */
-/*#define md_pcrel_from(FIX) 						\
-	((FIX)->fx_where + (FIX)->fx_frag->fr_address - 1)
-*/
-#define md_pcrel_from(FIX) 		(as_fatal (_("md_pcrel_from\n")),0)
+/* PC relative operands are relative to the start of the entire instruction  (including prefixes), and
+   the fixup always covers the entire instruction */
+#define md_pcrel_from(FIX) 						\
+	((FIX)->fx_where + (FIX)->fx_frag->fr_address)
 
 /* Prevent GAS from folding expressions such as %rh0 + 1 into %rh1. */
 #define md_register_arithmetic 0

@@ -1111,6 +1111,8 @@ config/tc-dlx.$(OBJEXT): config/$(am__dirstamp) \
 	config/$(DEPDIR)/$(am__dirstamp)
 config/tc-epiphany.$(OBJEXT): config/$(am__dirstamp) \
 	config/$(DEPDIR)/$(am__dirstamp)
+config/tc-etca.$(OBJEXT): config/$(am__dirstamp) \
+	config/$(DEPDIR)/$(am__dirstamp)
 config/tc-fr30.$(OBJEXT): config/$(am__dirstamp) \
 	config/$(DEPDIR)/$(am__dirstamp)
 config/tc-frv.$(OBJEXT): config/$(am__dirstamp) \
@@ -1374,6 +1376,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-d30v.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-dlx.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-epiphany.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-etca.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-fr30.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-frv.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@config/$(DEPDIR)/tc-ft32.Po@am__quote@

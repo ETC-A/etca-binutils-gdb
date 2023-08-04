@@ -272,6 +272,9 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
 	    result->kind.imm8 = (-128 <= value && value <= 255);
 	    result->kind.imm5 = (-16 <= value && value <= 32);
 	    break;
+	case O_symbol:
+	    result->kind.immAny = 1;
+	    break;
 	default:
 	case O_illegal:
 	case O_absent:
@@ -722,7 +725,7 @@ void etca_after_parse_args(void) {
 
 void
 md_apply_fix(fixS *fixP ATTRIBUTE_UNUSED, valueT *valP ATTRIBUTE_UNUSED, segT seg ATTRIBUTE_UNUSED) {
-    /* Empty for now.  */
+    printf("md_apply_fix\n");
 }
 
 /* Translate internal representation of relocation info to BFD target
@@ -730,6 +733,7 @@ md_apply_fix(fixS *fixP ATTRIBUTE_UNUSED, valueT *valP ATTRIBUTE_UNUSED, segT se
 
 arelent *
 tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
+    printf("tc_gen_reloc\n");
     arelent *rel;
     bfd_reloc_code_real_type r_type;
 
@@ -860,11 +864,17 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
 
 /* Assemble a base-isa style jump instruction, also supporting the SaF cond calls using the same format.
  */
-void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi ATTRIBUTE_UNUSED) {
+void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
     char *output;
     size_t idx = 0;
 
     output = frag_more(2);
+    fix_new_exp (frag_now,
+		 (output - frag_now->fr_literal),
+		 2,
+		 &pi->args[0].imm_expr,
+		 true,
+		 BFD_RELOC_ETCA_BASE_JMP);
     output[idx++] = (0b10000000 | opcode->opcode);
-    output[idx++] = 0; /* TODO: emit a fixup */
+    output[idx++] = 0;
 }

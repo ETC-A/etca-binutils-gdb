@@ -69,6 +69,7 @@ config/tc-dlx.c
 config/tc-dlx.h
 config/tc-epiphany.c
 config/tc-epiphany.h
+config/tc-etca.c
 config/tc-fr30.c
 config/tc-fr30.h
 config/tc-frv.c

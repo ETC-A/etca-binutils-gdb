@@ -28,18 +28,18 @@
 
 const bfd_arch_info_type bfd_etca_arch =
         {
-                16,               /* 16 bits in a word.  */
+                16,                 /* 16 bits in a word.  */
                 16,               /* 16 bits in an address.  */
-                8,                /*  8 bits in a byte.  */
-                bfd_arch_etca,    /* enum bfd_architecture arch.  */
+                8,                  /*  8 bits in a byte.  */
+                bfd_arch_etca,            /* enum bfd_architecture arch.  */
                 bfd_mach_etca,
-                "etca",           /* Arch name.  */
+                "etca",              /* Arch name.  */
                 "ETCa",           /* Printable name.  */
-                2,                /* Unsigned int section alignment power.  */
-                1,                /* Is Default  */
+                2,             /* Unsigned int section alignment power.  */
+                1,                   /* Is Default  */
                 bfd_default_compatible,
                 bfd_default_scan,
                 0,
-                0,                /* next */
-                0,                /* max_reloc_offset_into_insn */
+                0,                        /* next */
+                0,         /* max_reloc_offset_into_insn */
         };

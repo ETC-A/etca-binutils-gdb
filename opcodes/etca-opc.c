@@ -134,7 +134,7 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_JMP("jmp", 14),
 #undef BASE_JMP
 
-#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_BASE_JMP, (0b0010000|opcode), PARAMS1(IMM), ETCA_PAT(SAF), 0}
+#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_BASE_JMP, (0b00100000|opcode), PARAMS1(IMM), ETCA_PAT(SAF), 0}
 	SAF_COND_CALL("callz",   0),
 	SAF_COND_CALL("callnz",  1),
 	SAF_COND_CALL("calln",   2),

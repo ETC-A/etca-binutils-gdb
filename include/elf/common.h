@@ -452,7 +452,7 @@
 
 #define EM_ADAPTEVA_EPIPHANY	0x1223  /* Adapteva's Epiphany architecture.  */
 
-#define EM_ETCA             0xE7Ca      /* ETCa ISA */
+#define EM_ETCA                 0xCaE7  /* ETCa ISA */
 
 /* Old constant that might be in use by some software. */
 #define EM_OPENRISC		EM_OR1K
