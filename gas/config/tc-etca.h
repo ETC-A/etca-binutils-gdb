@@ -22,6 +22,7 @@
 #define TC_ETCA 1
 // ETCa is little endian.
 #define TARGET_BYTES_BIG_ENDIAN 0
+/* We don't need to handle .word strangely.  */
 #define WORKING_DOT_WORD
 
 /* This macro is the BFD target name to use when creating the output
