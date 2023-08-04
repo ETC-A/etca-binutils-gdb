@@ -368,7 +368,9 @@ enum etca_iformat {
     ETCA_IF_PSEUDO,    /* A pseudo instruction that takes over *after* argument pairing */
     ETCA_IF_BASE_ABM,  /* A base instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_EXOP_ABM,  /* A exop instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
-    ETCA_IF_BASE_JMP,  /* A base cond jump (or SaF cond call) with a 9bit displacement */
+    ETCA_IF_BASE_JMP,  /* A base cond jump with a 9bit displacement */
+    ETCA_IF_SAF_CALL,  /* A saf call with a 12-bit displacement */
+    ETCA_IF_SAF_JMP,   /* A saf cond jump or call, with a register */
     ETCA_IF_EXOP_JMP,  /* A exop jump (or SaF-EXOP call) with a 8/16/32/64 bit displacement */
     ETCA_IFORMAT_COUNT
 };

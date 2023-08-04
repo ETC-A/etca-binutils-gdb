@@ -104,8 +104,8 @@ struct etca_opc_info etca_opcodes[] = {
         {"and" ,   ETCA_IF_BASE_ABM, 6, ANY_ABM, ETCA_PAT(BASE), 0},
         {"test",   ETCA_IF_BASE_ABM, 7, ANY_ABM, ETCA_PAT(BASE), 0},
         {"movz",   ETCA_IF_BASE_ABM, 8, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"mocvs",   ETCA_IF_BASE_ABM, 9, ANY_ABM, ETCA_PAT(BASE), 0},
-        
+        {"movs",   ETCA_IF_BASE_ABM, 9, ANY_ABM, ETCA_PAT(BASE), 0},
+
         {"load",   ETCA_IF_BASE_ABM, 10, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
         {"load",   ETCA_IF_BASE_ABM, 10, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), ETCA_PAT(MMAI), 0},
         {"store",  ETCA_IF_BASE_ABM, 11, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
@@ -116,7 +116,8 @@ struct etca_opc_info etca_opcodes[] = {
         {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
         {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
 
-#define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), ETCA_PAT(BASE), 0}
+#define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), ETCA_PAT(BASE), 0}, \
+                               {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(REG), ETCA_PAT(SAF), 0}
         BASE_JMP("jz",   0),
         BASE_JMP("jnz",  1),
         BASE_JMP("jn",   2),
@@ -132,9 +133,11 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_JMP("jle", 12),
         BASE_JMP("jg",  13),
         BASE_JMP("jmp", 14),
+        BASE_JMP("j",   14),
 #undef BASE_JMP
 
-#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_BASE_JMP, (0b00100000|opcode), PARAMS1(IMM), ETCA_PAT(SAF), 0}
+/* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
+#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(REG), ETCA_PAT(SAF), 0}
 	SAF_COND_CALL("callz",   0),
 	SAF_COND_CALL("callnz",  1),
 	SAF_COND_CALL("calln",   2),
@@ -149,9 +152,11 @@ struct etca_opc_info etca_opcodes[] = {
 	SAF_COND_CALL("callge", 11),
 	SAF_COND_CALL("callle", 12),
 	SAF_COND_CALL("callg",  13),
-	SAF_COND_CALL("call", 14),
-#undef BASE_CALL
-        
+	SAF_COND_CALL("call",   14),
+        /* Also the SAF uncond call i, which shares the opcode name with call r */
+        {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(IMM), ETCA_PAT(SAF), 0},
+#undef SAF_COND_CALL
+
         {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), ETCA_PAT(BASE), 0}
 };
 
