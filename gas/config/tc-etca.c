@@ -102,7 +102,7 @@ static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *)
 #define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
 
 /* The known predefined archs. Needs to be kept in sync with gcc manually */
-struct etca_known_archs {
+static struct etca_known_arch {
     const char *name;
     struct etca_cpuid cpuid;
     char is_concrete;
@@ -442,7 +442,7 @@ md_assemble(char *str) {
     }
     /* Check for a size marker before looking up the opcode*/
     if (nlen > 1) {
-	if ((pi.opcode_size = parse_size_attr(*(op_end - 1))) > 0) {
+	if ((pi.opcode_size = parse_size_attr(*(op_end - 1))) >= 0) {
 	    op_end--;
 	    *op_end = ' '; /* Replace the size marker with a space: We dealt with it, it's no longer needed*/
 	}
@@ -674,7 +674,7 @@ md_parse_option(int c, const char *arg) {
 		return parse_extension_list(arg, &settings.mextensions);
 	    }
 	    settings.arch_name = 1;
-	    /* We only actually analyze the name in md_after*/
+	    /* We only actually analyze the name in etca_after_parse_args*/
 	    const char *after_name = strchr(arg, '+');
 	    if (after_name == NULL) {
 		settings.march[MARCH_LEN - 1] = '\0';
@@ -709,16 +709,45 @@ md_parse_option(int c, const char *arg) {
 void
 md_show_usage(FILE *stream) {
     fprintf (stream, " ETCa-specific assembler options:\n");
-    fprintf (stream, "\t-march=name[+ABBR(.ABBR)*]\t");
-    fprintf (stream, "\t\t\tSpecify an architecture name as well as optionally a list of extensions implemented on top of it");
+    fprintf (stream, "\t-march=name[+ABBR...]\n");
+    fprintf (stream, "\t\t\tSpecify an architecture name as well as optionally a list of extensions implemented on top of it\n");
 }
 
 /* Check that our arguments, especially the given -march and -mcpuid make sense*/
 void etca_after_parse_args(void) {
+    struct etca_cpuid temp_cpuid;
+    bool is_concrete = true;
+    if(settings.arch_name) {
+	if (strncmp(settings.march, "cpuid:", strlen("cpuid:")) == 0) {
+	    memmove(settings.march,
+		    settings.march + strlen("cpuid:"),
+		    strlen(settings.march) + 1 - strlen("cpuid:"));
+	    parse_hex_cpuid(settings.march, &temp_cpuid);
+	    is_concrete = true;
+	} else {
+	    for (struct etca_known_arch *arch = known_archs; arch->name != NULL; arch++) {
+		if (strcmp(arch->name, settings.march) == 0) {
+		    is_concrete = arch->is_concrete;
+		    temp_cpuid = arch->cpuid;
+		    break;
+		}
+	    }
+	}
+	if (is_concrete && settings.manual_cpuid) {
+	    if (settings.march_cpuid.cpuid1 != temp_cpuid.cpuid1
+		|| settings.march_cpuid.cpuid2 != temp_cpuid.cpuid2
+		|| settings.march_cpuid.feat != temp_cpuid.feat) {
+		as_warn("Manually given -mcpuid does not exactly match the one predefined by the -march name given. Combining the two");
+	    }
+	}
+	settings.march_cpuid.cpuid1 |= temp_cpuid.cpuid1;
+	settings.march_cpuid.cpuid2 |= temp_cpuid.cpuid2;
+	settings.march_cpuid.feat |= temp_cpuid.feat;
+    }
+
     settings.current_cpuid.cpuid1 |= settings.mextensions.cpuid1 | settings.march_cpuid.cpuid1;
     settings.current_cpuid.cpuid2 |= settings.mextensions.cpuid2 | settings.march_cpuid.cpuid2;
     settings.current_cpuid.feat |= settings.mextensions.feat | settings.march_cpuid.feat;
-    /* TODO: Checks */
 }
 
 /* Apply a fixup to the object file.  */
@@ -833,7 +862,7 @@ void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct pa
 	    abort();
 	case ri_byte: /* We trust that find_abm_mode verified everything and set known_imm correctly */
 	    output = frag_more(1);
-	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | ((pi->args[0].imm_expr.X_add_number) & 0x1F);
+	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | ((pi->args[1].imm_expr.X_add_number) & 0x1F);
 	    return;
 	case abm_00:
 	    output = frag_more(1);
@@ -854,10 +883,10 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
 
     if (mode == ri_byte) {
 	output = frag_more(1);
-	output[idx++] = (0b01000000 | (((pi->opcode_size > 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b01000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
     } else {
 	output = frag_more(1);
-	output[idx++] = (0b00000000 | (((pi->opcode_size > 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b00000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
     }
     assemble_abm(opcode, pi, mode);
 }
