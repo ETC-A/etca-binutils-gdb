@@ -427,13 +427,14 @@ char *parse_operand(char *str, struct etca_arg *result) {
 	    str++;
 	    return parse_memory_upper(str, result);
 	default: {
+            char *save_str = str;
             // Try parsing a register name...
 	    str = parse_register_name(str, result);
             // if that succeeded, we're done.
             if (str) return str;
-            // Otherwise, try parsing an immediate. Any register-related
-            // errors have already been raised.
-	    return parse_immediate(str, result);
+            // Otherwise, backtrack and try parsing an immediate.
+            // Any register-related errors have already been raised.
+	    return parse_immediate(save_str, result);
 	}
     }
 }
