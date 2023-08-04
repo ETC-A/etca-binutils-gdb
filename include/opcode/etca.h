@@ -20,6 +20,20 @@ Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
 
 #include <stdint.h>
 
+// The idea of these comes from i386.h and they are used in tc-i386.c.
+// However, I'm not sold; they seem easy to forget about and therefore
+// could easily lead to bugs due to improper maintanence in the future.
+// We could instead make them global vars and initialize them in md_begin,
+// in which case lookup_register_name_checked and any opcode-searching
+// code would probably involve a variable-length array (hence can't be C89).
+// Do we care about that?
+// - 8/4/23 AbelianGrape
+
+/* The length of the longest instruction name. */
+#define MAX_MNEM_SIZE (sizeof("cache_invalidate_all") - 1)
+/* The length of the longest register name. */
+#define MAX_REG_NAME_SIZE (sizeof("cache_line_size") - 1)
+
 enum etca_ext_index { /* This needs to match the order in the listing of instructions */
     ETCA_EXT_BASE, /* base isa */
 
@@ -325,6 +339,26 @@ struct etca_arg_kind {
 /* Signed so that -1 can represent "no register." */
 typedef signed char reg_num;
 
+struct etca_reg_info {
+    const char *name;
+    reg_num reg_num;
+    /* Split depending on 'class'.
+     * For GPR, this is the size. Validity is handled by a custom REX check.
+     * For CTRL, this is an indication of what extension makes it valid. */
+    union {
+        int8_t reg_size; /* standard: -1 none, 0 h, 1 x, 2 d, 3 q */
+        int8_t exts; /* nonstandard:
+           -1: something more complicated, and checking validity is custom.
+            0: always valid
+            1: introduced by INT
+            2: introduced by CI
+            3: introduced by PM
+            If you add something here, the function that handles this is
+            parse_register_name_checked in tc-etca.c.
+        */
+    } aux;
+    enum etca_register_class class;
+};
 
 // This enum generates bit indices into the etca_params_kind bitfield.
 enum {
@@ -387,8 +421,8 @@ struct etca_opc_info {
     char try_next_assembly; /* bool - will be set correctly during md_begin*/
 };
 
-/* Two letter names, not including the size marker, but with a 0 terminator. */
-extern const char etca_register_saf_names[16][3];
+
+extern const struct etca_reg_info etca_registers[];
 
 /* For convenience, we have an extra extensions name=NULL to mark the end of the list. */
 extern const struct etca_extension etca_extensions[ETCA_EXTCOUNT + 1];

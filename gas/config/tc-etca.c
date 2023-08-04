@@ -75,6 +75,11 @@ struct parse_info {
     // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to hace the indvidual prefixes seperated?
 };
 
+/* Tables of character mappings for various contexts. 0 indicates that the character is not lexically that thing.
+Initialized by md_begin. */
+static char register_chars[256];
+static char mnemonic_chars[256];
+
 /* An opcode-assembler function.
 Takes the opc_info being assembled, and should confirm that it actually handles that opcode.
 Similarly, should confirm that the params_kind it got is expected. */
@@ -84,6 +89,7 @@ static int parse_extension_list(const char *extensions, struct etca_cpuid *out);
 
 static int8_t parse_size_attr(char value);
 
+static struct etca_reg_info *lookup_register_name_checked(char **str, int have_prefix);
 static char *parse_register_name(char *str, struct etca_arg *result);
 
 static char *parse_immediate(char *str, struct etca_arg *result);
@@ -102,7 +108,7 @@ static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *)
 #define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
 
 /* The known predefined archs. Needs to be kept in sync with gcc manually */
-static struct etca_known_arch {
+struct etca_known_archs {
     const char *name;
     struct etca_cpuid cpuid;
     char is_concrete;
@@ -137,6 +143,8 @@ struct etca_settings {
     uint32_t arch_name: 1; /* We got an explicit ARCH name */
     uint32_t custom_name: 1; /* We got a custom ARCH name */
     uint32_t manual_cpuid: 1; /* We got a -mcpuid. When not custom_name, this needs to exactly match the predefined one */
+    uint32_t require_prefix: 1; /* Are % register prefixes required? (default yes) */
+    uint32_t pedantic: 1; /* At the moment, just: Are sizes required on registers? (default no) */
 } settings = {
 	.current_cpuid = ETCA_CPI_BASE,
 	.march = "",
@@ -145,6 +153,8 @@ struct etca_settings {
 	.arch_name = 0,
 	.custom_name = 0,
 	.manual_cpuid = 0,
+        .require_prefix = 1,
+        .pedantic = 0,
 };
 
 
@@ -176,6 +186,7 @@ const char *tc_symbol_chars = "%[";
 
 static int pending_reloc;
 static htab_t opcode_hash_control;
+static htab_t reg_hash_tbl;
 
 const pseudo_typeS md_pseudo_table[] =
 	{
@@ -206,51 +217,159 @@ static int8_t parse_size_attr(char value) {
     return -1;
 }
 
-/* Parse a register (numeric, SaF or Control, REX) name into it's numeric value and puts it into result,
+static struct etca_cpuid_pattern rex_pat = ETCA_PAT(REX);
+static struct etca_cpuid_pattern int_pat = ETCA_PAT(INT);
+static struct etca_cpuid_pattern pm_pat  = ETCA_PAT(PM);
+static struct etca_cpuid_pattern ci_pat  = ETCA_PAT(CI);
+static struct etca_cpuid_pattern mode_pat =
+    { .match_all=0,
+      .pat = {
+        .cpuid1 = ETCA_CP1_DWAS | ETCA_CP1_QWAS | ETCA_CP1_PG16 | ETCA_CP1_PG32
+                | ETCA_CP1_PG48 | ETCA_CP1_PG57 | ETCA_CP1_PG64,
+        .cpuid2 = 0,
+        .feat   = 0
+      }
+    };
+
+static struct etca_cpuid_pattern size_pats[4] = {
+    ETCA_PAT(BYTE),
+    ETCA_PAT(BASE),
+    ETCA_PAT(DW),
+    ETCA_PAT(QW)
+};
+
+/* Lookup the given name (passed by pointer) as a register.
+ * The name should have a '%' prefix stripped. Also say if there was a '%' prefix.
+ *
+ * Returns non-NULL if and only if the str represents a valid register name, used
+ * correctly in the current settings context. Otherwise, NULL is returned to
+ * indicate that the name isn't a register name. In any case, the given string
+ * pointer is advanced past all characters consumed.
+ * 
+ * as_bad is called if we are sure that the name is a mis-used or reserved register.
+ */
+static struct etca_reg_info *lookup_register_name_checked(char **str, int have_prefix) {
+    struct etca_reg_info *reg;
+    char processed_str[MAX_REG_NAME_SIZE + 1];
+    char *save_str = *str; // for error messages
+    char *p;
+    const char reserved_msg[] = "%%%s is a reserved register name";
+    // msg + 2 skips the %% bit when we don't have a prefix.
+    const char *reserved_fmt = have_prefix ? reserved_msg : (reserved_msg + 2);
+
+    // If we don't have a prefix, but prefixes are required, that's not an error.
+    // What it actually means is that anything that might've looked like a register name
+    // is in fact a valid label, so we should return NULL here.
+    if (!have_prefix && settings.require_prefix) return NULL;
+
+    // start by lexically analyzing str. If it can't be a register name, don't bother.
+    p = processed_str;
+    while ((*p++ = register_chars[(unsigned char) **str]) != 0) {
+        if (p > processed_str + MAX_REG_NAME_SIZE) goto not_a_reg;
+        (*str)++;
+    }
+    // note after the loop, processed_str is nul terminated.
+
+    // once it's lexically analyzed, try looking that up...
+    reg = str_hash_find(reg_hash_tbl, processed_str);
+
+    if (!reg) {
+not_a_reg:
+        if (have_prefix) {
+            // yes, this might truncate the symbol that the user actually wrote.
+            // But we don't _want_ to print the whole symbol, since
+            // they could make it arbitrarily long.
+            as_bad("Not a register name: %%%.*s", (int)(2*MAX_REG_NAME_SIZE), save_str);
+        }
+        return NULL;
+    }
+
+    // Determine if the register is valid in this context. If it's not, then
+    // - GPR:  emit an error about the name being reserved
+    // - CTRL: return NULL. (these are not intended to be portable)
+    // But if it is, then we can simply return reg.
+    switch (reg->class) {
+    case GPR:
+        // does that register (entity) exist with current cpuid?
+        if (reg->reg_num >= 16
+            || (reg->reg_num >= 8
+                && !etca_match_cpuid_pattern(&rex_pat, &settings.current_cpuid))) {
+            as_bad(reserved_fmt, reg->name);
+            return NULL;
+        }
+        // does that register size exist with current cpuid?
+        if (reg->aux.reg_size == -1) {
+            // no size marker. Fine unless we're being pedantic.
+            if (settings.pedantic) {
+                as_bad("[-pedantic] %s is missing a size marker", reg->name);
+            }
+        }
+        else if (!etca_match_cpuid_pattern(&size_pats[reg->aux.reg_size], &settings.current_cpuid)) {
+            // we have a size, but it's not available in the cpuid.
+            as_bad(reserved_fmt, reg->name);
+        }
+        return reg;
+    case CTRL:
+        {
+            struct etca_cpuid_pattern *patterns[5] =
+                {&mode_pat, 0, &int_pat, &ci_pat, &pm_pat};
+            if (reg->aux.exts == -1) {
+                // will lead to a check against MODE, however,
+                // if more 'complex' checks are needed in the future,
+                // it can be broken out fairly easily.
+                assert(!strcmp(reg->name, "address_mode"));
+            }
+            else if (reg->aux.exts == 0) {
+                return reg; // always valid
+            }
+            if (etca_match_cpuid_pattern(patterns[reg->aux.exts + 1], &settings.current_cpuid))
+                return reg;
+            return NULL;   
+        }
+    default:
+        abort();
+    }
+    return NULL; // this is impossible, but gcc doesn't know that abort doesn't return.
+}
+
+/* Parse a register (ISA, ABI, or Control, REX included) name into its numeric value and puts it into result,
  * setting the kind to one of GPR or CTRL and storing the correct register index
  * Will parse a size attr and also set that in result.
- * If it fails to parse a register, it will *not* call as_bad and return NULL
- * // TODO: We should be calling as_bad
+ * If it succeeds, the char* from which to continue parsing is returned.
+ * If it fails to parse a register, but a '%' was present, as_bad is called.
+ * Otherwise, NULL is returned, and you should try parsing a symbol instead.
+ * (presumably with parse_immediate).
  */
 static char *parse_register_name(char *str, struct etca_arg *result) {
-    if (*str == 'r') { /* Numeric register reference */
-	str++;
-	if (TRY_PARSE_SIZE_ATTR(result->reg_size, *str)) {
-	    str++;
-	} else {
-	    /* TODO: pedantic check */
-	}
-	/* Probably should be rewritten to use something like strtol and provide a good error message */
-	if (*str == '1' && '0' <= *(str + 1) && *(str + 1) <= '5') {
-	    result->reg.gpr_reg_num = 10 + (*(str + 1) - '0');
-	    str += 2;
-	} else if ('0' <= *str && *str <= '9') {
-	    result->reg.gpr_reg_num = *str - '0';
-	    str++;
-	} else {
-	    return NULL;
-	}
-	result->kind.reg_class = GPR;
-	return str;
-    } else {
-	const char (*reg_name)[3];
-	for (reg_name = &etca_register_saf_names[0],
-		     result->reg.gpr_reg_num = 0;
-	     result->reg.gpr_reg_num < 16;
-	     result->reg.gpr_reg_num++, reg_name++) {
-	    if ((*reg_name)[0] == *str && (*reg_name)[1] == *(str + 1)) {
-		str += 2;
-		if (TRY_PARSE_SIZE_ATTR(result->reg_size, *str)) {
-		    str++;
-		} else {
-		    /* TODO: pedantic check */
-		}
-		result->kind.reg_class = GPR;
-		return str;
-	    }
-	}
-	return NULL;
+    int have_prefix = 0;
+    struct etca_reg_info *reg_info;
+
+    // skip whitepsace
+    while (ISSPACE(*str))
+        str++;
+    
+    // Check for '%' prefix...
+    if (*str == '%') {
+        have_prefix = 1;
+        str++;
     }
+
+    // try lookup the name. If we don't find it, simply return null - errors
+    // have already been emitted.
+    reg_info = lookup_register_name_checked(&str, have_prefix);
+    if (!reg_info) return NULL;
+
+    result->kind.reg_class = reg_info->class;
+    // this sets ctrl reg nums correctly as well, as it is unioned with gpr_reg_num.
+    result->reg.gpr_reg_num = reg_info->reg_num;
+    if (reg_info->class == GPR) {
+        // if the class is CTRL, this would set reg_size to the extension info...
+        // it wouldn't really matter, because reg_size should be a don't-care for
+        // control registers, but let's be defensive.
+        result->reg_size = reg_info->aux.reg_size;
+    }
+
+    return str;
 }
 
 /* Parse a potentially complex immediate expression and analyze it as far as possible.
@@ -304,13 +423,16 @@ static char *parse_memory_upper(char *str, struct etca_arg *result) {
 char *parse_operand(char *str, struct etca_arg *result) {
     while (ISSPACE(*str)) str++;
     switch (*str) {
-	case '%':
-	    str++;
-	    return parse_register_name(str, result);
 	case '[':
 	    str++;
 	    return parse_memory_upper(str, result);
 	default: {
+            // Try parsing a register name...
+	    str = parse_register_name(str, result);
+            // if that succeeded, we're done.
+            if (str) return str;
+            // Otherwise, try parsing an immediate. Any register-related
+            // errors have already been raised.
 	    return parse_immediate(str, result);
 	}
     }
@@ -329,9 +451,12 @@ void
 md_begin(void) {
     struct etca_opc_info *opcode;
     struct etca_opc_info *prev = NULL;
+    const struct etca_reg_info *reg;
+    int c;
+
     opcode_hash_control = str_htab_create();
 
-    /* Insert names into hash table.  */
+    /* Insert opcodes into hash table.  */
     for (opcode = etca_opcodes; opcode->name != 0; opcode++) {
 	struct etca_opc_info *old_opcode = str_hash_find(opcode_hash_control, opcode->name);
 	if (old_opcode) {
@@ -345,6 +470,28 @@ md_begin(void) {
 	prev = opcode;
     }
     bfd_set_arch_mach(stdoutput, TARGET_ARCH, 0);
+
+    /* Insert registers into hash table. */
+    reg_hash_tbl = str_htab_create();
+    for (reg = etca_registers; reg->name != 0; reg++) {
+        // check if we have duplicated a register by mistake in the table
+        struct etca_reg_info *old_reg = str_hash_find(reg_hash_tbl, reg->name);
+        if (old_reg) as_fatal("duplicate (%s)", reg->name);
+        str_hash_insert(reg_hash_tbl, reg->name, reg, 1);
+    }
+
+    /* Fill in lexical tables. */
+    for (c = 0; c < 256; c++) {
+        if (ISDIGIT(c) || ISLOWER(c)) {
+            register_chars[c] = c;
+            mnemonic_chars[c] = c;
+        }
+        else if (ISUPPER(c)) {
+            // make register names case-insensitive. Do we want that?
+            register_chars[c] = TOLOWER(c);
+            mnemonic_chars[c] = register_chars[c];
+        }
+    }
 }
 
 /* Based on the list of parsed arguments, correctly set pi->params.
@@ -442,7 +589,7 @@ md_assemble(char *str) {
     }
     /* Check for a size marker before looking up the opcode*/
     if (nlen > 1) {
-	if ((pi.opcode_size = parse_size_attr(*(op_end - 1))) >= 0) {
+	if ((pi.opcode_size = parse_size_attr(*(op_end - 1))) > 0) {
 	    op_end--;
 	    *op_end = ' '; /* Replace the size marker with a space: We dealt with it, it's no longer needed*/
 	}
@@ -564,7 +711,7 @@ const char *md_shortopts = "";
  * This needs to be kept in sync with the gcc code manually.
  *  -march=name                  (name being either a predefined name or a custom one)
  *  -march=cpuid:CP1.CP2.FEAT    (hex notation of the CPUID, name is the hexid)
- *  -march=extensions(.ABBR)+    (name defaults to `base`)
+ *  -march=extensions:ABBR(,ABBR)*    (name defaults to `base`)
  *  the first two options can also have a `+ABBR(,ABBR)*` postfix which adds those
  *  extensions on top of the predefined set.
  *  Having an extension mentioned multiple times is not a problem.
@@ -584,6 +731,8 @@ enum options {
     // OPTION_MTUNE, // Not supported yet
     OPTION_MEXTENSIONS,
     OPTION_MCPUID,
+    OPTION_NOPREFIX,
+    OPTION_PEDANTIC,
 };
 
 struct option md_longopts[] =
@@ -591,6 +740,8 @@ struct option md_longopts[] =
 		{"march",       required_argument, NULL, OPTION_MARCH},
 		{"mextensions", required_argument, NULL, OPTION_MEXTENSIONS},
 		{"mcpuid",      required_argument, NULL, OPTION_MCPUID},
+                {"pedantic",    no_argument,       NULL, OPTION_PEDANTIC},
+                {"noprefix",    no_argument,       NULL, OPTION_NOPREFIX},
 		{NULL,          no_argument,       NULL, 0},
 	};
 size_t md_longopts_size = sizeof(md_longopts);
@@ -674,7 +825,7 @@ md_parse_option(int c, const char *arg) {
 		return parse_extension_list(arg, &settings.mextensions);
 	    }
 	    settings.arch_name = 1;
-	    /* We only actually analyze the name in etca_after_parse_args*/
+	    /* We only actually analyze the name in md_after*/
 	    const char *after_name = strchr(arg, '+');
 	    if (after_name == NULL) {
 		settings.march[MARCH_LEN - 1] = '\0';
@@ -700,7 +851,13 @@ md_parse_option(int c, const char *arg) {
 	    return parse_extension_list(arg, &settings.mextensions);
 	case OPTION_MCPUID:
 	    strncpy(settings.march, arg, MARCH_LEN - 1);
-	    return parse_hex_cpuid((char *) arg, &settings.march_cpuid);;
+	    return parse_hex_cpuid((char *) arg, &settings.march_cpuid);
+        case OPTION_NOPREFIX:
+            settings.require_prefix = 0;
+            return 1;
+        case OPTION_PEDANTIC:
+            settings.pedantic = 1;
+            return 1;
 	default:
 	    return 0;
     }
@@ -708,46 +865,22 @@ md_parse_option(int c, const char *arg) {
 
 void
 md_show_usage(FILE *stream) {
-    fprintf (stream, " ETCa-specific assembler options:\n");
-    fprintf (stream, "\t-march=name[+ABBR...]\n");
-    fprintf (stream, "\t\t\tSpecify an architecture name as well as optionally a list of extensions implemented on top of it\n");
+    // match the format of usage output for default options
+    fprintf (stream, "ETCa-specific assembler options:\n");
+    fprintf (stream, "  -march=name[+ABBR(.ABBR)*]\n");
+    fprintf (stream, "\t\t\t  Specify an architecture name as well as optionally\n");
+    fprintf (stream, "\t\t\t  a list of extensions implemented on top of it\n");
+    fprintf (stream, "  -noprefix\t\t  Allow register names without the '%%' prefix\n");
+    fprintf (stream, "  -pedantic\t\t  Enable various forms of pedantry; at the moment,\n");
+    fprintf (stream, "\t\t\t  this only checks that all registers have size markers\n");
 }
 
 /* Check that our arguments, especially the given -march and -mcpuid make sense*/
 void etca_after_parse_args(void) {
-    struct etca_cpuid temp_cpuid;
-    bool is_concrete = true;
-    if(settings.arch_name) {
-	if (strncmp(settings.march, "cpuid:", strlen("cpuid:")) == 0) {
-	    memmove(settings.march,
-		    settings.march + strlen("cpuid:"),
-		    strlen(settings.march) + 1 - strlen("cpuid:"));
-	    parse_hex_cpuid(settings.march, &temp_cpuid);
-	    is_concrete = true;
-	} else {
-	    for (struct etca_known_arch *arch = known_archs; arch->name != NULL; arch++) {
-		if (strcmp(arch->name, settings.march) == 0) {
-		    is_concrete = arch->is_concrete;
-		    temp_cpuid = arch->cpuid;
-		    break;
-		}
-	    }
-	}
-	if (is_concrete && settings.manual_cpuid) {
-	    if (settings.march_cpuid.cpuid1 != temp_cpuid.cpuid1
-		|| settings.march_cpuid.cpuid2 != temp_cpuid.cpuid2
-		|| settings.march_cpuid.feat != temp_cpuid.feat) {
-		as_warn("Manually given -mcpuid does not exactly match the one predefined by the -march name given. Combining the two");
-	    }
-	}
-	settings.march_cpuid.cpuid1 |= temp_cpuid.cpuid1;
-	settings.march_cpuid.cpuid2 |= temp_cpuid.cpuid2;
-	settings.march_cpuid.feat |= temp_cpuid.feat;
-    }
-
     settings.current_cpuid.cpuid1 |= settings.mextensions.cpuid1 | settings.march_cpuid.cpuid1;
     settings.current_cpuid.cpuid2 |= settings.mextensions.cpuid2 | settings.march_cpuid.cpuid2;
     settings.current_cpuid.feat |= settings.mextensions.feat | settings.march_cpuid.feat;
+    /* TODO: Checks */
 }
 
 /* Apply a fixup to the object file.  */
@@ -862,7 +995,7 @@ void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct pa
 	    abort();
 	case ri_byte: /* We trust that find_abm_mode verified everything and set known_imm correctly */
 	    output = frag_more(1);
-	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | ((pi->args[1].imm_expr.X_add_number) & 0x1F);
+	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | ((pi->args[0].imm_expr.X_add_number) & 0x1F);
 	    return;
 	case abm_00:
 	    output = frag_more(1);
@@ -883,10 +1016,10 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
 
     if (mode == ri_byte) {
 	output = frag_more(1);
-	output[idx++] = (0b01000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b01000000 | (((pi->opcode_size > 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
     } else {
 	output = frag_more(1);
-	output[idx++] = (0b00000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b00000000 | (((pi->opcode_size > 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
     }
     assemble_abm(opcode, pi, mode);
 }

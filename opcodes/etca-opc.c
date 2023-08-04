@@ -77,12 +77,71 @@ etca_match_cpuid_pattern(const struct etca_cpuid_pattern *pat, const struct etca
     }
 }
 
-const char etca_register_saf_names[16][3] = {
-    "a0", "a1", "a2",
-    "s0", "s1",
-    "bp", "sp", "ln",
-    "t0", "t1", "t2", "t3", "t4",
-    "s2", "s3", "s4",
+
+/* Register info table. */
+const struct etca_reg_info etca_registers[] = {
+#define INFIX(before, after, num) {before after, num, {-1}, GPR}, \
+                                  {before "h" after, num, {0}, GPR}, \
+                                  {before "x" after, num, {1}, GPR}, \
+                                  {before "d" after, num, {2}, GPR}, \
+                                  {before "q" after, num, {3}, GPR}
+#define INFIX_R(num) INFIX("r", #num, num)
+#define POSTFIX(name, num)        {name, num, {-1}, GPR}, \
+                                  {name "h", num, {0}, GPR}, \
+                                  {name "x", num, {1}, GPR}, \
+                                  {name "d", num, {2}, GPR}, \
+                                  {name "q", num, {3}, GPR}
+#define CONTROL(name, num, exts)  {name, num, {exts}, CTRL}
+#define EXTS_COMPLEX -1
+#define EXTS_ANY      0
+#define EXTS_INT      1
+#define EXTS_CI       2
+#define EXTS_PM       3
+    /* base (+ sizes) */
+    INFIX_R(0), INFIX_R(1), INFIX_R(2), INFIX_R(3),
+    INFIX_R(4), INFIX_R(5), INFIX_R(6), INFIX_R(7),
+    /* rex (+ sizes) */
+    INFIX_R(8), INFIX_R(9), INFIX_R(10), INFIX_R(11),
+    INFIX_R(12), INFIX_R(13), INFIX_R(14), INFIX_R(15),
+    /* reserved for rex2 (+ sizes) */
+    INFIX_R(16), INFIX_R(17), INFIX_R(18), INFIX_R(19),
+    INFIX_R(20), INFIX_R(21), INFIX_R(22), INFIX_R(23),
+    INFIX_R(24), INFIX_R(25), INFIX_R(26), INFIX_R(27),
+    INFIX_R(28), INFIX_R(29), INFIX_R(30), INFIX_R(31),
+
+    /* base abi names (+ sizes). We accept these even without SAF. */
+    INFIX("a", "0", 0), INFIX("a", "1", 1), INFIX("a", "2", 2), INFIX("s", "0", 3),
+    INFIX("s", "1", 4), POSTFIX("bp", 5), POSTFIX("sp", 6), POSTFIX("ln", 7),
+    /* rex abi names (+ sizes). */
+    INFIX("t", "0", 8), INFIX("t", "1", 9), INFIX("t", "2", 10), INFIX("t", "3", 11),
+    INFIX("t", "4", 12), INFIX("s", "2", 13), INFIX("s", "3", 14), INFIX("s", "4", 15),
+
+    /* base control registers */
+    CONTROL("cpuid1", 0, EXTS_ANY), CONTROL("cpuid2", 1, EXTS_ANY), CONTROL("feat", 2, EXTS_ANY),
+    /* INT control registers */
+    CONTROL("flags", 3, EXTS_INT), CONTROL("int_pc", 4, EXTS_INT),
+    CONTROL("int_sp", 5, EXTS_INT), CONTROL("int_mask", 6, EXTS_INT),
+    CONTROL("int_pending", 7, EXTS_INT), CONTROL("int_cause", 8, EXTS_INT),
+    CONTROL("int_data", 9, EXTS_INT), CONTROL("int_ret_pc", 10, EXTS_INT),
+    CONTROL("int_ret_sp", 11, EXTS_INT),
+    /* PM control registers */
+    CONTROL("priv", 12, EXTS_PM), CONTROL("int_ret_priv", 13, EXTS_PM),
+    /* CI control registers */
+    CONTROL("cache_line_size", 14, EXTS_CI), CONTROL("no_cache_start", 15, EXTS_CI),
+    CONTROL("no_cache_end", 16, EXTS_CI),
+    /* and... mode */
+    CONTROL("address_mode", 17, EXTS_COMPLEX),
+#undef INFIX
+#undef INFIX_R
+#undef POSTFIX
+#undef CONTROL
+#undef EXTS_COMPLEX
+#undef EXTS_ANY
+#undef EXTS_INT
+#undef EXTS_CI
+#undef EXTS_PM
+
+    { 0, 0, {0}, 0 }
 };
 
 #define PARAMS1(a) ((union etca_opc_params_field) {.uint = (1 << a)})
