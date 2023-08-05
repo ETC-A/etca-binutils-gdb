@@ -252,8 +252,9 @@ static struct etca_cpuid_pattern size_pats[4] = {
  */
 static struct etca_reg_info *lookup_register_name_checked(char **str, int have_prefix) {
     struct etca_reg_info *reg;
-    char processed_str[MAX_REG_NAME_SIZE + 1];
-    char *save_str = *str; // for error messages
+    // + 1 is needed for nul terminator. Additional +2 is to prevent truncation
+    // in error messages in case of a typo on a long ctrl reg name.
+    char processed_str[MAX_REG_NAME_SIZE + 3];
     char *p;
     const char reserved_msg[] = "%%%s is a reserved register name";
     // msg + 2 skips the %% bit when we don't have a prefix.
@@ -267,10 +268,11 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     // start by lexically analyzing str. If it can't be a register name, don't bother.
     p = processed_str;
     while ((*p++ = register_chars[(unsigned char) **str]) != 0) {
-        if (p > processed_str + MAX_REG_NAME_SIZE) goto not_a_reg;
+        // + 2 is to prevent truncation in error messages; see above.
+        if (p > processed_str + MAX_REG_NAME_SIZE + 2) goto not_a_reg;
         (*str)++;
     }
-    // note after the loop, processed_str is nul terminated.
+    // note after the loop, processed_str is nul terminated
 
     // once it's lexically analyzed, try looking that up...
     reg = str_hash_find(reg_hash_tbl, processed_str);
@@ -285,7 +287,7 @@ not_a_reg:
             // yes, this might truncate the symbol that the user actually wrote.
             // But we don't _want_ to print the whole symbol, since
             // they could make it arbitrarily long.
-            as_bad("Not a register name: %%%.*s", (int)(2*MAX_REG_NAME_SIZE), save_str);
+            as_bad("Not a register name: %%%.*s", (int)(MAX_REG_NAME_SIZE+2), processed_str);
             return &spoofed;
         }
         // otherwise, no prefix, but prefixes aren't required, so just backtrack.
@@ -501,6 +503,7 @@ md_begin(void) {
             mnemonic_chars[c] = register_chars[c];
         }
     }
+    register_chars['_'] = '_';
 }
 
 /* Based on the list of parsed arguments, correctly set pi->params.
