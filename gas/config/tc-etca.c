@@ -241,12 +241,14 @@ static struct etca_cpuid_pattern size_pats[4] = {
 /* Lookup the given name (passed by pointer) as a register.
  * The name should have a '%' prefix stripped. Also say if there was a '%' prefix.
  *
- * Returns non-NULL if and only if the str represents a valid register name, used
- * correctly in the current settings context. Otherwise, NULL is returned to
- * indicate that the name isn't a register name. In any case, the given string
- * pointer is advanced past all characters consumed.
+ * The given string pointer is advanced past all consumed characters.
+ * NULL is returned if and only if we should backtrack and try parsing an
+ * expression instead (note that this can only happen if we don't have a prefix).
+ * Otherwise, we return a usable etca_reg_info*.
  * 
  * as_bad is called if we are sure that the name is a mis-used or reserved register.
+ * In these cases, we spoof an etca_reg_info to return so that parsing and error
+ * discovery can continue.
  */
 static struct etca_reg_info *lookup_register_name_checked(char **str, int have_prefix) {
     struct etca_reg_info *reg;
@@ -259,7 +261,7 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
 
     // If we don't have a prefix, but prefixes are required, that's not an error.
     // What it actually means is that anything that might've looked like a register name
-    // is in fact a valid label, so we should return NULL here.
+    // is in fact a valid label, so we should return NULL here and backtrack.
     if (!have_prefix && settings.require_prefix) return NULL;
 
     // start by lexically analyzing str. If it can't be a register name, don't bother.
@@ -276,11 +278,17 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     if (!reg) {
 not_a_reg:
         if (have_prefix) {
+            // This is the case where we have to spoof a return, otherwise
+            // we'll try and backtrack even though we know we are supposed to
+            // be looking at a register here.
+            static struct etca_reg_info spoofed = { .name = "error-reg", .class=GPR };
             // yes, this might truncate the symbol that the user actually wrote.
             // But we don't _want_ to print the whole symbol, since
             // they could make it arbitrarily long.
             as_bad("Not a register name: %%%.*s", (int)(2*MAX_REG_NAME_SIZE), save_str);
+            return &spoofed;
         }
+        // otherwise, no prefix, but prefixes aren't required, so just backtrack.
         return NULL;
     }
 
@@ -295,7 +303,7 @@ not_a_reg:
             || (reg->reg_num >= 8
                 && !etca_match_cpuid_pattern(&rex_pat, &settings.current_cpuid))) {
             as_bad(reserved_fmt, reg->name);
-            return NULL;
+            return reg;
         }
         // does that register size exist with current cpuid?
         if (reg->aux.reg_size == -1) {
@@ -324,7 +332,7 @@ not_a_reg:
             }
             if (etca_match_cpuid_pattern(patterns[reg->aux.exts + 1], &settings.current_cpuid))
                 return reg;
-            return NULL;   
+            return reg;   
         }
     default:
         abort();
