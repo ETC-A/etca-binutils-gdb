@@ -30,10 +30,14 @@
 #include "opcode/etca.h"
 
 
+#define sec_addr(sec) ((sec)->output_section->vma + (sec)->output_offset)
 
 /* Forward declarations.  */
+static reloc_howto_type *
+etca_elf_rtype_to_howto(bfd *, unsigned int);
 
-bfd_reloc_status_type bfd_etca_reloc_base_jmp (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
+static bfd_reloc_status_type
+perform_relocation(const reloc_howto_type *, const Elf_Internal_Rela *, bfd_vma, asection *, bfd *, bfd_byte *);
 
 static reloc_howto_type etca_elf_howto_table [] =
 {
@@ -60,7 +64,7 @@ static reloc_howto_type etca_elf_howto_table [] =
 	   true,		/* pc_relative */
 	   0,			/* bitpos */
 	   complain_overflow_dont, /* complain_on_overflow */
-	   bfd_etca_reloc_base_jmp,	/* special_function */
+	   bfd_elf_generic_reloc,	/* special_function */
 	   "R_ETCA_BASE_JMP",		/* name */
 	   false,			/* partial_inplace */
 	   0x00000000,		/* src_mask */
@@ -69,210 +73,201 @@ static reloc_howto_type etca_elf_howto_table [] =
 
 };
 
-bfd_reloc_status_type
-calculate_relocate_target(bfd *, arelent *, asymbol *, asection *, bfd *, char **, symvalue *, bfd_size_type *);
 
-bfd_reloc_status_type
-calculate_relocate_target(bfd *abfd,
-			  arelent *reloc_entry,
-			  asymbol *symbol,
-			  asection *input_section,
-			  bfd *output_bfd,
-			  char **error_message ATTRIBUTE_UNUSED,
-			  symvalue *relocation,
-			  bfd_size_type *octets) {
-
-    bfd_reloc_status_type flag = bfd_reloc_ok;
-    bfd_vma output_base = 0;
-    reloc_howto_type *howto = reloc_entry->howto;
-    asection *reloc_target_output_section;
-
-    // This code is mostly copied from perform_relocation in reloc.c
-
-    if (bfd_is_abs_section (symbol->section)
-	&& output_bfd != NULL)
-    {
-	reloc_entry->address += input_section->output_offset;
-	return bfd_reloc_ok;
-    }
-
-    if (howto == NULL)
-	return bfd_reloc_undefined;
-
-    /* Is the address of the relocation really within the section?  */
-    *octets = reloc_entry->address;
-    if (!bfd_reloc_offset_in_range (howto, abfd, input_section, *octets))
-	return bfd_reloc_outofrange;
-
-    /* Work out which section the relocation is targeted at and the
-       initial relocation command value.  */
-
-    /* Get symbol value.  (Common symbols are special.)  */
-    if (bfd_is_com_section (symbol->section))
-	*relocation = 0;
-    else
-	*relocation = symbol->value;
-
-    reloc_target_output_section = symbol->section->output_section;
-
-    /* Convert input-section-relative symbol value to absolute.  */
-    if ((output_bfd && ! howto->partial_inplace)
-	|| reloc_target_output_section == NULL)
-	output_base = 0;
-    else
-	output_base = reloc_target_output_section->vma;
-
-    output_base += symbol->section->output_offset;
-
-    *relocation += output_base;
-
-    /* Add in supplied addend.  */
-    *relocation += reloc_entry->addend;
-
-    /* Here the variable relocation holds the final address of the
-       symbol we are relocating against, plus any addend.  */
-
+static bfd_reloc_status_type
+perform_relocation (const reloc_howto_type *howto,
+		    const Elf_Internal_Rela *rel,
+		    bfd_vma value,
+		    asection *input_section,
+		    bfd *input_bfd ATTRIBUTE_UNUSED,
+		    bfd_byte *contents) {
     if (howto->pc_relative)
-    {
-	/* This is a PC relative relocation.  We want to set RELOCATION
-	   to the distance between the address of the symbol and the
-	   location.  RELOCATION is already the address of the symbol.
-
-	   We start by subtracting the address of the section containing
-	   the location.
-
-	   If pcrel_offset is set, we must further subtract the position
-	   of the location within the section.  Some targets arrange for
-	   the addend to be the negative of the position of the location
-	   within the section; for example, i386-aout does this.  For
-	   i386-aout, pcrel_offset is FALSE.  Some other targets do not
-	   include the position of the location; for example, ELF.
-	   For those targets, pcrel_offset is TRUE.
-
-	   If we are producing relocatable output, then we must ensure
-	   that this reloc will be correctly computed when the final
-	   relocation is done.  If pcrel_offset is FALSE we want to wind
-	   up with the negative of the location within the section,
-	   which means we must adjust the existing addend by the change
-	   in the location within the section.  If pcrel_offset is TRUE
-	   we do not want to adjust the existing addend at all.
-
-	   FIXME: This seems logical to me, but for the case of
-	   producing relocatable output it is not what the code
-	   actually does.  I don't want to change it, because it seems
-	   far too likely that something will break.  */
-
-	*relocation -=
-		input_section->output_section->vma + input_section->output_offset;
-
-	if (howto->pcrel_offset)
-	    *relocation -= reloc_entry->address;
+	value -= sec_addr (input_section) + rel->r_offset;
+    value += rel->r_addend;
+    contents += rel->r_offset;
+    switch (ELF32_R_TYPE(rel->r_info)) {
+	case R_ETCA_BASE_JMP:
+	    contents[0] |= (value & 0x100) ? 0x10 : 0;
+	    contents[1] = value & 0xFF;
+	    return bfd_reloc_ok;
+	default:
+	    return bfd_reloc_notsupported;
     }
-
-    if (output_bfd != NULL)
-    {
-	if (! howto->partial_inplace)
-	{
-	    /* This is a partial relocation, and we want to apply the relocation
-	       to the reloc entry rather than the raw data. Modify the reloc
-	       inplace to reflect what we now know.  */
-	    reloc_entry->addend = *relocation;
-	    reloc_entry->address += input_section->output_offset;
-	    return flag;
-	}
-	else
-	{
-	    /* This is a partial relocation, but inplace, so modify the
-	       reloc record a bit.
-
-	       If we've relocated with a symbol with a section, change
-	       into a ref to the section belonging to the symbol.  */
-
-	    reloc_entry->address += input_section->output_offset;
-
-	    reloc_entry->addend = *relocation;
-	}
-    }
-
-    /* FIXME: This overflow checking is incomplete, because the value
-       might have overflowed before we get here.  For a correct check we
-       need to compute the value in a size larger than bitsize, but we
-       can't reasonably do that for a reloc the same size as a host
-       machine word.
-       FIXME: We should also do overflow checking on the result after
-       adding in the value contained in the object file.  */
-    if (howto->complain_on_overflow != complain_overflow_dont
-	&& flag == bfd_reloc_ok)
-	flag = bfd_check_overflow (howto->complain_on_overflow,
-				   howto->bitsize,
-				   howto->rightshift,
-				   bfd_arch_bits_per_address (abfd),
-				   *relocation);
-
-    /* Either we are relocating all the way, or we don't want to apply
-       the relocation to the reloc entry (probably because there isn't
-       any room in the output format to describe addends to relocs).  */
-
-    /* The cast to bfd_vma avoids a bug in the Alpha OSF/1 C compiler
-       (OSF version 1.3, compiler version 3.11).  It miscompiles the
-       following program:
-
-       struct str
-       {
-	 unsigned int i0;
-       } s = { 0 };
-
-       int
-       main ()
-       {
-	 unsigned long x;
-
-	 x = 0x100000000;
-	 x <<= (unsigned long) s.i0;
-	 if (x == 0)
-	   printf ("failed\n");
-	 else
-	   printf ("succeeded (%lx)\n", x);
-       }
-       */
-
-    *relocation >>= (bfd_vma) howto->rightshift;
-
-    /* Shift everything up to where it's going to be used.  */
-    *relocation <<= (bfd_vma) howto->bitpos;
-
-    return bfd_reloc_continue;
 }
 
-bfd_reloc_status_type
-bfd_etca_reloc_base_jmp (bfd *abfd,
-			 arelent *reloc_entry,
-			 asymbol *symbol,
-			 void *data,
-			 asection *input_section,
-			 bfd *output_bfd,
-			 char **error_message) {
-    /* Let the generic ELF code deal with a few of the corner cases*/
-    bfd_reloc_status_type status = bfd_elf_generic_reloc(abfd, reloc_entry, symbol, data, input_section, output_bfd, error_message);
-    if (status != bfd_reloc_continue) {
-	return status;
-    }
-    symvalue relocation;
-    bfd_size_type octets;
-    /* Offload the work that doesn't depend on the exact instruction format */
-    status = calculate_relocate_target(abfd, reloc_entry, symbol, input_section, output_bfd, error_message, &relocation, &octets);
-    if (status != bfd_reloc_continue) {
-	return status;
-    }
 
-    bfd_byte *instruction = data + octets;
+/* Relocate an ETCa ELF section. Mostly copied from elfnn-riscv.c
 
-    instruction[0] |= (instruction[0] & (~0x10)) | ((relocation >> 8) & 0x10); // Set 'direction' bit in opcode
-    instruction[1] = (relocation) & 0xFF; // Set lower bits
-    status = bfd_reloc_ok;
-    return status;
+   The RELOCATE_SECTION function is called by the new ELF backend linker
+   to handle the relocations for a section.
+
+   The relocs are always passed as Rela structures.
+
+   This function is responsible for adjusting the section contents as
+   necessary, and (if generating a relocatable output file) adjusting
+   the reloc addend as necessary.
+
+   This function does not have to worry about setting the reloc
+   address or the reloc symbol index.
+
+   LOCAL_SYMS is a pointer to the swapped in local symbols.
+
+   LOCAL_SECTIONS is an array giving the section in the input file
+   corresponding to the st_shndx field of each local symbol.
+
+   The global hash table entry for the global symbols can be found
+   via elf_sym_hashes (input_bfd).
+
+   When generating relocatable output, this function must handle
+   STB_LOCAL/STT_SECTION symbols specially.  The output symbol is
+   going to be the section symbol corresponding to the output
+   section, which means that the addend must be adjusted
+   accordingly.  */
+
+static int
+etca_elf_relocate_section(bfd *output_bfd,
+			  struct bfd_link_info *info,
+			  bfd *input_bfd,
+			  asection *input_section,
+			  bfd_byte *contents,
+			  Elf_Internal_Rela *relocs,
+			  Elf_Internal_Sym *local_syms,
+			  asection **local_sections) {
+
+    Elf_Internal_Rela *rel;
+    Elf_Internal_Rela *relend;
+    Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (input_bfd);
+    struct elf_link_hash_entry **sym_hashes = elf_sym_hashes (input_bfd);
+    bool ret = false;
+    relend = relocs + input_section->reloc_count;
+    for (rel = relocs; rel < relend; rel++) {
+	unsigned long r_symndx;
+	struct elf_link_hash_entry *h;
+	Elf_Internal_Sym *sym;
+	asection *sec;
+	bfd_vma relocation;
+	bfd_reloc_status_type status = bfd_reloc_ok;
+	const char *name = NULL;
+	bool unresolved_reloc;
+	int r_type = ELF32_R_TYPE(rel->r_info);
+	reloc_howto_type *howto = etca_elf_rtype_to_howto(input_bfd, r_type);
+	const char *msg = NULL;
+
+	if (howto == NULL)
+	    continue;
+
+	/* This is a final link.  */
+	r_symndx = ELF32_R_SYM(rel->r_info);
+	h = NULL;
+	sym = NULL;
+	sec = NULL;
+	unresolved_reloc = false;
+	if (r_symndx < symtab_hdr->sh_info) {
+	    sym = local_syms + r_symndx;
+	    sec = local_sections[r_symndx];
+	    relocation = _bfd_elf_rela_local_sym(output_bfd, sym, &sec, rel);
+
+	    /* Relocate against local STT_GNU_IFUNC symbol.  */
+	    if (!bfd_link_relocatable(info)
+		&& ELF_ST_TYPE(sym->st_info) == STT_GNU_IFUNC) {
+		BFD_FAIL();
+#if 0
+		h = etca_elf_get_local_sym_hash(htab, input_bfd, rel, false);
+		if (h == NULL)
+		    abort ();
+
+		/* Set STT_GNU_IFUNC symbol value.  */
+		h->root.u.def.value = sym->st_value;
+		h->root.u.def.section = sec;
+#endif
+	    }
+	}
+	else {
+	    bool warned, ignored;
+
+	    RELOC_FOR_GLOBAL_SYMBOL (info, input_bfd, input_section, rel,
+				     r_symndx, symtab_hdr, sym_hashes,
+				     h, sec, relocation,
+				     unresolved_reloc, warned, ignored);
+	    if (warned) {
+		/* To avoid generating warning messages about truncated
+		   relocations, set the relocation's address to be the same as
+		   the start of this section.  */
+		if (input_section->output_section != NULL)
+		    relocation = input_section->output_section->vma;
+		else
+		    relocation = 0;
+	    }
+	}
+
+	if (sec != NULL && discarded_section(sec)) RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
+										    rel, 1, relend, howto, 0, contents);
+
+	if (bfd_link_relocatable(info))
+	    continue;
+	switch (r_type) {
+	    case R_ETCA_NONE:
+		continue;
+	    case R_ETCA_BASE_JMP:
+		/* Nothing special to do*/
+		break;
+	    default:
+		status = bfd_reloc_notsupported;
+	}
+	if (status == bfd_reloc_ok) {
+	    status = perform_relocation(howto, rel, relocation, input_section, input_bfd, contents);
+	}
+
+	switch (status) {
+	    case bfd_reloc_ok:
+		continue;
+
+	    case bfd_reloc_overflow:
+		info->callbacks->reloc_overflow
+			(info, (h ? &h->root : NULL), name, howto->name,
+			 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
+		break;
+
+	    case bfd_reloc_undefined:
+		info->callbacks->undefined_symbol
+			(info, name, input_bfd, input_section, rel->r_offset,
+			 true);
+		break;
+
+	    case bfd_reloc_outofrange:
+		if (msg == NULL)
+		    msg = _("%X%P: internal error: out of range error\n");
+		break;
+
+	    case bfd_reloc_notsupported:
+		if (msg == NULL)
+		    msg = _("%X%P: internal error: unsupported relocation error\n");
+		break;
+
+	    case bfd_reloc_dangerous:
+		/* The error message should already be set.  */
+		if (msg == NULL)
+		    msg = _("dangerous relocation error");
+		info->callbacks->reloc_dangerous
+			(info, msg, input_bfd, input_section, rel->r_offset);
+		break;
+
+	    default:
+		msg = _("%X%P: internal error: unknown error\n");
+		break;
+	}
+	/* Do not report error message for the dangerous relocation again.  */
+	if (msg && status != bfd_reloc_dangerous)
+	    info->callbacks->einfo (msg);
+
+	/* We already reported the error via a callback, so don't try to report
+	   it again by returning false.  That leads to spurious errors.  */
+	ret = true;
+	break;
+    }
+    ret = true;
+    return ret;
 }
-
 
 /* Map BFD reloc types to ETCA ELF reloc types.  */
 
@@ -287,6 +282,19 @@ static const struct etca_reloc_map etca_reloc_map [] =
 		{ BFD_RELOC_NONE,	       R_ETCA_NONE },
 		{ BFD_RELOC_ETCA_BASE_JMP,  R_ETCA_BASE_JMP },
 	};
+static reloc_howto_type *
+etca_elf_rtype_to_howto(bfd*abfd ATTRIBUTE_UNUSED,
+			unsigned int r_type) {
+/* In theory r_type could/should be an index into etca_reloc_map.
+ * But don't rely on that, at least not now. */
+    unsigned int i;
+
+    for (i = sizeof (etca_reloc_map) / sizeof (etca_reloc_map[0]); i--;)
+	if (etca_reloc_map [i].etca_reloc_val == r_type)
+	    return &etca_elf_howto_table[etca_reloc_map[i].etca_reloc_val];
+
+    return NULL;
+}
 
 static reloc_howto_type *
 etca_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
@@ -356,7 +364,7 @@ etca_elf_obj_attrs_arg_type (int tag ATTRIBUTE_UNUSED)
 
 #define elf_info_to_howto_rel			NULL
 #define elf_info_to_howto			etca_info_to_howto_rela
-//#define elf_backend_relocate_section		etca_elf_relocate_section
+#define elf_backend_relocate_section		etca_elf_relocate_section
 //#define elf_backend_gc_mark_hook		etca_elf_gc_mark_hook
 //#define elf_backend_check_relocs		etca_elf_check_relocs
 #define bfd_elf32_bfd_reloc_type_lookup		etca_reloc_type_lookup
