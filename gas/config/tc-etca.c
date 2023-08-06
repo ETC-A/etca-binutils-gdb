@@ -249,6 +249,8 @@ static struct etca_cpuid_pattern size_pats[4] = {
     ETCA_PAT(DW),
     ETCA_PAT(QW)
 };
+static struct etca_cpuid_pattern any_size_pat =
+    ETCA_PAT_OR3(BYTE, DW, QW);
 
 /* Lookup the given name (passed by pointer) as a register.
  * The name should have a '%' prefix stripped. Also say if there was a '%' prefix.
@@ -672,6 +674,18 @@ not_an_opcode:
 	as_bad(_("unknown opcode %s"), save_str);
 	return;
     }
+
+    // check for opcode suffix pedantically
+    if (settings.pedantic && opcode->size_info.suffix_allowed && pi.opcode_size == -1) {
+        as_bad("[-pedantic] no size suffix given for `%s'", opcode->name);
+    }
+    // but if we don't have any size extensions, allow a default of word.
+    // FIXME: this check happens on every line and should probably be cached in settings.
+    if (opcode->size_info.suffix_allowed &&
+        !etca_match_cpuid_pattern(&any_size_pat, &settings.current_cpuid)) {
+        pi.opcode_size = 1;
+    }
+
     if (opcode->format == ETCA_IF_ILLEGAL) {
 	as_bad("Illegal opcode %s", processed_opcode);
 	return;
@@ -944,7 +958,7 @@ md_show_usage(FILE *stream) {
     fprintf (stream, "\t\t\t  a list of extensions implemented on top of it\n");
     fprintf (stream, "  -noprefix\t\t  Allow register names without the '%%' prefix\n");
     fprintf (stream, "  -pedantic\t\t  Enable various forms of pedantry; at the moment,\n");
-    fprintf (stream, "\t\t\t  this only checks that all registers have size markers\n");
+    fprintf (stream, "\t\t\t  only checks that opcodes and registers have size markers\n");
 }
 
 /* Check that our arguments, especially the given -march and -mcpuid make sense*/
