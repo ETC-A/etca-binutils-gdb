@@ -408,6 +408,9 @@ struct etca_opc_size_info {
     uint16_t suffix_allowed: 1; // can a size suffix follow the opcode?
 };
 
+/* The maximal length in bytes any legal instruction can ever reach */
+#define MAX_INSTRUCTION_LENGTH 15
+
 /* The various instruction formats to be used to get a specific assembler or disassembler function */
 enum etca_iformat {
     ETCA_IF_ILLEGAL,   /* An illegal/unknown instruction, which we can't further encode/decode */
@@ -434,6 +437,9 @@ struct etca_opc_info {
     struct etca_cpuid_pattern requirements;
     char try_next_assembly; /* bool - will be set correctly during md_begin*/
 };
+
+#define ETCA_BASE_ABM_IMM_SIGNED(opcode) (opcode < 8 || opcode == 9)
+#define ETCA_BASE_ABM_IMM_UNSIGNED(opcode) (!ETCA_BASE_ABM_IMM_SIGNED(opcode))
 
 
 extern const struct etca_reg_info etca_registers[];
