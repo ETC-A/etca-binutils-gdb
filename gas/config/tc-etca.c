@@ -143,6 +143,10 @@ struct etca_settings {
     uint32_t arch_name: 1; /* We got an explicit ARCH name */
     uint32_t custom_name: 1; /* We got a custom ARCH name */
     uint32_t manual_cpuid: 1; /* We got a -mcpuid. When not custom_name, this needs to exactly match the predefined one */
+
+    // I'm not actually sure how we will set this one yet, but we do need it.
+    uint32_t address_size_attr: 2; /* 1: word, 2: dword, 3: qword. */
+
     uint32_t require_prefix: 1; /* Are % register prefixes required? (default yes) */
     uint32_t pedantic: 1; /* At the moment, just: Are sizes required on registers? (default no) */
 } settings = {
@@ -256,9 +260,13 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     // in error messages in case of a typo on a long ctrl reg name.
     char processed_str[MAX_REG_NAME_SIZE + 3];
     char *p;
-    const char reserved_msg[] = "%%%s is a reserved register name";
+    static const char reserved_msg[] = "%%%s is a reserved register name";
     // msg + 2 skips the %% bit when we don't have a prefix.
     const char *reserved_fmt = have_prefix ? reserved_msg : (reserved_msg + 2);
+    // We use this if we have to return a register after calling as_bad. Otherwise,
+    // we'll try and backtrack even though we know we are supposed to
+    // be looking at a register here.
+    static struct etca_reg_info spoofed = { .name = "error-reg", .class=GPR };
 
     // If we don't have a prefix, but prefixes are required, that's not an error.
     // What it actually means is that anything that might've looked like a register name
@@ -280,14 +288,14 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     if (!reg) {
 not_a_reg:
         if (have_prefix) {
-            // This is the case where we have to spoof a return, otherwise
-            // we'll try and backtrack even though we know we are supposed to
-            // be looking at a register here.
-            static struct etca_reg_info spoofed = { .name = "error-reg", .class=GPR };
             // yes, this might truncate the symbol that the user actually wrote.
             // But we don't _want_ to print the whole symbol, since
             // they could make it arbitrarily long.
             as_bad("Not a register name: %%%.*s", (int)(MAX_REG_NAME_SIZE+2), processed_str);
+            // advance *str until the next character isn't a register character.
+            // Otherwise, we may find more "errors" that are actually because we arbitrarily
+            // split a long bogus register name (like %nonsensenonsensenonsense) into two parts.
+            while (register_chars[(unsigned char) **str] != 0) (*str)++;
             return &spoofed;
         }
         // otherwise, no prefix, but prefixes aren't required, so just backtrack.
@@ -305,23 +313,26 @@ not_a_reg:
             || (reg->reg_num >= 8
                 && !etca_match_cpuid_pattern(&rex_pat, &settings.current_cpuid))) {
             as_bad(reserved_fmt, reg->name);
-            return reg;
+            // if it doesn't exist, we shouldn't check sizes.
+            return &spoofed;
         }
         // does that register size exist with current cpuid?
         if (reg->aux.reg_size == -1) {
             // no size marker. Fine unless we're being pedantic.
             if (settings.pedantic) {
                 as_bad("[-pedantic] %s is missing a size marker", reg->name);
+                return &spoofed;
             }
         }
         else if (!etca_match_cpuid_pattern(&size_pats[reg->aux.reg_size], &settings.current_cpuid)) {
             // we have a size, but it's not available in the cpuid.
             as_bad(reserved_fmt, reg->name);
+            return &spoofed;
         }
         return reg;
     case CTRL:
         {
-            struct etca_cpuid_pattern *patterns[5] =
+            static struct etca_cpuid_pattern *patterns[5] =
                 {&mode_pat, 0, &int_pat, &ci_pat, &pm_pat};
             if (reg->aux.exts == -1) {
                 // will lead to a check against MODE, however,
@@ -334,7 +345,9 @@ not_a_reg:
             }
             if (etca_match_cpuid_pattern(patterns[reg->aux.exts + 1], &settings.current_cpuid))
                 return reg;
-            return reg;   
+            // Otherwise we have a control register which is not valid in this CPUID.
+            // We don't reserve control register names, so this is "not a register."
+            goto not_a_reg;
         }
     default:
         abort();
@@ -343,8 +356,8 @@ not_a_reg:
 }
 
 /* Parse a register (ISA, ABI, or Control, REX included) name into its numeric value and puts it into result,
- * setting the kind to one of GPR or CTRL and storing the correct register index
- * Will parse a size attr and also set that in result.
+ * setting the kind to one of GPR or CTRL and storing the correct register index.
+ * Sets the size attr of the result according to the register parsed
  * If it succeeds, the char* from which to continue parsing is returned.
  * If it fails to parse a register, but a '%' was present, as_bad is called.
  * Otherwise, NULL is returned, and you should try parsing a symbol instead.
@@ -364,8 +377,11 @@ static char *parse_register_name(char *str, struct etca_arg *result) {
         str++;
     }
 
-    // try lookup the name. If we don't find it, simply return null - errors
-    // have already been emitted.
+    // try lookup the name. If we don't find it, simply return null -
+    // it's not a register, we should backtrack.
+    // If we found a register which is erroneous in some way, errors are already
+    // emitted and we're handed a "spoofed" register suitable for
+    // continuing to seek errors.
     reg_info = lookup_register_name_checked(&str, have_prefix);
     if (!reg_info) return NULL;
 
@@ -377,6 +393,13 @@ static char *parse_register_name(char *str, struct etca_arg *result) {
         // it wouldn't really matter, because reg_size should be a don't-care for
         // control registers, but let's be defensive.
         result->reg_size = reg_info->aux.reg_size;
+    } else if (reg_info->class == CTRL) {
+        // If the class is CTRL, the size must be determined by something else.
+        result->reg_size = -1;
+    } else {
+        // If we looked up a register and got something other than GPR or CTRL,
+        // something is wrong in our lookup code - fail fast!
+        abort();
     }
 
     return str;
@@ -390,16 +413,18 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
     expression(&result->imm_expr);
     str = input_line_pointer;
     input_line_pointer = save;
-    offsetT value;
+    int64_t  signed_value;
+    uint64_t unsigned_value;
 
     switch (result->imm_expr.X_op) {
 	case O_constant:
-	    value = result->imm_expr.X_add_number;
+	    signed_value = (int64_t)result->imm_expr.X_add_number;
+            unsigned_value = (uint64_t)signed_value;
 	    result->kind.immAny = 1;
-	    result->kind.immZ = (value >= 0); // This isn't necessarily correct...
-	    result->kind.immS = 1; // Neither is this
-	    result->kind.imm8 = (-128 <= value && value <= 255);
-	    result->kind.imm5 = (-16 <= value && value <= 32);
+            result->kind.imm5s = (-16 <= signed_value && signed_value < 16);
+            result->kind.imm5z = (unsigned_value < 32);
+            result->kind.imm8s = (-128 <= signed_value && signed_value < 128);
+            result->kind.imm8z = (unsigned_value < 256);
 	    break;
 	case O_symbol:
 	    result->kind.immAny = 1;
@@ -510,7 +535,7 @@ md_begin(void) {
  */
 bool compute_params(struct parse_info *pi) {
 #define IS_REG(arg) ((arg).kind.reg_class == GPR)
-#define IS_IMM(arg) ((arg).kind.immAny || (arg).kind.imm5 || (arg.kind.imm8))
+#define IS_IMM(arg) ((arg).kind.immAny) // this covers it unless parse_immediate screws up.
 #define IS_SPECIAL(arg) ((arg).kind.nested_memory || (arg).kind.predec || (arg.kind.postinc))
     /* This can probably be solved better... */
     if (pi->argc == 0) {
@@ -568,63 +593,78 @@ bool compute_params(struct parse_info *pi) {
 
 void
 md_assemble(char *str) {
-    char *op_start;
-    char *op_end;
-
     const struct etca_opc_info *opcode;
     struct parse_info pi = {
-	    .opcode_size = -1,
-	    .params = {.uint = 0},
-	    .argc = 0,
-	    .args = {}
+	.opcode_size = -1,
+	.params = {.uint = 0},
+	.argc = 0,
+	.args = {}
     };
-    // char *output;
-    // int idx = 0;
-    char pend;
 
-    int nlen = 0;
+    char *save_str = str; // for error messages
+    char *opc_p; // for scanning
+    char processed_opcode[MAX_MNEM_SIZE + 1]; // the scanned opcode
 
     /* Drop leading whitespace.  */
     while (ISSPACE(*str)) str++;
 
-    /* Find the op code end.  */
-    op_start = str;
-    op_end = str;
-    while ((*op_end) && !is_end_of_line[(*op_end) & 0xff] && !ISSPACE(*op_end)) {
-	op_end++;
-	nlen++;
+    /* Scan an opcode. */
+    opc_p = processed_opcode;
+    while ((*opc_p++ = mnemonic_chars[(unsigned char) *str]) != 0) {
+        if (opc_p > processed_opcode + MAX_MNEM_SIZE) goto not_an_opcode;
+        str++;
+    }
+    // note after the loop, processed_str is nul terminated
+
+    // There might be a size indicator on the opcode, or there might not.
+    // We could handle this by putting all opcodes with and without them into the table,
+    // but this is actually for more trouble than it's worth as the table becomes quite
+    // messy with exactly what has to be where since same-name opcodes must be adjacent.
+    // TODO: include if a size is allowed in the table so that we can exclude sized opcodes
+    // for things like jumps.
+    
+    // first: check assuming no size.
+    opcode = str_hash_find(opcode_hash_control, processed_opcode);
+    if (!opcode) {
+        char size;
+        // we might have failed to find an entry because it actually ended with a size.
+        // In that case, opc_p is pointing one past the NUL, so bring it back...
+        opc_p -= 2;
+        size = *opc_p;
+        *opc_p = '\0'; // delete the size from processed_opcode...
+        // and try looking up that instead.
+        opcode = str_hash_find(opcode_hash_control, processed_opcode);
+        // restore the size to processed_opcode, in case of error.
+        *opc_p = size;
+        // if the second lookup succeeded, then validate the size and record it.
+        if ( (pi.opcode_size = parse_size_attr(size)) < 0
+            || !etca_match_cpuid_pattern(&size_pats[pi.opcode_size], &settings.current_cpuid)) {
+            // size wasn't a valid size marker, either at all, or with current extensions.
+            // Therefore, this isn't an opcode.
+            opcode = NULL;
+        }
     }
 
-    if (nlen == 0) {
-	as_bad(_("can't find opcode "));
+    // reporting errors if we couldn't find any/a valid opcode...
+    if (processed_opcode[0] == 0) {
+	as_bad(_("can't find opcode")); // this might happen if a line is just %, for example.
 	return;
     }
-    /* Check for a size marker before looking up the opcode*/
-    if (nlen > 1) {
-	if ((pi.opcode_size = parse_size_attr(*(op_end - 1))) >= 0) {
-	    op_end--;
-	    *op_end = ' '; /* Replace the size marker with a space: We dealt with it, it's no longer needed*/
-	}
-    }
-
-    pend = *op_end;
-    *op_end = 0;
-
-    opcode = (struct etca_opc_info *) str_hash_find(opcode_hash_control, op_start);
-    *op_end = pend;
-
     if (opcode == NULL) {
-	as_bad(_("unknown opcode %s"), op_start);
+not_an_opcode:
+        // str may not be advanced to the end of the opcode yet.
+        while (mnemonic_chars[(unsigned char) *str] != 0) str++;
+        *str = '\0';
+	as_bad(_("unknown opcode %s"), save_str);
 	return;
     }
-    str = op_end;
     if (opcode->format == ETCA_IF_ILLEGAL) {
-	as_bad("Illegal opcode %s", op_start);
+	as_bad("Illegal opcode %s", processed_opcode);
 	return;
     }
 
     while (ISSPACE(*str)) str++;
-    while (*str != 0 && pi.argc < MAX_OPERANDS) {
+    while (*str != '\0' && pi.argc < MAX_OPERANDS) {
 	char *arg_end = parse_operand(str, &pi.args[pi.argc]);
 	if (!arg_end) {
 	    as_bad("Expected an argument");
@@ -961,6 +1001,85 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
     return rel;
 }
 
+// Various checks to compute the operand size of various classes of instructions.
+// They take the opcode name for error messages. It's OK if the opcode name
+// doesn't include a size suffix (x86 also doesn't include them).
+// If an error is discovered, it is reported with as_bad, then the safe size
+// 1 (word) is returned to continue seeking potential errors.
+
+static const char size_chars[4] = { 'h', 'x', 'd', 'q' };
+
+/* Typical computation operand size check: must have a size, all operands agree.
+    Note: if some operand is a memory operand, it reports a size of -1 and
+    the parser should have already checked that registers agree with address width. */
+static int8_t find_typical_operand_size(const struct parse_info *pi, const char *opcode_name);
+/* Operand size check for load/store instructions: must have a size,
+    opcode and dst/src operands agree, address operand agrees with address width. */
+static int8_t find_ldst_operand_size(const struct parse_info *pi, const char *opcode_name);
+/* Operand size check for one register size and an opcode size.
+    The register must agree with the opcode.
+    Shared code for several checkers. */
+static int8_t
+check_opcode_register_size(int8_t opcode_size, int8_t reg_size, const char *opcode_name);
+
+static int8_t find_typical_operand_size(const struct parse_info *pi, const char *opcode_name) {
+    int8_t opcode_size = pi->opcode_size;
+    int8_t arg1_size, arg2_size, arg_size;
+    gas_assert(pi->argc == 2);
+
+    arg1_size = pi->args[0].reg_size;
+    arg2_size = pi->args[1].reg_size;
+
+    // do args disagree?
+    if (arg1_size >= 0 && arg2_size >= 0 && arg1_size != arg2_size) {
+        as_bad("operand size mismatch for `%s'", opcode_name);
+        return 1;
+    }
+    // if args agree, compute arg_size
+    if (arg1_size >= 0) arg_size = arg1_size;
+    else                arg_size = arg2_size;
+
+    return check_opcode_register_size(opcode_size, arg_size, opcode_name);
+}
+
+static int8_t check_opcode_register_size(int8_t opcode_size, int8_t reg_size, const char *opcode_name) {
+    // do args disagree with opcode?
+    if (opcode_size >= 0 && reg_size >= 0 && opcode_size != reg_size) {
+        as_bad("Bad register size `%c' for `%s` used with suffix `%c'",
+            size_chars[reg_size], opcode_name, size_chars[opcode_size]);
+        return 1;
+    }
+    // if args and opcode sizes are all -1, we can't determine the size
+    else if (opcode_size == -1 && reg_size == -1) {
+        as_bad("Can't determine operand size for `%s'", opcode_name);
+        return 1;
+    }
+    // otherwise, one of opcode_size or arg_size is known, return that.
+    else if (opcode_size >= 0) return opcode_size;
+    else                       return reg_size;
+}
+
+static int8_t find_ldst_operand_size(const struct parse_info *pi, const char *opcode_name) {
+    int8_t opcode_size = pi->opcode_size;
+    int8_t arg1_size, // this one should work with opcode size
+           arg2_size; // this one should work with address width
+    gas_assert(pi->argc == 2);
+
+    arg1_size = pi->args[0].reg_size;
+    arg2_size = pi->args[1].reg_size;
+
+    // do address arg and address width disagree?
+    if (arg2_size >= 0 && arg2_size != settings.address_size_attr) {
+        as_bad("Bad address register size `%c' for `%s'",
+            size_chars[arg2_size], opcode_name);
+    }
+
+    // Check that opcode size and arg1 size agree.
+    return check_opcode_register_size(opcode_size, arg1_size, opcode_name);
+}
+
+void *make_gcc_shut_up[2] = { find_typical_operand_size, find_ldst_operand_size };
+
 enum abm_mode {
     invalid,
     ri_byte,
@@ -1052,15 +1171,17 @@ void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct pa
 void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi) {
     char *output;
     size_t idx = 0;
+    // this is not at all correct, obviously, but useful for testing for now.
+    int8_t size_attr = pi->opcode_size >= 0 ? pi->opcode_size : 0b01;
     enum abm_mode mode = find_abm_mode(opcode, pi);
     if (mode == invalid) { return; }
 
     if (mode == ri_byte) {
 	output = frag_more(1);
-	output[idx++] = (0b01000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b01000000 | size_attr << 4 | opcode->opcode);
     } else {
 	output = frag_more(1);
-	output[idx++] = (0b00000000 | (((pi->opcode_size >= 0) ? pi->opcode_size : 0b01) << 4) | opcode->opcode);
+	output[idx++] = (0b00000000 | size_attr << 4 | opcode->opcode);
     }
     assemble_abm(opcode, pi, mode);
 }

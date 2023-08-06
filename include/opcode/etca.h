@@ -263,22 +263,20 @@ enum etca_register_class {
 // This enum generates bit indices into the etca_arg_kind bitfield.
 enum {
     Class = CLASS_WIDTH - 1,
-    /* A 5-bit immediate in base or exop formats. */
-    Imm5,
-    /* An 8-bit immediate in the `int` instruction format, and by the i8
-    FI/MO2 instruction formats. One of the sign attributes below will be
-    marked whenever this is present. */
-    Imm8,
+    /* A 5-bit signed immediate. Note this is also a valid 8-bit etc. */
+    Imm5S,
+    /* A 5-bit unsigned immediate */
+    Imm5Z,
+    /* An 8-bit signed immediate */
+    Imm8S,
+    /* An 8-bit unsigned immediate */
+    Imm8Z,
     /* An unqualified immediate. Used by FI/MO2 instruction formats.
     To validate the size of an immediate, you need to also retrieve
     the signedness, and obtain an operand size attribute. That size attribute
     might come from an instruction being assembled, or from an instruction
     being disassembled. */
     ImmAny,
-    /* The immediate (described above) is unsigned. */
-    ImmZ,
-    /* The immediate (described above) is signed. */
-    ImmS,
     /* An 8-bit displacement, used in MO1/MO2 formats. */
     Disp8,
     /* A 9-bit displacement in base jump formats. */
@@ -312,19 +310,16 @@ The kind of a memory operand includes the 'memory' bit, and also
 the information about the displacement if there is one.
 
 In the assembler, all sizes that are guaranteed to fit should be marked.
-This means that a displacement of 300 should have `disp9,disp23,dispPtr,dispAny` all active.
+This means that a displacement of 300 should have `disp9,disp12,dispPtr,dispAny` all active.
 Same goes for immediates.
-
- TODO: We might want to consider "multiplying out" (immZ, immS) x (imm5, imm8)
-       For matching operands, we need to know which of those are legal.
 */
 struct etca_arg_kind {
     unsigned int reg_class:CLASS_WIDTH;
-    unsigned int imm5:1;
-    unsigned int imm8:1;
+    unsigned int imm5s:1;
+    unsigned int imm5z:1;
+    unsigned int imm8s:1;
+    unsigned int imm8z:1;
     unsigned int immAny:1;
-    unsigned int immZ:1;
-    unsigned int immS:1;
     unsigned int disp8:1;
     unsigned int disp9:1;
     unsigned int disp12:1;
