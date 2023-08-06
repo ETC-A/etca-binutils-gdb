@@ -580,6 +580,9 @@ bool compute_params(struct parse_info *pi) {
 	    } else if (IS_REG(pi->args[1])) {
 		pi->params.kinds.rr = 1;
 		return true;
+            } else if (pi->args[1].kind.reg_class == CTRL) {
+                pi->params.kinds.rc = 1;
+                return true;
 	    } else {
 		abort();
 	    }
@@ -705,7 +708,7 @@ not_an_opcode:
 	}
 	if ((opcode->params.uint & bit_to_test) != bit_to_test
 	    || !etca_match_cpuid_pattern(&opcode->requirements, &settings.current_cpuid)) {
-	    as_bad("Unsupported argument pairing for this opcode and cpuid");
+            as_bad("bad operands for `%s'", opcode->name);
 	    return;
 	}
     }
@@ -1218,7 +1221,7 @@ static void assemble_abm(const struct etca_opc_info *, struct parse_info *, enum
  *
  * Will modify *pi to make small adjustments as needed
  * */
-static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct parse_info *pi) {
+static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct parse_info *pi) {
 #define IS_VALID_REG(idx) (pi->args[idx].reg.gpr_reg_num >= 0 && pi->args[idx].reg.gpr_reg_num <= 15)
 #define IS_REX_REG(idx) (pi->args[idx].reg.gpr_reg_num > 7)
     if (pi->params.kinds.rr) {
@@ -1240,6 +1243,7 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode ATTRIBUTE_
 	}
 	return abm_00;
     } else if (pi->params.kinds.ri) {
+        bool signed_imm = true;
 	if (!IS_VALID_REG(0)) {
 	    as_bad("Invalid register number");
 	    return invalid;
@@ -1248,7 +1252,31 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode ATTRIBUTE_
 	    as_bad("REX extension not implemented");
 	    return invalid;
 	}
+
+        // is the immediate well-sized? We have no support for FI right now.
+        if (opcode->format == ETCA_IF_BASE_ABM && (opcode->opcode == 8 || opcode->opcode > 9)) {
+            signed_imm = false;
+        }
+
+        if (signed_imm) {
+            if (!pi->args[1].kind.imm5s)
+                as_bad("bad immediate for `%s'", opcode->name);
+        } else {
+            if (!pi->args[1].kind.imm5z)
+                as_bad("bad immediate for `%s'", opcode->name);
+        }
+
 	return ri_byte;
+    } else if (pi->params.kinds.rc) {
+        // readcr or writecr
+        // can't encode a control register number more than 31;
+        // we don't have any such yet, but ensure we get an error
+        // if or when that happens.
+        gas_assert(pi->args[1].reg.ctrl_reg_num < 32);
+        // set the immediate value to the control reg number
+        pi->args[1].imm_expr.X_add_number = pi->args[1].reg.ctrl_reg_num;
+        // and encode an ri_byte.
+        return ri_byte;
     } else {
 	as_bad("Unknown params kind for assemble_abm");
 	return invalid;
@@ -1289,7 +1317,13 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
     // this is not at all correct, obviously, but useful for testing for now.
     int8_t size_attr = pi->opcode_size >= 0 ? pi->opcode_size : 0b01;
     enum abm_mode mode = find_abm_mode(opcode, pi);
+
     if (mode == invalid) { return; }
+
+    // FIXME: This should probably be handled in slo's size_info field.
+    if (!strcmp(opcode->name, "slo") && !pi->args[1].kind.imm5z) {
+        as_bad("slo operand 2 must be a concrete unsigned 5-bit value");
+    }
 
     if (mode == ri_byte) {
 	output = frag_more(1);
