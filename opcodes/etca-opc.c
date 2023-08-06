@@ -191,44 +191,35 @@ struct etca_opc_info etca_opcodes[] = {
 
 #define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
                                {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
-        BASE_JMP("jz",   0),
-        BASE_JMP("jnz",  1),
-        BASE_JMP("jn",   2),
-        BASE_JMP("jnn",  3),
-        BASE_JMP("jc",   4),
-        BASE_JMP("jnc",  5),
-        BASE_JMP("jv",   6),
-        BASE_JMP("jnv",  7),
-        BASE_JMP("jbe",  8),
-        BASE_JMP("ja",   9),
-        BASE_JMP("jl",  10),
-        BASE_JMP("jge", 11),
-        BASE_JMP("jle", 12),
-        BASE_JMP("jg",  13),
+/* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
+#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
+// doing things this way simplifies adding aliases and the c<code> prefix in the future.
+#define CONDITIONAL(ccode, value) BASE_JMP("j" ccode, value), SAF_COND_CALL("call" ccode, value)
+        CONDITIONAL("z",   0), CONDITIONAL("e", 0),
+        CONDITIONAL("nz",  1), CONDITIONAL("ne", 1),
+        CONDITIONAL("n",   2),
+        CONDITIONAL("nn",  3),
+        CONDITIONAL("c",   4), CONDITIONAL("b", 4), CONDITIONAL("nae", 4),
+        CONDITIONAL("nc",  5), CONDITIONAL("ae", 5), CONDITIONAL("nb", 5),
+        CONDITIONAL("v",   6),
+        CONDITIONAL("nv",  7),
+        CONDITIONAL("be",  8), CONDITIONAL("na", 8),
+        CONDITIONAL("a",   9), CONDITIONAL("nbe", 9),
+        CONDITIONAL("l",  10), CONDITIONAL("nge", 10),
+        CONDITIONAL("ge", 11), CONDITIONAL("nl", 11),
+        CONDITIONAL("le", 12), CONDITIONAL("ng", 12),
+        CONDITIONAL("g",  13), CONDITIONAL("nle", 13),
+#undef CONDITIONAL
+
         BASE_JMP("jmp", 14),
         BASE_JMP("j",   14),
 #undef BASE_JMP
 
-/* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
-#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
-	SAF_COND_CALL("callz",   0),
-	SAF_COND_CALL("callnz",  1),
-	SAF_COND_CALL("calln",   2),
-	SAF_COND_CALL("callnn",  3),
-	SAF_COND_CALL("callc",   4),
-	SAF_COND_CALL("callnc",  5),
-	SAF_COND_CALL("callv",   6),
-	SAF_COND_CALL("callnv",  7),
-	SAF_COND_CALL("callbe",  8),
-	SAF_COND_CALL("calla",   9),
-	SAF_COND_CALL("calll",  10),
-	SAF_COND_CALL("callge", 11),
-	SAF_COND_CALL("callle", 12),
-	SAF_COND_CALL("callg",  13),
 	SAF_COND_CALL("call",   14),
         /* Also the SAF uncond call i, which shares the opcode name with call r */
         {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(IMM), NOSUFFIX(LBL), ETCA_PAT(SAF), 0},
 #undef SAF_COND_CALL
+
 
         {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), NOSUFFIX(0), ETCA_PAT(BASE), 0}
 };
