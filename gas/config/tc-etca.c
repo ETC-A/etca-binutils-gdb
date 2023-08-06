@@ -68,7 +68,9 @@ struct etca_arg {
 
 /* State shared between md_assemble and the indivdual assembler functions */
 struct parse_info {
-    int8_t opcode_size; /* The size marker attached to the opcode, one of -1 (none),0 (h),1 (x),2 (d),3 (q)*/
+    /* The size marker attached to the opcode, one of -1 (none),0 (h),1 (x),2 (d),3 (q).
+        after compute_operand_size, this is the actual operand size attribute. */
+    int8_t opcode_size; 
     union etca_opc_params_field params;
     size_t argc;
     struct etca_arg args[MAX_OPERANDS];
@@ -99,6 +101,11 @@ static char *parse_memory_location(char *str, struct etca_arg *result);
 static char *parse_memory_upper(char *str, struct etca_arg *result);
 
 static char *parse_operand(char *str, struct etca_arg *result);
+
+/* Determine the operand size for the given opcode and parse_info. 
+    The computed size is placed in pi->opcode_size. If we are unable
+    to determine the operand size, as_bad is called and 1 is used. */
+static int8_t compute_operand_size(const struct etca_opc_info *, struct parse_info *);
 
 static bool compute_params(struct parse_info *pi);
 
@@ -157,6 +164,7 @@ struct etca_settings {
 	.arch_name = 0,
 	.custom_name = 0,
 	.manual_cpuid = 0,
+        .address_size_attr = 1, // word
         .require_prefix = 1,
         .pedantic = 0,
 };
@@ -436,6 +444,7 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
 	    return NULL;
     }
 
+    result->reg_size = -1;
     return str;
 }
 
@@ -636,11 +645,13 @@ md_assemble(char *str) {
         opcode = str_hash_find(opcode_hash_control, processed_opcode);
         // restore the size to processed_opcode, in case of error.
         *opc_p = size;
-        // if the second lookup succeeded, then validate the size and record it.
-        if ( (pi.opcode_size = parse_size_attr(size)) < 0
-            || !etca_match_cpuid_pattern(&size_pats[pi.opcode_size], &settings.current_cpuid)) {
-            // size wasn't a valid size marker, either at all, or with current extensions.
-            // Therefore, this isn't an opcode.
+        // if the second lookup succeeded, check if a size suffix was not allowed
+        // or if the given suffix was bad (in general or in this context).
+        if ( opcode 
+            && (!opcode->size_info.suffix_allowed
+                || (pi.opcode_size = parse_size_attr(size)) < 0
+                || !etca_match_cpuid_pattern(&size_pats[pi.opcode_size], &settings.current_cpuid))) {
+            // If that's the case, this isn't an opcode.
             opcode = NULL;
         }
     }
@@ -677,6 +688,7 @@ not_an_opcode:
 	str++;
 	while (ISSPACE(*str)) str++;
     }
+
     assembler assembly_function;
     if (opcode->format != ETCA_IF_SPECIAL) {
 	if (!compute_params(&pi)) {
@@ -697,6 +709,11 @@ not_an_opcode:
 	    return;
 	}
     }
+
+    // do this check even for IF_SPECIAL (something is wrong with the
+    // syntax if the operands of a name are overloaded).
+    compute_operand_size(opcode, &pi);
+
     if (opcode->format == ETCA_IF_SPECIAL || opcode->format == ETCA_IF_PSEUDO) {
 	assembly_function = pseudo_functions[opcode->opcode];
     } else {
@@ -1008,21 +1025,94 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
 // 1 (word) is returned to continue seeking potential errors.
 
 static const char size_chars[4] = { 'h', 'x', 'd', 'q' };
+typedef int8_t(*size_checker)(const struct etca_opc_info *, const struct parse_info *);
+#define SIZE_CHK_HDR(name) static int8_t name(const struct etca_opc_info *opc, const struct parse_info *pi)
 
 /* Typical computation operand size check: must have a size, all operands agree.
     Note: if some operand is a memory operand, it reports a size of -1 and
     the parser should have already checked that registers agree with address width. */
-static int8_t find_typical_operand_size(const struct parse_info *pi, const char *opcode_name);
+SIZE_CHK_HDR(compute_opr_opr_size);
 /* Operand size check for load/store instructions: must have a size,
     opcode and dst/src operands agree, address operand agrees with address width. */
-static int8_t find_ldst_operand_size(const struct parse_info *pi, const char *opcode_name);
-/* Operand size check for one register size and an opcode size.
-    The register must agree with the opcode.
-    Shared code for several checkers. */
-static int8_t
-check_opcode_register_size(int8_t opcode_size, int8_t reg_size, const char *opcode_name);
+SIZE_CHK_HDR(compute_opr_adr_size);
+// etc.
+SIZE_CHK_HDR(compute_opr_any_size);
+SIZE_CHK_HDR(compute_opr_size);
+SIZE_CHK_HDR(compute_adr_size);
+SIZE_CHK_HDR(check_arg_is_lbl);
+SIZE_CHK_HDR(compute_nullary_size);
 
-static int8_t find_typical_operand_size(const struct parse_info *pi, const char *opcode_name) {
+
+/* Operand size check for one register size and an opcode size.
+    The register must agree with the opcode. Shared code for several checkers. */
+static int8_t
+check_opcode_matches_opr_size(const struct etca_opc_info *, int8_t opcode_size, int8_t reg_size);
+
+static void
+check_adr_size(const struct etca_opc_info *, int8_t adr_size);
+
+// potential errors while computing operand sizes
+static void operand_size_mismatch(const struct etca_opc_info *);
+static void suffix_operand_disagree(const struct etca_opc_info *, int8_t suffix, int8_t opsize);
+static void indeterminate_operand_size(const struct etca_opc_info *);
+static void bad_address_reg_size(const struct etca_opc_info *, int8_t reg_size);
+static void must_be_a_label(const struct etca_opc_info *);
+
+static const size_checker size_checkers[NUM_ARGS_SIZES] = {
+    compute_nullary_size, compute_opr_size,
+    compute_adr_size, check_arg_is_lbl,
+    compute_opr_opr_size, compute_opr_adr_size,
+    compute_opr_any_size
+};
+
+static int8_t compute_operand_size(const struct etca_opc_info *opcode, struct parse_info *pi) {
+    // call the relevant size checker, that's all.
+    gas_assert(opcode->size_info.args_size < NUM_ARGS_SIZES);
+    pi->opcode_size = size_checkers[opcode->size_info.args_size](opcode, pi);
+    return pi->opcode_size;
+}
+
+SIZE_CHK_HDR(compute_nullary_size) {
+    gas_assert(pi->argc == 0);
+    gas_assert(opc->size_info.args_size == 0);
+    // the expectation is that these opcodes don't have sizes. But if we add
+    // suffixes for nop at some point, for example, this might need revisiting.
+    return pi->opcode_size;
+}
+
+SIZE_CHK_HDR(compute_opr_size) {
+    gas_assert(pi->argc == 1);
+    gas_assert(opc->size_info.args_size == OPR);
+
+    return check_opcode_matches_opr_size(opc, pi->opcode_size, pi->args[0].reg_size);
+}
+
+SIZE_CHK_HDR(compute_adr_size) {
+    gas_assert(pi->argc == 1);
+    gas_assert(opc->size_info.args_size == ADR);
+
+    check_adr_size(opc, pi->args[0].reg_size);
+    if (pi->opcode_size < 0) {
+        indeterminate_operand_size(opc);
+        return 1;
+    }
+    return pi->opcode_size;
+}
+
+SIZE_CHK_HDR(check_arg_is_lbl) {
+    const struct expressionS *expr;
+    gas_assert(pi->argc == 1);
+    gas_assert(opc->size_info.args_size == LBL);
+    // compute_params has been called by now, and we must have an imm to get here.
+    gas_assert(pi->args[0].kind.immAny == 1);
+
+    expr = &pi->args[0].imm_expr;
+
+    if (expr->X_op != O_symbol || expr->X_add_number != 0) must_be_a_label(opc);
+    return -1;
+}
+
+SIZE_CHK_HDR(compute_opr_opr_size) {
     int8_t opcode_size = pi->opcode_size;
     int8_t arg1_size, arg2_size, arg_size;
     gas_assert(pi->argc == 2);
@@ -1032,34 +1122,17 @@ static int8_t find_typical_operand_size(const struct parse_info *pi, const char 
 
     // do args disagree?
     if (arg1_size >= 0 && arg2_size >= 0 && arg1_size != arg2_size) {
-        as_bad("operand size mismatch for `%s'", opcode_name);
+        operand_size_mismatch(opc);
         return 1;
     }
     // if args agree, compute arg_size
     if (arg1_size >= 0) arg_size = arg1_size;
     else                arg_size = arg2_size;
 
-    return check_opcode_register_size(opcode_size, arg_size, opcode_name);
+    return check_opcode_matches_opr_size(opc, opcode_size, arg_size);
 }
 
-static int8_t check_opcode_register_size(int8_t opcode_size, int8_t reg_size, const char *opcode_name) {
-    // do args disagree with opcode?
-    if (opcode_size >= 0 && reg_size >= 0 && opcode_size != reg_size) {
-        as_bad("Bad register size `%c' for `%s` used with suffix `%c'",
-            size_chars[reg_size], opcode_name, size_chars[opcode_size]);
-        return 1;
-    }
-    // if args and opcode sizes are all -1, we can't determine the size
-    else if (opcode_size == -1 && reg_size == -1) {
-        as_bad("Can't determine operand size for `%s'", opcode_name);
-        return 1;
-    }
-    // otherwise, one of opcode_size or arg_size is known, return that.
-    else if (opcode_size >= 0) return opcode_size;
-    else                       return reg_size;
-}
-
-static int8_t find_ldst_operand_size(const struct parse_info *pi, const char *opcode_name) {
+SIZE_CHK_HDR(compute_opr_adr_size) {
     int8_t opcode_size = pi->opcode_size;
     int8_t arg1_size, // this one should work with opcode size
            arg2_size; // this one should work with address width
@@ -1068,17 +1141,59 @@ static int8_t find_ldst_operand_size(const struct parse_info *pi, const char *op
     arg1_size = pi->args[0].reg_size;
     arg2_size = pi->args[1].reg_size;
 
-    // do address arg and address width disagree?
-    if (arg2_size >= 0 && arg2_size != settings.address_size_attr) {
-        as_bad("Bad address register size `%c' for `%s'",
-            size_chars[arg2_size], opcode_name);
-    }
-
-    // Check that opcode size and arg1 size agree.
-    return check_opcode_register_size(opcode_size, arg1_size, opcode_name);
+    // check that opcode size and arg1 size agree. Check first
+    // for order of error messages.
+    arg1_size = check_opcode_matches_opr_size(opc, opcode_size, arg1_size);
+    // check that arg2 size is consistent with address mode...
+    check_adr_size(opc, arg2_size);
+    return arg1_size;
 }
 
-void *make_gcc_shut_up[2] = { find_typical_operand_size, find_ldst_operand_size };
+SIZE_CHK_HDR(compute_opr_any_size) {
+    gas_assert(pi->argc == 2);
+    return check_opcode_matches_opr_size(opc, pi->opcode_size, pi->args[0].reg_size);
+}
+
+static int8_t check_opcode_matches_opr_size(const struct etca_opc_info *opc, int8_t opcode_size, int8_t reg_size) {
+    // do args disagree with opcode?
+    if (opcode_size >= 0 && reg_size >= 0 && opcode_size != reg_size) {
+        suffix_operand_disagree(opc, opcode_size, reg_size);
+        return 1;
+    }
+    // if args and opcode sizes are all -1, we can't determine the size
+    else if (opcode_size == -1 && reg_size == -1) {
+        indeterminate_operand_size(opc);
+        return 1;
+    }
+    // otherwise, one of opcode_size or arg_size is known, return that.
+    else if (opcode_size >= 0) return opcode_size;
+    else                       return reg_size;
+}
+
+static void check_adr_size(const struct etca_opc_info *opc, int8_t adr_size) {
+    if (adr_size >= 0 && adr_size != settings.address_size_attr) {
+        bad_address_reg_size(opc, adr_size);
+    }
+}
+
+#undef SIZE_CHK_HDR
+
+static void operand_size_mismatch(const struct etca_opc_info *opc) {
+    as_bad("operand size mismatch for `%s'", opc->name);
+}
+static void suffix_operand_disagree(const struct etca_opc_info *opc, int8_t suffix, int8_t opsize) {
+    as_bad("bad register size `%c' for `%s' used with suffix `%c'",
+        size_chars[opsize], opc->name, size_chars[suffix]);
+}
+static void indeterminate_operand_size(const struct etca_opc_info *opc) {
+    as_bad("can't determine operand size for `%s'", opc->name);
+}
+static void bad_address_reg_size(const struct etca_opc_info *opc, int8_t reg_size) {
+    as_bad("bad address register size `%c' for `%s'", size_chars[reg_size], opc->name);
+}
+static void must_be_a_label(const struct etca_opc_info *opc) {
+    as_bad("the operand of `%s' must be a label", opc->name);
+}
 
 enum abm_mode {
     invalid,

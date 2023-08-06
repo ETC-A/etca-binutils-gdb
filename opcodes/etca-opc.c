@@ -152,31 +152,45 @@ const struct etca_reg_info etca_registers[] = {
 
 #define ANY_ABM PARAMS5(REG_IMM, REG_REG, REG_MEM, MEM_REG, MEM_IMM)
 
+// operations that allow a size suffix
+#define SUFFIX(info) ((struct etca_opc_size_info) {.suffix_allowed=1, .args_size=info})
+// operations that don't allow a size suffix
+#define NOSUFFIX(info) ((struct etca_opc_size_info) {.suffix_allowed=0, .args_size=info})
+
 struct etca_opc_info etca_opcodes[] = {
         /* name, iformat, opcode, params, requirements, try_next*/
-        {"add",    ETCA_IF_BASE_ABM, 0, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"sub",    ETCA_IF_BASE_ABM, 1, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"rsub",   ETCA_IF_BASE_ABM, 2, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"comp",   ETCA_IF_BASE_ABM, 3, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"or",     ETCA_IF_BASE_ABM, 4, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"xor",    ETCA_IF_BASE_ABM, 5, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"and" ,   ETCA_IF_BASE_ABM, 6, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"test",   ETCA_IF_BASE_ABM, 7, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"movz",   ETCA_IF_BASE_ABM, 8, ANY_ABM, ETCA_PAT(BASE), 0},
-        {"movs",   ETCA_IF_BASE_ABM, 9, ANY_ABM, ETCA_PAT(BASE), 0},
 
-        {"load",   ETCA_IF_BASE_ABM, 10, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
-        {"load",   ETCA_IF_BASE_ABM, 10, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), ETCA_PAT(MMAI), 0},
-        {"store",  ETCA_IF_BASE_ABM, 11, PARAMS2(REG_IMM, REG_REG),          ETCA_PAT(BASE), 0},
-        {"store",  ETCA_IF_BASE_ABM, 11, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), ETCA_PAT(MMAI), 0},
+#define BASE_COMPUTE(name, c) \
+        { name, ETCA_IF_BASE_ABM, c, ANY_ABM, \
+          SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0}
+        BASE_COMPUTE("add",  0),
+        BASE_COMPUTE("sub",  1),
+        BASE_COMPUTE("rsub", 2),
+        BASE_COMPUTE("cmp",  3),
+        BASE_COMPUTE("or",   4),
+        BASE_COMPUTE("xor",  5),
+        BASE_COMPUTE("and",  6),
+        BASE_COMPUTE("test", 7),
+        BASE_COMPUTE("movz", 8),
+        BASE_COMPUTE("movs", 9),
+#undef  BASE_COMPUTE
 
-        {"slo",    ETCA_IF_BASE_ABM, 12, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0}, /* Or do we need to communicate stricter conditions here?*/
+#define BASE_MEMORY(name, c) \
+        { name, ETCA_IF_BASE_ABM, c, PARAMS2(REG_IMM, REG_REG), SUFFIX(OPR_ADR), ETCA_PAT(BASE), 0}, \
+        { name, ETCA_IF_BASE_ABM, c, PARAMS3(MEM_IMM, MEM_REG, REG_MEM), SUFFIX(OPR_ADR), ETCA_PAT(MMAI), 0}
+        BASE_MEMORY("load", 10),
+        BASE_MEMORY("store", 11),
+#undef  BASE_MEMORY
 
-        {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
-        {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS1(REG_IMM), ETCA_PAT(BASE), 0},
+        // tc-etca.c currently implements the check that the operand here is a
+        // concrete immediate as a special-case check.
+        {"slo",    ETCA_IF_BASE_ABM, 12, PARAMS1(REG_IMM), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
 
-#define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), ETCA_PAT(BASE), 0}, \
-                               {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(REG), ETCA_PAT(SAF), 0}
+        {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS2(REG_IMM, REG_CTRL), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
+        {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS2(REG_IMM, REG_CTRL), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
+
+#define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
+                               {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
         BASE_JMP("jz",   0),
         BASE_JMP("jnz",  1),
         BASE_JMP("jn",   2),
@@ -196,7 +210,7 @@ struct etca_opc_info etca_opcodes[] = {
 #undef BASE_JMP
 
 /* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
-#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(REG), ETCA_PAT(SAF), 0}
+#define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
 	SAF_COND_CALL("callz",   0),
 	SAF_COND_CALL("callnz",  1),
 	SAF_COND_CALL("calln",   2),
@@ -213,10 +227,10 @@ struct etca_opc_info etca_opcodes[] = {
 	SAF_COND_CALL("callg",  13),
 	SAF_COND_CALL("call",   14),
         /* Also the SAF uncond call i, which shares the opcode name with call r */
-        {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(IMM), ETCA_PAT(SAF), 0},
+        {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(IMM), NOSUFFIX(LBL), ETCA_PAT(SAF), 0},
 #undef SAF_COND_CALL
 
-        {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), ETCA_PAT(BASE), 0}
+        {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), NOSUFFIX(0), ETCA_PAT(BASE), 0}
 };
 
 #undef PARAMS1
@@ -225,3 +239,5 @@ struct etca_opc_info etca_opcodes[] = {
 #undef PARAMS4
 #undef PARAMS5
 #undef ANY_ABM
+#undef SUFFIX
+#undef NOSUFFIX

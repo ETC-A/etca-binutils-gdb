@@ -357,7 +357,7 @@ struct etca_reg_info {
 
 // This enum generates bit indices into the etca_params_kind bitfield.
 enum {
-    EMPTY,
+    NULLARY,
     REG,
     MEM,
     IMM,
@@ -377,17 +377,35 @@ enum {
  * ASP-style pre- and post-decrement and other nested memory locations
  */
 struct etca_params_kind {
-    uint32_t e: 1; // No Arguments (Empty)
-    uint32_t r: 1; // Single Register
-    uint32_t m: 1; // Single Memory
-    uint32_t i: 1; // Single Immediate
-    uint32_t ri: 1; // Register-Immediate (any size immediate)
-    uint32_t rr: 1; // Register-Register
-    uint32_t rm: 1; // Register-Memory
-    uint32_t mr: 1; // Memory-Register
-    uint32_t mi: 1; // Memory-Immediate
+    uint16_t e: 1; // No Arguments (Empty)
+    uint16_t r: 1; // Single Register
+    uint16_t m: 1; // Single Memory
+    uint16_t i: 1; // Single Immediate
+    uint16_t ri: 1; // Register-Immediate (any size immediate)
+    uint16_t rr: 1; // Register-Register
+    uint16_t rm: 1; // Register-Memory
+    uint16_t mr: 1; // Memory-Register
+    uint16_t mi: 1; // Memory-Immediate
 
-    uint32_t rc: 1; // register, Control reg
+    uint16_t rc: 1; // register, Control reg
+};
+
+enum etca_args_size {
+    OPR = 1, // one operand
+    ADR,     // one address (register)
+    LBL,     // one label (that is, a non-concrete expression)
+    OPR_OPR, // two operands
+    OPR_ADR, // one operand, then one address
+    OPR_ANY, // one operand, then something which is unchecked
+             // for example a control register or immediate.
+    // if NUM_ARGS_SIZES ever exceeds 32767, etca_opc_size_info
+    // needs to become larger.
+    NUM_ARGS_SIZES,
+};
+
+struct etca_opc_size_info {
+    uint16_t args_size: 15;
+    uint16_t suffix_allowed: 1; // can a size suffix follow the opcode?
 };
 
 /* The various instruction formats to be used to get a specific assembler or disassembler function */
@@ -410,8 +428,9 @@ struct etca_opc_info {
     uint16_t opcode; /* Exact meaning depends on format */
     union etca_opc_params_field {
         struct etca_params_kind kinds;
-        uint32_t uint;
+        uint16_t uint;
     } params;
+    struct etca_opc_size_info size_info;
     struct etca_cpuid_pattern requirements;
     char try_next_assembly; /* bool - will be set correctly during md_begin*/
 };
