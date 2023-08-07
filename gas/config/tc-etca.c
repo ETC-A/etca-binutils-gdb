@@ -109,6 +109,8 @@ static int8_t compute_operand_size(const struct etca_opc_info *, struct parse_in
 
 static bool compute_params(struct parse_info *pi);
 
+static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *);
+
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
 
@@ -171,7 +173,7 @@ struct etca_settings {
 
 
 static assembler pseudo_functions[1] = {
-	0, /* mov */
+	process_mov_pseudo, /* mov */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	0, /* ILLEGAL */
@@ -266,10 +268,10 @@ static struct etca_cpuid_pattern any_size_pat =
  */
 static struct etca_reg_info *lookup_register_name_checked(char **str, int have_prefix) {
     struct etca_reg_info *reg;
-    // + 1 is needed for nul terminator. Additional +2 is to prevent truncation
-    // in error messages in case of a typo on a long ctrl reg name.
-    char processed_str[MAX_REG_NAME_SIZE + 3];
+    // + 1 is needed for nul terminator
+    char processed_str[MAX_REG_NAME_SIZE + 1];
     char *p;
+    char *save_str = *str;
     static const char reserved_msg[] = "%%%s is a reserved register name";
     // msg + 2 skips the %% bit when we don't have a prefix.
     const char *reserved_fmt = have_prefix ? reserved_msg : (reserved_msg + 2);
@@ -286,8 +288,7 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     // start by lexically analyzing str. If it can't be a register name, don't bother.
     p = processed_str;
     while ((*p++ = register_chars[(unsigned char) **str]) != 0) {
-        // + 2 is to prevent truncation in error messages; see above.
-        if (p > processed_str + MAX_REG_NAME_SIZE + 2) goto not_a_reg;
+        if (p > processed_str + MAX_REG_NAME_SIZE) goto not_a_reg;
         (*str)++;
     }
     // note after the loop, processed_str is nul terminated
@@ -298,14 +299,15 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     if (!reg) {
 not_a_reg:
         if (have_prefix) {
-            // yes, this might truncate the symbol that the user actually wrote.
-            // But we don't _want_ to print the whole symbol, since
-            // they could make it arbitrarily long.
-            as_bad("Not a register name: %%%.*s", (int)(MAX_REG_NAME_SIZE+2), processed_str);
+            char tmp;
             // advance *str until the next character isn't a register character.
-            // Otherwise, we may find more "errors" that are actually because we arbitrarily
-            // split a long bogus register name (like %nonsensenonsensenonsense) into two parts.
+            // Otherwise, we may find more "errors" that are actually because we split
+            // a long bogus register name (like %nonsensenonsensenonsen) into two parts.
             while (register_chars[(unsigned char) **str] != 0) (*str)++;
+            tmp = **str;
+            **str = '\0';
+            as_bad("Not a register name: %s", save_str);
+            **str = tmp;
             return &spoofed;
         }
         // otherwise, no prefix, but prefixes aren't required, so just backtrack.
@@ -707,6 +709,11 @@ not_an_opcode:
     }
 
     assembler assembly_function;
+    // compute params kind.
+    // Note there's an important secondary function here: checking that
+    // we have the right _number_ of params. For special, we **must**
+    // check this as a special case, or else we will hit gas assert
+    // failures when we try to compute the operand size.
     if (opcode->format != ETCA_IF_SPECIAL) {
 	if (!compute_params(&pi)) {
 	    as_bad("Unknown argument pairing");
@@ -725,6 +732,12 @@ not_an_opcode:
             as_bad("bad operands for `%s'", opcode->name);
 	    return;
 	}
+    } else {
+        // it is special.
+        if (opcode->opcode == ETCA_MOV && pi.argc != 2) {
+            as_bad("bad operands for `mov'");
+            return;
+        }
     }
 
     // do this check even for IF_SPECIAL (something is wrong with the
@@ -1212,6 +1225,45 @@ static void must_be_a_label(const struct etca_opc_info *opc) {
     as_bad("the operand of `%s' must be a label", opc->name);
 }
 
+/* Process the mov pseudo instruction. The only thing that needs to be guaranteed
+    beforehand is that there are two params. */
+static void 
+process_mov_pseudo(
+    const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
+    struct parse_info *pi
+) {
+#define KIND(idx) (pi->args[idx].kind)
+    // two (GP) registers: it's just movs.
+    if (KIND(0).reg_class == GPR && KIND(1).reg_class == GPR) {
+        struct etca_opc_info *movs = str_hash_find(opcode_hash_control, "movs");
+        pi->params.kinds.rr = 1;
+        assemble_base_abm(movs, pi);
+        return;
+    }
+    // GP register <- CTRL register: readcr
+    if (KIND(0).reg_class == GPR && KIND(1).reg_class == CTRL) {
+        struct etca_opc_info *readcr = str_hash_find(opcode_hash_control, "readcr");
+        pi->params.kinds.rc = 1;
+        assemble_base_abm(readcr, pi);
+        return;
+    }
+    // CTRL register <- GP register: writecr
+    // remember writecr needs the ctrl reg on the right, so we have to swap them!
+    if (KIND(0).reg_class == CTRL && KIND(1).reg_class == GPR) {
+        struct etca_opc_info *writecr = str_hash_find(opcode_hash_control, "writecr");
+        struct etca_arg tmp = pi->args[0];
+        pi->args[0] = pi->args[1];
+        pi->args[1] = tmp;
+        pi->params.kinds.rc = 1;
+        assemble_base_abm(writecr, pi);
+        return;
+    }
+    
+    as_fatal("implementation of the `mov' pseudoinstruction is not complete.");
+
+#undef KIND
+}
+
 enum abm_mode {
     invalid,
     ri_byte,
@@ -1268,7 +1320,7 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct pa
 	}
 
         // is the immediate well-sized? We have no support for FI right now.
-        if (opcode->format == ETCA_IF_BASE_ABM && (opcode->opcode == 8 || opcode->opcode > 9)) {
+        if (opcode->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(opcode->opcode)) {
             signed_imm = false;
         }
 
@@ -1335,7 +1387,7 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
     if (mode == invalid) { return; }
 
     // FIXME: This should probably be handled in slo's size_info field.
-    if (!strcmp(opcode->name, "slo") && !pi->args[1].kind.imm5z) {
+    if (opcode->name && !strcmp(opcode->name, "slo") && !pi->args[1].kind.imm5z) {
         as_bad("slo operand 2 must be a concrete unsigned 5-bit value");
     }
 
