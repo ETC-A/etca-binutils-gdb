@@ -113,6 +113,7 @@ static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *
 
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
+static void assemble_saf_stk (const struct etca_opc_info *, struct parse_info *);
 
 #define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
 
@@ -172,7 +173,7 @@ struct etca_settings {
 };
 
 
-static assembler pseudo_functions[1] = {
+static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
 	process_mov_pseudo, /* mov */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
@@ -182,9 +183,11 @@ static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	assemble_base_abm, /* BASE_ABM */
 	0, /* EXOP_ABM */
 	assemble_base_jmp, /* BASE_JMP */
+    0, /* SAF_CALL */
+    0, /* SAF_JMP  */
+    assemble_saf_stk, /* SAF_STK  */
 	0, /* EXOP_JMP */
 };
-
 
 const char comment_chars[] = ";";
 /* Additional characters beyond newline which should be treated as line separators.
@@ -1122,7 +1125,8 @@ SIZE_CHK_HDR(compute_adr_size) {
     gas_assert(opc->size_info.args_size == ADR);
 
     check_adr_size(opc, pi->args[0].reg_size);
-    if (pi->opcode_size < 0) {
+    // we don't need an operand size for register jumps/calls
+    if (opc->format != ETCA_IF_SAF_JMP && pi->opcode_size < 0) {
         indeterminate_operand_size(opc);
         return 1;
     }
@@ -1401,7 +1405,7 @@ void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi
     assemble_abm(opcode, pi, mode);
 }
 
-/* Assemble a base-isa style jump instruction, also supporting the SaF cond calls using the same format.
+/* Assemble a base-isa style jump instruction.
  */
 void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
     char *output;
@@ -1417,4 +1421,40 @@ void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi
     fixp->fx_signed = true;
     output[idx++] = (0b10000000 | opcode->opcode);
     output[idx++] = 0;
+}
+
+/* Assemble a SAF push or pop instruction. */
+void assemble_saf_stk(const struct etca_opc_info *opcode, struct parse_info *pi) {
+    // 12 => pop;  stack pointer belongs in the B operand
+    // 13 => push; stack pointer belongs in the A operand
+    gas_assert(opcode->opcode == 12 || opcode->opcode == 13);
+    gas_assert(pi->argc == 1);
+
+    // Kind r => rr. Kind i => ri. Kind m needs depends on which opcode we have.
+    if (pi->params.kinds.r) {
+        pi->params.kinds.r = 0;
+        pi->params.kinds.rr = 1;
+    } else if (pi->params.kinds.i) {
+        pi->params.kinds.i = 0;
+        pi->params.kinds.ri = 1;
+    } else {
+        gas_assert(pi->params.kinds.m);
+    }
+
+    if (opcode->opcode == 12) {
+        // parsed operand is already in the A operand. Just pull in stack pointer...
+        pi->argc = 2;
+        pi->args[1].kind.reg_class = GPR;
+        pi->args[1].reg.gpr_reg_num = 6; // #define this somewhere? or maybe an enum?
+        assemble_base_abm(opcode, pi);
+        return;
+    } else if (opcode->opcode == 13) {
+        // parsed operand is in the A operand, but must be moved to B.
+        pi->argc = 2;
+        pi->args[1] = pi->args[0];
+        pi->args[0].kind.reg_class = GPR;
+        pi->args[0].reg.gpr_reg_num = 6;
+        assemble_base_abm(opcode, pi);
+        return;
+    }
 }

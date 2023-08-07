@@ -415,6 +415,7 @@ struct etca_opc_size_info {
 #define MAX_INSTRUCTION_LENGTH 15
 
 /* The various instruction formats to be used to get a specific assembler or disassembler function */
+// If you add a format, be sure to adjust the `format_assemblers` table in tc-etca.c.
 enum etca_iformat {
     ETCA_IF_ILLEGAL,   /* An illegal/unknown instruction, which we can't further encode/decode */
     ETCA_IF_SPECIAL,   /* A pseudo instruction that takes over *before* argument pairing*/
@@ -424,6 +425,7 @@ enum etca_iformat {
     ETCA_IF_BASE_JMP,  /* A base cond jump with a 9bit displacement */
     ETCA_IF_SAF_CALL,  /* A saf call with a 12-bit displacement */
     ETCA_IF_SAF_JMP,   /* A saf cond jump or call, with a register */
+    ETCA_IF_SAF_STK,   /* A saf push/pop. Recovers %sp, then defers to BASE_ABM. */
     ETCA_IF_EXOP_JMP,  /* A exop jump (or SaF-EXOP call) with a 8/16/32/64 bit displacement */
     ETCA_IFORMAT_COUNT
 };
@@ -443,8 +445,11 @@ struct etca_opc_info {
 
 /* An enumeration of pseudo names so that we don't accidentally create
     clashes in the table. */
+// if you add pseudoinstruction formats, be sure to also add them to
+// the pseudo_functions table in tc-etca.c.
 enum etca_pseudo_opcode {
     ETCA_MOV,
+    ETCA_PSEUDO_COUNT
 };
 
 #define ETCA_BASE_ABM_IMM_SIGNED(opcode) ((opcode) < 8 || (opcode) == 9)

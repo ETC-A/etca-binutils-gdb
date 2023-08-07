@@ -191,6 +191,11 @@ struct etca_opc_info etca_opcodes[] = {
         {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS2(REG_IMM, REG_CTRL), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
         {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS2(REG_IMM, REG_CTRL), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
 
+        {"pop",     ETCA_IF_SAF_STK, 12, PARAMS1(REG), SUFFIX(OPR), ETCA_PAT(SAF), 0},
+        {"pop",     ETCA_IF_SAF_STK, 12, PARAMS1(MEM), SUFFIX(OPR), ETCA_PAT_AND2(SAF,MMAI), 0},
+        {"push",    ETCA_IF_SAF_STK, 13, PARAMS2(REG, IMM), SUFFIX(OPR), ETCA_PAT(SAF), 0},
+        {"push",    ETCA_IF_SAF_STK, 13, PARAMS1(MEM), SUFFIX(OPR), ETCA_PAT_AND2(SAF,MMAI), 0},
+
 #define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(IMM), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
                                {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(REG), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
 /* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */

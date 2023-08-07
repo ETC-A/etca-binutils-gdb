@@ -171,18 +171,27 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    && opc_info->opcode == di.opcode) {
 	    /* We have a match */
 	    di.opc_info = opc_info;
+            break;
 	}
     }
-    if (di.opc_info->size_info.suffix_allowed) {
-	fpr(stream, "%s%c\t", di.opc_info->name, di.size >= 0 ? size_names[di.size] : '?');
+
+    if (!di.opc_info) {
+        // We weren't able to find a match in the table. This is a disassembler bug,
+        // unless in theory the format makes sense but is made illegal by the spec.
+        // Anyway, we could kill the disassembler, but in the interest of trying to
+        // be useful as much as possible, we print a bad opcode and keep going.
+        fpr(stream, "<unknown opcode:%" PRIu16 "> ", di.opcode);
+    }
+    else if (di.opc_info->size_info.suffix_allowed) {
+	fpr(stream, "%-6s%c ", di.opc_info->name, di.size >= 0 ? size_names[di.size] : '?');
     } else {
-	fpr(stream, "%s\t", di.opc_info->name);
+	fpr(stream, "%-7s ", di.opc_info->name);
     }
     for (size_t i = 0; i < di.argc; i++) {
 	if (i != 0) { fpr(stream, ", "); };
 	if (di.args[i].kinds.reg_class != RegClassNone) {
 	    fpr(stream, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
-	} else if (di.args[i].kinds.immAny && di.opc_info->size_info.args_size == LBL) {
+	} else if (di.args[i].kinds.immAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
 	    info->print_address_func(addr + di.args[i].as.imm, info);
 	} else if (di.args[i].kinds.imm5z || di.args[i].kinds.imm8z) {
 	    fpr(stream, "%" PRIu64, di.args[i].as.imm);
