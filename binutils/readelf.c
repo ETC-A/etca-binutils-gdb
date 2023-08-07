@@ -109,6 +109,7 @@
 #include "elf/d30v.h"
 #include "elf/dlx.h"
 #include "elf/bpf.h"
+#include "elf/etca.h"
 #include "elf/epiphany.h"
 #include "elf/fr30.h"
 #include "elf/frv.h"
@@ -1073,6 +1074,7 @@ guess_is_rela (unsigned int e_machine)
     case EM_D30V:
     case EM_CYGNUS_D30V:
     case EM_FR30:
+    case EM_ETCA:
     case EM_FT32:
     case EM_CYGNUS_FR30:
     case EM_CYGNUS_FRV:
@@ -1695,6 +1697,10 @@ dump_relocations (Filedata *filedata,
 
 	case EM_MOXIE:
 	  rtype = elf_moxie_reloc_type (type);
+	  break;
+
+	case EM_ETCA:
+	  rtype = elf_etca_reloc_type (type);
 	  break;
 
 	case EM_MSP430:
@@ -2993,6 +2999,7 @@ get_machine_name (unsigned e_machine)
     case EM_ADAPTEVA_EPIPHANY:	return "Adapteva EPIPHANY";
     case EM_CYGNUS_FRV:		return "Fujitsu FR-V";
     case EM_S12Z:               return "Freescale S12Z";
+    case EM_ETCA:              return "ETCa";
 
     default:
       snprintf (buff, sizeof (buff), _("<unknown>: 0x%x"), e_machine);
@@ -14366,6 +14373,8 @@ is_32bit_abs_reloc (Filedata * filedata, unsigned int reloc_type)
       return reloc_type == 12; /* R_D30V_32_NORMAL.  */
     case EM_DLX:
       return reloc_type == 3; /* R_DLX_RELOC_32.  */
+    case EM_ETCA:
+      return 0; /* ETCA-TODO: We need to have such a mode  */
     case EM_CYGNUS_FR30:
     case EM_FR30:
       return reloc_type == 3; /* R_FR30_32.  */
@@ -14994,6 +15003,7 @@ is_none_reloc (Filedata * filedata, unsigned int reloc_type)
     case EM_ARC_COMPACT3: /* R_ARC_NONE.  */
     case EM_ARC_COMPACT3_64: /* R_ARC_NONE.  */
     case EM_ARM:     /* R_ARM_NONE.  */
+    case EM_ETCA:   /* R_ETCA_NONE.  */
     case EM_CRIS:    /* R_CRIS_NONE.  */
     case EM_FT32:    /* R_FT32_NONE.  */
     case EM_IA_64:   /* R_IA64_NONE.  */
