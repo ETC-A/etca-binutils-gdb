@@ -175,7 +175,7 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_COMPUTE("movs", 9),
 #undef  BASE_COMPUTE
         // pseudoinstruction takes over without params being checked, but size is computed.
-        { "mov", ETCA_IF_SPECIAL, ETCA_MOV, {0}, SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0},
+        { "mov", ETCA_IF_SPECIAL, ETCA_MOV, PARAMS1(OTHER), SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0},
 
 #define BASE_MEMORY(name, c) \
         { name, ETCA_IF_BASE_ABM, c, PARAMS2(REG_IMM, REG_REG), SUFFIX(OPR_ADR), ETCA_PAT(BASE), 0}, \

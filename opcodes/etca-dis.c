@@ -20,6 +20,7 @@
    MA 02110-1301, USA.  */
 
 #include "sysdep.h"
+#include "libiberty.h"
 #include <stdio.h>
 #include <inttypes.h>
 
@@ -30,6 +31,51 @@
 
 static fprintf_ftype fpr;
 static void *stream;
+
+static bool no_pseudo = false;
+
+
+extern void print_etca_disassembler_options (FILE * s) {
+
+    fprintf (s, "\n\
+The following ETCa specific disassembler options are supported for use\n\
+with the -M switch (multiple options should be separated by commas):\n");
+    fprintf (s, "\n");
+    fprintf (s, "  no-pseudo      Disassemble only into canonical instructions.\n");
+    fprintf (s, "\n");
+
+}
+
+/* Parse ETCa disassembler option (without arguments).  */
+static bool
+parse_etca_dis_option_without_args (const char *option)
+{
+    if (strcmp (option, "no-pseudo") == 0)
+	no_pseudo = true;
+    else
+	return false;
+    return true;
+}
+
+static void
+parse_etca_dis_options (const char *opts_in)
+{
+    char *opts = xstrdup (opts_in), *opt = opts, *opt_end = opts;
+
+    //set_default_etca_dis_options ();
+
+    for ( ; opt_end != NULL; opt = opt_end + 1)
+    {
+	if ((opt_end = strchr (opt, ',')) != NULL)
+	    *opt_end = 0;
+	if (!parse_etca_dis_option_without_args (opt)) {
+	    opcodes_error_handler ("unrecognized disassembler option: %s", opt);
+	    return;
+	}
+    }
+
+    free (opts);
+}
 
 const char size_names[4] = {'h', 'x', 'd', 'q'};
 struct decoded_arg {
@@ -44,7 +90,7 @@ struct decode_info {
     const struct etca_opc_info *opc_info;
     int8_t size;
     uint16_t opcode;
-    enum etca_iformat iformat;
+    enum etca_iformat format;
     union etca_opc_params_field params;
     size_t argc;
     struct decoded_arg args[2];
@@ -64,7 +110,7 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
     switch ((insn[0] & 0xC0) >> 6) {
 	case 0b00:
 	    if (byte_count < 2) { return 1; }
-	    di->iformat = ETCA_IF_BASE_ABM;
+	    di->format = ETCA_IF_BASE_ABM;
 	    di->size = (insn[0] & 0x30) >> 4;
 	    di->opcode = insn[0] & 0x0F;
 	    di->argc = 2;
@@ -80,7 +126,7 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
 	    return 0;
 	case 0b01:
 	    if (byte_count < 2) { return 1; }
-	    di->iformat = ETCA_IF_BASE_ABM;
+	    di->format = ETCA_IF_BASE_ABM;
 	    di->size = (insn[0] & 0x30) >> 4;
 	    di->opcode = insn[0] & 0x0F;
 	    di->params.kinds.ri = 1;
@@ -96,7 +142,7 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
 	case 0b10:
 	    if ((insn[0] & 0x20) != 0) { return -1; }
 	    if (byte_count < 2) { return 1; }
-	    di->iformat = ETCA_IF_BASE_JMP;
+	    di->format = ETCA_IF_BASE_JMP;
 	    di->params.kinds.i = 1;
 	    di->opcode = insn[0] & 0x0F;
 	    di->argc = 1;
@@ -118,9 +164,85 @@ get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
     }
     return NULL;
 }
+static
+bool transform_pop(struct decode_info *di) {
+    if (di->args[1].as.reg == 6) {
+	di->format = ETCA_IF_SAF_STK;
+	di->params.kinds.r = di->params.kinds.rr;
+	di->params.kinds.m = di->params.kinds.mr;
+	di->params.kinds.rr = di->params.kinds.mr = 0;
+	di->argc = 1; /* We can just ignore the second argument from now on */
+	return true;
+    } else {
+	/* Don't worry about ASP right now */
+	return false;
+    }
+}
+static
+bool transform_push(struct decode_info *di) {
+    if (di->args[0].as.reg == 6) {
+	di->format = ETCA_IF_SAF_STK;
+	di->params.kinds.r = di->params.kinds.rr;
+	di->params.kinds.m = di->params.kinds.rm;
+	di->params.kinds.i = di->params.kinds.ri;
+	di->params.kinds.rr = di->params.kinds.rm = di->params.kinds.ri = 0;
+	di->argc = 1; /* We can just ignore the second argument from now on */
+	di->args[0] = di->args[1];
+	return true;
+    } else {
+	/* Don't worry about ASP right now */
+	return false;
+    }
+}
+
+#define SELECT_MOV_PSEUDO(di) \
+do {\
+(di).format = ETCA_IF_SPECIAL;\
+(di).opcode = ETCA_MOV;\
+(di).params.uint = (1 << OTHER);\
+} while (0)
+
+static
+bool beaut_readcr(struct decode_info *di) {
+    SELECT_MOV_PSEUDO(*di);
+    di->args[1].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
+    di->args[1].as.reg = di->args[1].as.imm;
+    return true;
+}
+static
+bool beaut_writecr(struct decode_info *di) {
+    SELECT_MOV_PSEUDO(*di);
+    struct decoded_arg source = di->args[0];
+    di->args[0].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
+    di->args[0].as.reg = di->args[1].as.imm;
+    di->args[1] = source;
+    return true;
+}
+
+static struct beautifier {
+    /* Should return true if this beautifier fully handle the opcode */
+    bool (*callback)(struct decode_info *);
+
+    enum etca_iformat format;
+    union etca_opc_params_field params;
+    uint16_t opcode;
+
+    /* This beautifier does not produce a pseudo instruction and can therefore not be deactivated */
+    uint16_t no_pseudo: 1;
+} beautifiers[] = {
+	/* For the case we ever implement a fast lookup for this table,
+	 * all entries with the same format should be consecutive */
+	{transform_pop, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .mr=1}}, 12, 1},
+	{transform_push, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .ri=1, .rm=1}}, 13, 1},
+	{beaut_readcr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 14, 0},
+	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
+	{ NULL, ETCA_IF_ILLEGAL, {.uint=0}, 0, 0 }
+};
+
 
 int
 print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
+
 #define READ_BYTES(n)                                                             \
     do {                                                                          \
 	if ((status = info->read_memory_func(addr + idx, &insn[idx], n, info))) { \
@@ -128,23 +250,28 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	};									  \
 	idx += n;                                                                 \
     } while (0)
+
     int status;
     int action;
     stream = info->stream;
     unsigned char insn[MAX_INSTRUCTION_LENGTH];
+    char buffer[128];
     fpr = info->fprintf_func;
     size_t idx = 0;
     size_t offset = 0;
+    if (info->disassembler_options) {
+	parse_etca_dis_options(info->disassembler_options);
+	info->disassembler_options = NULL;
+    }
     struct decode_info di = {
 	    .opc_info = NULL,
-	    .iformat = ETCA_IF_ILLEGAL,
+	    .format = ETCA_IF_ILLEGAL,
 	    .params = {.uint=0},
 	    .argc = 0,
 	    .args = {},
 	    .size = -1,
 	    .opcode = 0,
     };
-
     READ_BYTES(1);
     while (1) {
 	action = decode_insn(&di, &insn[offset], (idx - offset));
@@ -162,13 +289,22 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    return idx;
 	}
     }
+
+#define MATCH(a, di) ((a).format == (di).format \
+       && ((a).params.uint & (di).params.uint) == (di).params.uint \
+       && (a).opcode == (di).opcode)
     /* TODO: once push and pop are implemented, they need to be special cased here
      *       This is also the place where special casing should be implemented if we want to
      *       sometimes emit a mov pseudo invocation */
+    for (struct beautifier *beautifier = beautifiers; beautifier->callback != NULL; beautifier++) {
+	if (MATCH(*beautifier, di) && (beautifier->no_pseudo || !no_pseudo)) {
+	    if (beautifier->callback(&di)) {
+		break;
+	    }
+	}
+    }
     for (struct etca_opc_info *opc_info = etca_opcodes; opc_info->name != NULL; opc_info++) {
-	if (opc_info->format == di.iformat
-	    && (opc_info->params.uint & di.params.uint) == di.params.uint
-	    && opc_info->opcode == di.opcode) {
+	if (MATCH(*opc_info, di)) {
 	    /* We have a match */
 	    di.opc_info = opc_info;
             break;
@@ -180,13 +316,16 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
         // unless in theory the format makes sense but is made illegal by the spec.
         // Anyway, we could kill the disassembler, but in the interest of trying to
         // be useful as much as possible, we print a bad opcode and keep going.
-        fpr(stream, "<unknown opcode:%" PRIu16 "> ", di.opcode);
+	snprintf(buffer, sizeof(buffer), "<unknown opcode:%" PRIu16 "> ", di.opcode);
     }
     else if (di.opc_info->size_info.suffix_allowed) {
-	fpr(stream, "%-6s%c ", di.opc_info->name, di.size >= 0 ? size_names[di.size] : '?');
+	/* Outputting ? here is also a disassembler bug */
+	snprintf(buffer, sizeof(buffer),
+		 "%s%c ", di.opc_info->name, di.size >= 0 ? size_names[di.size] : '?');
     } else {
-	fpr(stream, "%-7s ", di.opc_info->name);
+	snprintf(buffer, sizeof(buffer), "%s", di.opc_info->name);
     }
+    fpr(stream, "%-7s ", buffer);
     for (size_t i = 0; i < di.argc; i++) {
 	if (i != 0) { fpr(stream, ", "); };
 	if (di.args[i].kinds.reg_class != RegClassNone) {

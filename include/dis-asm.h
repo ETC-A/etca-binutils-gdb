@@ -378,6 +378,7 @@ extern disassembler_ftype arc_get_disassembler (bfd *);
 extern disassembler_ftype cris_get_disassembler (bfd *);
 
 extern void print_aarch64_disassembler_options (FILE *);
+extern void print_etca_disassembler_options (FILE *);
 extern void print_i386_disassembler_options (FILE *);
 extern void print_mips_disassembler_options (FILE *);
 extern void print_nfp_disassembler_options (FILE *);

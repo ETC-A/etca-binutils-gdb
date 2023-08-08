@@ -576,6 +576,9 @@ disassembler_usage (FILE *stream ATTRIBUTE_UNUSED)
 #ifdef ARCH_arm
   print_arm_disassembler_options (stream);
 #endif
+#ifdef ARCH_etca
+    print_etca_disassembler_options (stream);
+#endif
 #ifdef ARCH_mips
   print_mips_disassembler_options (stream);
 #endif

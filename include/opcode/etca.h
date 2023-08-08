@@ -368,6 +368,8 @@ enum {
     MEM_IMM,
 
     REG_CTRL,
+
+    OTHER,
 };
 
 /* A bitfield used to represent a legal combinations of argument types
@@ -388,6 +390,8 @@ struct etca_params_kind {
     uint16_t mi: 1; // Memory-Immediate
 
     uint16_t rc: 1; // register, Control reg
+
+    uint16_t other: 1; // Other, used by the disassembler to select pseudo ops
 };
 
 enum etca_args_size {
