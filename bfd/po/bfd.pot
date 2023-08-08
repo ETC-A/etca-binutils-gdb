@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-07-03 11:38+0100\n"
+"POT-Creation-Date: 2023-08-08 21:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -69,33 +69,34 @@ msgstr ""
 
 #. Unknown relocation.
 #: aoutx.h:4400 coff-alpha.c:601 coff-alpha.c:1521 coff-mips.c:356
-#: coff-rs6000.c:3029 coff-sh.c:504 coff-tic4x.c:184 coff-tic54x.c:262
+#: coff-rs6000.c:3048 coff-sh.c:504 coff-tic4x.c:184 coff-tic54x.c:262
 #: elf-hppa.h:798 elf-hppa.h:826 elf-m10200.c:226 elf-m10300.c:813
 #: elf32-arc.c:532 elf32-arm.c:1985 elf32-avr.c:962 elf32-bfin.c:1063
 #: elf32-bfin.c:4686 elf32-cr16.c:654 elf32-cr16.c:684 elf32-cris.c:467
 #: elf32-crx.c:429 elf32-csky.c:991 elf32-d10v.c:234 elf32-d30v.c:522
-#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-fr30.c:381
-#: elf32-frv.c:2559 elf32-frv.c:6240 elf32-ft32.c:304 elf32-h8300.c:302
-#: elf32-i386.c:394 elf32-ip2k.c:1241 elf32-iq2000.c:442 elf32-lm32.c:496
-#: elf32-m32c.c:305 elf32-m32r.c:1286 elf32-m32r.c:1311 elf32-m32r.c:2209
-#: elf32-m68hc11.c:390 elf32-m68hc12.c:510 elf32-m68k.c:354 elf32-mcore.c:354
-#: elf32-mcore.c:440 elf32-mep.c:385 elf32-metag.c:871 elf32-microblaze.c:690
-#: elf32-microblaze.c:1002 elf32-mips.c:2242 elf32-moxie.c:137
-#: elf32-msp430.c:737 elf32-msp430.c:747 elf32-mt.c:241 elf32-nds32.c:3288
-#: elf32-nds32.c:3309 elf32-nds32.c:5078 elf32-nios2.c:3019 elf32-or1k.c:1087
-#: elf32-pj.c:326 elf32-ppc.c:900 elf32-ppc.c:913 elf32-pru.c:423
-#: elf32-rl78.c:291 elf32-rx.c:324 elf32-rx.c:333 elf32-s12z.c:296
-#: elf32-s390.c:347 elf32-score.c:2383 elf32-score7.c:2224 elf32-sh.c:437
-#: elf32-spu.c:163 elf32-tic6x.c:1498 elf32-tic6x.c:1508 elf32-tic6x.c:1527
-#: elf32-tic6x.c:1537 elf32-tic6x.c:2583 elf32-tilepro.c:792 elf32-v850.c:1902
-#: elf32-v850.c:1924 elf32-v850.c:4250 elf32-vax.c:289 elf32-visium.c:481
-#: elf32-wasm32.c:105 elf32-xgate.c:418 elf32-xstormy16.c:395
-#: elf32-xtensa.c:510 elf32-xtensa.c:544 elf32-z80.c:331 elf64-alpha.c:1114
-#: elf64-alpha.c:4056 elf64-alpha.c:4204 elf64-bpf.c:129 elf64-ia64-vms.c:255
-#: elf64-ia64-vms.c:3426 elf64-mips.c:3965 elf64-mips.c:3981 elf64-mmix.c:1264
-#: elf64-nfp.c:151 elf64-ppc.c:1031 elf64-ppc.c:1385 elf64-ppc.c:1394
-#: elf64-s390.c:328 elf64-s390.c:378 elf64-x86-64.c:269 elfn32-mips.c:3799
-#: elfxx-ia64.c:324 elfxx-loongarch.c:1574 elfxx-riscv.c:980 elfxx-sparc.c:589
+#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-etca.c:452
+#: elf32-fr30.c:381 elf32-frv.c:2559 elf32-frv.c:6240 elf32-ft32.c:304
+#: elf32-h8300.c:302 elf32-i386.c:394 elf32-ip2k.c:1241 elf32-iq2000.c:442
+#: elf32-lm32.c:496 elf32-m32c.c:305 elf32-m32r.c:1286 elf32-m32r.c:1311
+#: elf32-m32r.c:2209 elf32-m68hc11.c:390 elf32-m68hc12.c:510 elf32-m68k.c:354
+#: elf32-mcore.c:354 elf32-mcore.c:440 elf32-mep.c:385 elf32-metag.c:871
+#: elf32-microblaze.c:690 elf32-microblaze.c:1002 elf32-mips.c:2242
+#: elf32-moxie.c:137 elf32-msp430.c:737 elf32-msp430.c:747 elf32-mt.c:241
+#: elf32-nds32.c:3288 elf32-nds32.c:3309 elf32-nds32.c:5078 elf32-nios2.c:3019
+#: elf32-or1k.c:1087 elf32-pj.c:326 elf32-ppc.c:900 elf32-ppc.c:913
+#: elf32-pru.c:423 elf32-rl78.c:291 elf32-rx.c:324 elf32-rx.c:333
+#: elf32-s12z.c:296 elf32-s390.c:347 elf32-score.c:2383 elf32-score7.c:2224
+#: elf32-sh.c:437 elf32-spu.c:163 elf32-tic6x.c:1498 elf32-tic6x.c:1508
+#: elf32-tic6x.c:1527 elf32-tic6x.c:1537 elf32-tic6x.c:2583
+#: elf32-tilepro.c:792 elf32-v850.c:1902 elf32-v850.c:1924 elf32-v850.c:4250
+#: elf32-vax.c:289 elf32-visium.c:481 elf32-wasm32.c:105 elf32-xgate.c:418
+#: elf32-xstormy16.c:395 elf32-xtensa.c:510 elf32-xtensa.c:544 elf32-z80.c:331
+#: elf64-alpha.c:1114 elf64-alpha.c:4056 elf64-alpha.c:4204 elf64-bpf.c:129
+#: elf64-ia64-vms.c:255 elf64-ia64-vms.c:3426 elf64-mips.c:3965
+#: elf64-mips.c:3981 elf64-mmix.c:1264 elf64-nfp.c:151 elf64-ppc.c:1031
+#: elf64-ppc.c:1385 elf64-ppc.c:1394 elf64-s390.c:328 elf64-s390.c:378
+#: elf64-x86-64.c:269 elfn32-mips.c:3799 elfxx-ia64.c:324
+#: elfxx-loongarch.c:1574 elfxx-riscv.c:980 elfxx-sparc.c:589
 #: elfxx-sparc.c:639 elfxx-tilegx.c:907 elfxx-tilegx.c:947
 #: elfnn-aarch64.c:2215 elfnn-aarch64.c:2313 elfnn-ia64.c:214
 #: elfnn-ia64.c:3821
@@ -307,32 +308,32 @@ msgstr ""
 msgid "%pB: unsupported swap_aux_out for storage class %#x"
 msgstr ""
 
-#: coff-rs6000.c:3119
+#: coff-rs6000.c:3138
 #, c-format
 msgid "%pB: TOC reloc at %#<PRIx64> to symbol `%s' with no TOC entry"
 msgstr ""
 
-#: coff-rs6000.c:3243 coff64-rs6000.c:848
+#: coff-rs6000.c:3262 coff64-rs6000.c:848
 #, c-format
 msgid "Unable to find the stub entry targeting %s"
 msgstr ""
 
-#: coff-rs6000.c:3358
+#: coff-rs6000.c:3377
 #, c-format
 msgid "%pB: TLS relocation at 0x%<PRIx64> over non-TLS symbol %s (0x%x)\n"
 msgstr ""
 
-#: coff-rs6000.c:3371
+#: coff-rs6000.c:3390
 #, c-format
 msgid "%pB: TLS local relocation at 0x%<PRIx64> over imported symbol %s\n"
 msgstr ""
 
-#: coff-rs6000.c:3777
+#: coff-rs6000.c:3796
 #, c-format
 msgid "%pB: relocation (%d) at 0x%<PRIx64> has wrong r_rsize (0x%x)\n"
 msgstr ""
 
-#: coff-rs6000.c:4039 coff64-rs6000.c:2031
+#: coff-rs6000.c:4058 coff64-rs6000.c:2031
 #, c-format
 msgid "%pB: symbol `%s' has unrecognized smclas %d"
 msgstr ""
@@ -398,12 +399,12 @@ msgid "R_AMD64_IMAGEBASE with __ImageBase undefined"
 msgstr ""
 
 #: coff-z80.c:351 coff-z8k.c:214 elf32-nds32.c:13189 elfxx-mips.c:13513
-#: reloc.c:8495 reloc16.c:314
+#: reloc.c:8554 reloc16.c:314
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" goes out of range\n"
 msgstr ""
 
-#: coff-z80.c:477 coff-z8k.c:378 elfxx-mips.c:13523 reloc.c:8505
+#: coff-z80.c:477 coff-z8k.c:378 elfxx-mips.c:13523 reloc.c:8564
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" is not supported\n"
 msgstr ""
@@ -1000,7 +1001,7 @@ msgid "internal error: suspicious relocation type used in shared library"
 msgstr ""
 
 #: elf-m10300.c:2650 elf32-avr.c:2488 elf32-frv.c:5621 elf64-ia64-vms.c:365
-#: elfxx-sparc.c:2684 reloc.c:8269 reloc16.c:155 elfnn-ia64.c:365
+#: elfxx-sparc.c:2684 reloc.c:8328 reloc16.c:155 elfnn-ia64.c:365
 msgid "%P%F: --relax and -r may not be used together\n"
 msgstr ""
 
@@ -2597,6 +2598,22 @@ msgstr ""
 msgid "unsupported relocation between data/insn address spaces"
 msgstr ""
 
+#: elf32-etca.c:321 elfnn-riscv.c:3034
+msgid "%X%P: internal error: out of range error\n"
+msgstr ""
+
+#: elf32-etca.c:326 elfnn-riscv.c:3039
+msgid "%X%P: internal error: unsupported relocation error\n"
+msgstr ""
+
+#: elf32-etca.c:332 elfnn-riscv.c:3045
+msgid "dangerous relocation error"
+msgstr ""
+
+#: elf32-etca.c:338 elfnn-riscv.c:3051
+msgid "%X%P: internal error: unknown error\n"
+msgstr ""
+
 #: elf32-frv.c:1453 elf32-frv.c:1604
 msgid "relocation requires zero addend"
 msgstr ""
@@ -3774,12 +3791,12 @@ msgstr ""
 
 #: elf32-sh.c:5013
 #, c-format
-msgid "%X%C: relocation to \"%s\" references a different segment\n"
+msgid "%X%H: relocation to \"%s\" references a different segment\n"
 msgstr ""
 
 #: elf32-sh.c:5020
 #, c-format
-msgid "%C: warning: relocation to \"%s\" references a different segment\n"
+msgid "%H: warning: relocation to \"%s\" references a different segment\n"
 msgstr ""
 
 #: elf32-sh.c:5488 elf32-sh.c:5570
@@ -4893,7 +4910,7 @@ msgid ""
 "%pB(%pA+%#<PRIx64>): misaligned symbol `%s' (%#<PRIx64>) for relocation %s"
 msgstr ""
 
-#: elf64-sparc.c:134 elfcode.h:1582
+#: elf64-sparc.c:134 elfcode.h:1593
 #, c-format
 msgid "%pB(%pA): relocation %d has invalid symbol index %ld"
 msgstr ""
@@ -5041,17 +5058,17 @@ msgstr ""
 msgid "warning: %pB has a corrupt string table index"
 msgstr ""
 
-#: elfcode.h:837
+#: elfcode.h:838
 #, c-format
 msgid "warning: %pB has a program header with invalid alignment"
 msgstr ""
 
-#: elfcode.h:1039
+#: elfcode.h:1050
 #, c-format
 msgid "%pB: %pA+%<PRIx64>: relocation addend %<PRIx64> too large"
 msgstr ""
 
-#: elfcode.h:1302
+#: elfcode.h:1313
 #, c-format
 msgid "%pB: version count (%<PRId64>) does not match symbol count (%ld)"
 msgstr ""
@@ -5586,12 +5603,12 @@ msgid ""
 "consider using `-Ttext-segment=...'"
 msgstr ""
 
-#: elfxx-mips.c:13422 reloc.c:8417
+#: elfxx-mips.c:13422 reloc.c:8476
 #, c-format
 msgid "%X%P: %pB(%pA): error: relocation for offset %V has no value\n"
 msgstr ""
 
-#: elfxx-mips.c:13532 reloc.c:8514
+#: elfxx-mips.c:13532 reloc.c:8573
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" returns an unrecognized value %x\n"
 msgstr ""
@@ -5812,193 +5829,209 @@ msgstr ""
 msgid " [not 32bitmode]"
 msgstr ""
 
-#: elfxx-riscv.c:1657
+#: elfxx-riscv.c:1664
 #, c-format
 msgid "x ISA extension `%s' must be set with the versions"
 msgstr ""
 
-#: elfxx-riscv.c:1663
+#: elfxx-riscv.c:1670
 #, c-format
 msgid "cannot find default versions of the ISA extension `%s'"
 msgstr ""
 
-#: elfxx-riscv.c:1769
+#: elfxx-riscv.c:1776
 #, c-format
 msgid "%s: first ISA extension must be `e', `i' or `g'"
 msgstr ""
 
-#: elfxx-riscv.c:1793
+#: elfxx-riscv.c:1800
 #, c-format
 msgid "%s: unknown standard ISA extension or prefix class `%c'"
 msgstr ""
 
-#: elfxx-riscv.c:1829
+#: elfxx-riscv.c:1836
 #, c-format
 msgid "%s: invalid prefixed ISA extension `%s' ends with <number>p"
 msgstr ""
 
-#: elfxx-riscv.c:1853
+#: elfxx-riscv.c:1860
 #, c-format
 msgid "%s: unknown prefixed ISA extension `%s'"
 msgstr ""
 
-#: elfxx-riscv.c:1877
+#: elfxx-riscv.c:1884
 #, c-format
 msgid "%s: prefixed ISA extension must separate with _"
 msgstr ""
 
-#: elfxx-riscv.c:1931
+#: elfxx-riscv.c:1938
 #, c-format
 msgid "rv%d does not support the `e' extension"
 msgstr ""
 
-#: elfxx-riscv.c:1939
+#: elfxx-riscv.c:1946
 #, c-format
 msgid "rv%d does not support the `q' extension"
 msgstr ""
 
-#: elfxx-riscv.c:1946
+#: elfxx-riscv.c:1953
 msgid "`zfinx' is conflict with the `f/d/q/zfh/zfhmin' extension"
 msgstr ""
 
-#: elfxx-riscv.c:1967
+#: elfxx-riscv.c:1974
 msgid "zvl*b extensions need to enable either `v' or `zve' extension"
 msgstr ""
 
-#: elfxx-riscv.c:2029
+#: elfxx-riscv.c:2036
 #, c-format
 msgid "%s: ISA string cannot contain uppercase letters"
 msgstr ""
 
-#: elfxx-riscv.c:2057
+#: elfxx-riscv.c:2064
 #, c-format
 msgid "%s: ISA string must begin with rv32 or rv64"
 msgstr ""
 
-#: elfxx-riscv.c:2283
+#: elfxx-riscv.c:2290
 #, c-format
 msgid "invalid ISA extension ends with <number>p in .option arch `%s'"
 msgstr ""
 
-#: elfxx-riscv.c:2306
+#: elfxx-riscv.c:2313
 #, c-format
 msgid "unknown ISA extension `%s' in .option arch `%s'"
 msgstr ""
 
-#: elfxx-riscv.c:2317
+#: elfxx-riscv.c:2324
 #, c-format
 msgid "cannot + or - base extension `%s' in .option arch `%s'"
 msgstr ""
 
-#: elfxx-riscv.c:2525 elfxx-riscv.c:2727
+#: elfxx-riscv.c:2542 elfxx-riscv.c:2756
 msgid "internal: unreachable INSN_CLASS_*"
 msgstr ""
 
-#: elfxx-riscv.c:2558
+#: elfxx-riscv.c:2575
 msgid "m' or `zmmul"
 msgstr ""
 
-#: elfxx-riscv.c:2574
-msgid "f' and `c"
-msgstr ""
-
-#: elfxx-riscv.c:2582
-msgid "d' and `c"
-msgstr ""
-
-#: elfxx-riscv.c:2588
-msgid "f' or `zfinx"
-msgstr ""
-
-#: elfxx-riscv.c:2590
-msgid "d' or `zdinx"
-msgstr ""
-
-#: elfxx-riscv.c:2592
-msgid "q' or `zqinx"
-msgstr ""
-
-#: elfxx-riscv.c:2594
-msgid "zfh' or `zhinx"
+#: elfxx-riscv.c:2593
+msgid "f' and `c', or `f' and `zcf"
 msgstr ""
 
 #: elfxx-riscv.c:2598
-msgid "zfhmin' or `zhinxmin"
+msgid "c' or `zcf"
+msgstr ""
+
+#: elfxx-riscv.c:2604
+msgid "d' and `c', or `d' and `zcd"
 msgstr ""
 
 #: elfxx-riscv.c:2609
+msgid "c' or `zcd"
+msgstr ""
+
+#: elfxx-riscv.c:2611
+msgid "f' or `zfinx"
+msgstr ""
+
+#: elfxx-riscv.c:2613
+msgid "d' or `zdinx"
+msgstr ""
+
+#: elfxx-riscv.c:2615
+msgid "q' or `zqinx"
+msgstr ""
+
+#: elfxx-riscv.c:2617
+msgid "zfh' or `zhinx"
+msgstr ""
+
+#: elfxx-riscv.c:2621
+msgid "zfhmin' or `zhinxmin"
+msgstr ""
+
+#: elfxx-riscv.c:2632
 msgid "zfhmin' and `d', or `zhinxmin' and `zdinx"
 msgstr ""
 
-#: elfxx-riscv.c:2620
+#: elfxx-riscv.c:2643
 msgid "zfhmin' and `q', or `zhinxmin' and `zqinx"
 msgstr ""
 
-#: elfxx-riscv.c:2626
+#: elfxx-riscv.c:2649
 msgid "d' and `zfa"
 msgstr ""
 
-#: elfxx-riscv.c:2634
+#: elfxx-riscv.c:2657
 msgid "q' and `zfa"
 msgstr ""
 
-#: elfxx-riscv.c:2642
+#: elfxx-riscv.c:2665
 msgid "zfh' and `zfa"
 msgstr ""
 
-#: elfxx-riscv.c:2662
+#: elfxx-riscv.c:2685
 msgid "zbb' or `zbkb"
 msgstr ""
 
-#: elfxx-riscv.c:2664
+#: elfxx-riscv.c:2687
 msgid "zbc' or `zbkc"
 msgstr ""
 
-#: elfxx-riscv.c:2672
+#: elfxx-riscv.c:2695
 msgid "zknd' or `zkne"
 msgstr ""
 
-#: elfxx-riscv.c:2678
+#: elfxx-riscv.c:2701
 msgid "v' or `zve64x' or `zve32x"
 msgstr ""
 
-#: elfxx-riscv.c:2680
+#: elfxx-riscv.c:2703
 msgid "v' or `zve64d' or `zve64f' or `zve32f"
 msgstr ""
 
-#: elfxx-riscv.c:2682
+#: elfxx-riscv.c:2705
 msgid "zvbb"
 msgstr ""
 
-#: elfxx-riscv.c:2684
+#: elfxx-riscv.c:2707
 msgid "zvbc"
 msgstr ""
 
-#: elfxx-riscv.c:2686
+#: elfxx-riscv.c:2709
 msgid "zvkg"
 msgstr ""
 
-#: elfxx-riscv.c:2688
+#: elfxx-riscv.c:2711
 msgid "zvkned"
 msgstr ""
 
-#: elfxx-riscv.c:2690
-msgid "zvknha"
+#: elfxx-riscv.c:2713
+msgid "zvknha' or `zvknhb"
 msgstr ""
 
-#: elfxx-riscv.c:2692
-msgid "zvknhb"
-msgstr ""
-
-#: elfxx-riscv.c:2694
+#: elfxx-riscv.c:2715
 msgid "zvksed"
 msgstr ""
 
-#: elfxx-riscv.c:2696
+#: elfxx-riscv.c:2717
 msgid "zvksh"
 msgstr ""
 
-#: elfxx-riscv.c:2700
+#: elfxx-riscv.c:2721
+msgid "zcb' and `zba"
+msgstr ""
+
+#: elfxx-riscv.c:2723
+msgid "zcb' and `zbb"
+msgstr ""
+
+#: elfxx-riscv.c:2725
+msgid "zcb' and `zmmul', or `zcb' and `m"
+msgstr ""
+
+#: elfxx-riscv.c:2729
 msgid "h"
 msgstr ""
 
@@ -6771,17 +6804,17 @@ msgstr ""
 msgid "Partition[%d] length = 0x%.8lx (%ld)\n"
 msgstr ""
 
-#: reloc.c:8316
+#: reloc.c:8375
 msgid "INPUT_SECTION_FLAGS are not supported"
 msgstr ""
 
-#: reloc.c:8582
+#: reloc.c:8641
 #, c-format
 msgid "%pB: unrecognized relocation type %#x in section `%pA'"
 msgstr ""
 
 #. PR 21803: Suggest the most likely cause of this error.
-#: reloc.c:8586
+#: reloc.c:8645
 #, c-format
 msgid "is this version of the linker - %s - out of date ?"
 msgstr ""
@@ -9190,22 +9223,6 @@ msgstr ""
 #: elfnn-riscv.c:2999
 #, c-format
 msgid "%%X%%P: unresolvable %s relocation against symbol `%s'\n"
-msgstr ""
-
-#: elfnn-riscv.c:3034
-msgid "%X%P: internal error: out of range error\n"
-msgstr ""
-
-#: elfnn-riscv.c:3039
-msgid "%X%P: internal error: unsupported relocation error\n"
-msgstr ""
-
-#: elfnn-riscv.c:3045
-msgid "dangerous relocation error"
-msgstr ""
-
-#: elfnn-riscv.c:3051
-msgid "%X%P: internal error: unknown error\n"
 msgstr ""
 
 #: elfnn-riscv.c:3597

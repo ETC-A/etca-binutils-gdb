@@ -108,6 +108,7 @@ eelf32elmip.c
 eelf32elmipvxworks.c
 eelf32epiphany.c
 eelf32epiphany_4x4.c
+eelf32etca.c
 eelf32fr30.c
 eelf32frv.c
 eelf32frvfd.c

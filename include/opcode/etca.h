@@ -18,7 +18,9 @@ Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
 #ifndef _ETCA_H_
 #define _ETCA_H_
 
+#include "elf/etca.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 // The idea of these comes from i386.h and they are used in tc-i386.c.
 // However, I'm not sold; they seem easy to forget about and therefore
@@ -277,6 +279,8 @@ enum {
     might come from an instruction being assembled, or from an instruction
     being disassembled. */
     ImmAny,
+    /* The value of this immediate is already known */
+    ImmConcrete,
     /* An 8-bit displacement, used in MO1/MO2 formats. */
     Disp8,
     /* A 9-bit displacement in base jump formats. */
@@ -320,6 +324,7 @@ struct etca_arg_kind {
     unsigned int imm8s:1;
     unsigned int imm8z:1;
     unsigned int immAny:1;
+    unsigned int immConc:1;
     unsigned int disp8:1;
     unsigned int disp9:1;
     unsigned int disp12:1;
@@ -459,6 +464,8 @@ enum etca_pseudo_opcode {
 #define ETCA_BASE_ABM_IMM_SIGNED(opcode) ((opcode) < 8 || (opcode) == 9)
 #define ETCA_BASE_ABM_IMM_UNSIGNED(opcode) (!ETCA_BASE_ABM_IMM_SIGNED(opcode))
 
+extern size_t etca_calc_mov_ri_byte_count(const struct etca_cpuid *, int8_t, reg_num, int64_t *);
+extern enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *, int8_t, reg_num, int64_t *, char*);
 
 extern const struct etca_reg_info etca_registers[];
 

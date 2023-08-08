@@ -58,6 +58,7 @@ cpu-d10v.c
 cpu-d30v.c
 cpu-dlx.c
 cpu-epiphany.c
+cpu-etca.c
 cpu-fr30.c
 cpu-frv.c
 cpu-ft32.c
@@ -169,6 +170,7 @@ elf32-d30v.c
 elf32-dlx.c
 elf32-dlx.h
 elf32-epiphany.c
+elf32-etca.c
 elf32-fr30.c
 elf32-frv.c
 elf32-ft32.c

@@ -437,6 +437,7 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
 	    signed_value = (int64_t)result->imm_expr.X_add_number;
             unsigned_value = (uint64_t)signed_value;
 	    result->kind.immAny = 1;
+	    result->kind.immConc = 1;
             result->kind.imm5s = (-16 <= signed_value && signed_value < 16);
             result->kind.imm5z = (unsigned_value < 32);
             result->kind.imm8s = (-128 <= signed_value && signed_value < 128);
@@ -1019,7 +1020,6 @@ void etca_after_parse_args(void) {
 
 void
 md_apply_fix(fixS *fixP ATTRIBUTE_UNUSED, valueT *valP ATTRIBUTE_UNUSED, segT seg ATTRIBUTE_UNUSED) {
-    printf("md_apply_fix\n");
 }
 
 /* Translate internal representation of relocation info to BFD target
@@ -1027,7 +1027,6 @@ md_apply_fix(fixS *fixP ATTRIBUTE_UNUSED, valueT *valP ATTRIBUTE_UNUSED, segT se
 
 arelent *
 tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
-    printf("tc_gen_reloc\n");
     arelent *rel;
     bfd_reloc_code_real_type r_type;
 
@@ -1042,8 +1041,8 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
 
     if (rel->howto == NULL) {
 	as_bad_where(fixp->fx_file, fixp->fx_line,
-		     _("Cannot represent relocation type %s"),
-		     bfd_get_reloc_code_name(r_type));
+		     _("Cannot represent relocation type %s (%d)"),
+		     bfd_get_reloc_code_name(r_type), r_type);
 	/* Set howto to a garbage value so that we can keep going.  */
 	rel->howto = bfd_reloc_type_lookup(stdoutput, BFD_RELOC_32);
 	assert(rel->howto != NULL);
@@ -1262,6 +1261,34 @@ process_mov_pseudo(
         pi->params.kinds.rc = 1;
         assemble_base_abm(writecr, pi);
         return;
+    }
+    //  GP register <- IMM
+    //
+    if (KIND(0).reg_class == GPR && KIND(1).immAny) {
+	char *output;
+
+	size_t byte_count = etca_calc_mov_ri_byte_count(
+		&settings.current_cpuid,
+		pi->opcode_size,
+		pi->args[0].reg.gpr_reg_num,
+		KIND(1).immConc ? (&pi->args[0].imm_expr.X_add_number): NULL);
+	output = frag_more(byte_count);
+	enum elf_etca_reloc_type reloc_kind = etca_build_mov_ri(
+		&settings.current_cpuid,
+		pi->opcode_size,
+		pi->args[0].reg.gpr_reg_num,
+		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number) : NULL,
+		output);
+	if (!KIND(1).immConc) {
+	    fix_new_exp(frag_now,
+				     (output - frag_now->fr_literal),
+				     byte_count,
+				     &pi->args[1].imm_expr,
+				     false,
+				     (bfd_reloc_code_real_type) (BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
+	    //TODO: Define a function in elf32-etca (I think?) that does the transformation r_type -> bfd_reloc_code correctly.
+	}
+	return;
     }
     
     as_fatal("implementation of the `mov' pseudoinstruction is not complete.");

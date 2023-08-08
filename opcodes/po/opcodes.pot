@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-07-03 11:41+0100\n"
+"POT-Creation-Date: 2023-08-08 21:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -85,7 +85,7 @@ msgstr ""
 
 #: aarch64-dis.c:4177 arc-dis.c:1607 arc-dis.c:1630 arc-dis.c:1633
 #: loongarch-dis.c:332 mips-dis.c:2903 mips-dis.c:2915 mips-dis.c:2918
-#: nfp-dis.c:2995 riscv-dis.c:1362 riscv-dis.c:1365
+#: nfp-dis.c:2995 riscv-dis.c:1376 riscv-dis.c:1379
 #, c-format
 msgid "\n"
 msgstr ""
@@ -465,7 +465,7 @@ msgid ""
 "with the -M switch (multiple options should be separated by commas):\n"
 msgstr ""
 
-#: arc-dis.c:1616 mips-dis.c:2910 riscv-dis.c:1357
+#: arc-dis.c:1616 mips-dis.c:2910 riscv-dis.c:1371
 #, c-format
 msgid ""
 "\n"
@@ -952,12 +952,12 @@ msgstr ""
 msgid "Address 0x%<PRIx64> is out of bounds.\n"
 msgstr ""
 
-#: disassemble.c:887
+#: disassemble.c:896
 #, c-format
 msgid "assertion fail %s:%d"
 msgstr ""
 
-#: disassemble.c:888
+#: disassemble.c:897
 msgid "Please report this bug"
 msgstr ""
 
@@ -1104,11 +1104,11 @@ msgstr ""
 msgid "Don't understand 0x%x \n"
 msgstr ""
 
-#: i386-dis.c:8819
+#: i386-dis.c:8143
 msgid "<internal disassembler error>"
 msgstr ""
 
-#: i386-dis.c:9047
+#: i386-dis.c:8371
 #, c-format
 msgid ""
 "\n"
@@ -1117,86 +1117,86 @@ msgid ""
 "with the -M switch (multiple options should be separated by commas):\n"
 msgstr ""
 
-#: i386-dis.c:9051
+#: i386-dis.c:8375
 #, c-format
 msgid "  x86-64      Disassemble in 64bit mode\n"
 msgstr ""
 
-#: i386-dis.c:9052
+#: i386-dis.c:8376
 #, c-format
 msgid "  i386        Disassemble in 32bit mode\n"
 msgstr ""
 
-#: i386-dis.c:9053
+#: i386-dis.c:8377
 #, c-format
 msgid "  i8086       Disassemble in 16bit mode\n"
 msgstr ""
 
-#: i386-dis.c:9054
+#: i386-dis.c:8378
 #, c-format
 msgid "  att         Display instruction in AT&T syntax\n"
 msgstr ""
 
-#: i386-dis.c:9055
+#: i386-dis.c:8379
 #, c-format
 msgid "  intel       Display instruction in Intel syntax\n"
 msgstr ""
 
-#: i386-dis.c:9056
+#: i386-dis.c:8380
 #, c-format
 msgid ""
 "  att-mnemonic\n"
 "              Display instruction in AT&T mnemonic\n"
 msgstr ""
 
-#: i386-dis.c:9058
+#: i386-dis.c:8382
 #, c-format
 msgid ""
 "  intel-mnemonic\n"
 "              Display instruction in Intel mnemonic\n"
 msgstr ""
 
-#: i386-dis.c:9060
+#: i386-dis.c:8384
 #, c-format
 msgid "  addr64      Assume 64bit address size\n"
 msgstr ""
 
-#: i386-dis.c:9061
+#: i386-dis.c:8385
 #, c-format
 msgid "  addr32      Assume 32bit address size\n"
 msgstr ""
 
-#: i386-dis.c:9062
+#: i386-dis.c:8386
 #, c-format
 msgid "  addr16      Assume 16bit address size\n"
 msgstr ""
 
-#: i386-dis.c:9063
+#: i386-dis.c:8387
 #, c-format
 msgid "  data32      Assume 32bit data size\n"
 msgstr ""
 
-#: i386-dis.c:9064
+#: i386-dis.c:8388
 #, c-format
 msgid "  data16      Assume 16bit data size\n"
 msgstr ""
 
-#: i386-dis.c:9065
+#: i386-dis.c:8389
 #, c-format
 msgid "  suffix      Always display instruction suffix in AT&T syntax\n"
 msgstr ""
 
-#: i386-dis.c:9066
+#: i386-dis.c:8390
 #, c-format
 msgid "  amd64       Display instruction in AMD64 ISA\n"
 msgstr ""
 
-#: i386-dis.c:9067
+#: i386-dis.c:8391
 #, c-format
 msgid "  intel64     Display instruction in Intel64 ISA\n"
 msgstr ""
 
-#: i386-dis.c:9760
+#: i386-dis.c:9084
 msgid "64-bit address is disabled"
 msgstr ""
 
@@ -1999,24 +1999,24 @@ msgid ""
 "mis-matched privilege spec set by %s=%s, the elf privilege attribute is %s"
 msgstr ""
 
-#: riscv-dis.c:670
+#: riscv-dis.c:684
 #, c-format
 msgid "# internal error, undefined modifier (%c)"
 msgstr ""
 
-#: riscv-dis.c:1238
+#: riscv-dis.c:1252
 msgid "Print numeric register names, rather than ABI names."
 msgstr ""
 
-#: riscv-dis.c:1241
+#: riscv-dis.c:1255
 msgid "Disassemble only into canonical instructions."
 msgstr ""
 
-#: riscv-dis.c:1244
+#: riscv-dis.c:1258
 msgid "Print the CSR according to the chosen privilege spec."
 msgstr ""
 
-#: riscv-dis.c:1320
+#: riscv-dis.c:1334
 #, c-format
 msgid ""
 "\n"

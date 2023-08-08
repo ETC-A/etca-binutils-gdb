@@ -52,6 +52,8 @@ epiphany-dis.c
 epiphany-ibld.c
 epiphany-opc.c
 epiphany-opc.h
+etca-dis.c
+etca-opc.c
 fr30-asm.c
 fr30-desc.c
 fr30-desc.h
