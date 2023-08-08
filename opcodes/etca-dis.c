@@ -140,8 +140,18 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
 		    (insn[1] & 0x1F) | ((di->args[1].kinds.imm5s && insn[1] & 0x10) ? ((uint64_t)(-1) << 5) : 0);
 	    return 0;
 	case 0b10:
-	    if ((insn[0] & 0x20) != 0) { return -1; }
 	    if (byte_count < 2) { return 1; }
+            if (insn[0] == 0xAF) {
+                di->format = ETCA_IF_SAF_JMP;
+                di->params.kinds.r = 1;
+                di->opcode = insn[1] & 0x1F;
+                di->argc = 1;
+                di->args[0].kinds.reg_class = GPR;
+                di->args[0].as.reg = (insn[1] & 0xE0) >> 5;
+                return 0;
+            }
+	    if ((insn[0] & 0x20) != 0) { return -1; }
+            // otherwise, regular base jmp
 	    di->format = ETCA_IF_BASE_JMP;
 	    di->params.kinds.i = 1;
 	    di->opcode = insn[0] & 0x0F;

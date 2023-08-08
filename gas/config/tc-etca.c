@@ -113,6 +113,7 @@ static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *
 
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
+static void assemble_saf_jmp (const struct etca_opc_info *, struct parse_info *);
 static void assemble_saf_stk (const struct etca_opc_info *, struct parse_info *);
 
 #define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
@@ -183,9 +184,9 @@ static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	assemble_base_abm, /* BASE_ABM */
 	0, /* EXOP_ABM */
 	assemble_base_jmp, /* BASE_JMP */
-    0, /* SAF_CALL */
-    0, /* SAF_JMP  */
-    assemble_saf_stk, /* SAF_STK  */
+	0, /* SAF_CALL */
+	assemble_saf_jmp, /* SAF_JMP  */
+	assemble_saf_stk, /* SAF_STK  */
 	0, /* EXOP_JMP */
 };
 
@@ -1423,6 +1424,18 @@ void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi
     output[idx++] = 0;
 }
 
+/* Assemble an SAF conditional register jump/call instruction. */
+void assemble_saf_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
+    char *output;
+    size_t idx = 0;
+    gas_assert(pi->argc == 1 && pi->args[0].kind.reg_class == GPR);
+
+    output = frag_more(2);
+    output[idx++] = 0b10101111;
+    // we put the opcodes in the table including the "call" bit.
+    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | opcode->opcode;
+}
+
 /* Assemble a SAF push or pop instruction. */
 void assemble_saf_stk(const struct etca_opc_info *opcode, struct parse_info *pi) {
     // 12 => pop;  stack pointer belongs in the B operand
@@ -1431,15 +1444,10 @@ void assemble_saf_stk(const struct etca_opc_info *opcode, struct parse_info *pi)
     gas_assert(pi->argc == 1);
 
     // Kind r => rr. Kind i => ri. Kind m needs depends on which opcode we have.
-    if (pi->params.kinds.r) {
-        pi->params.kinds.r = 0;
-        pi->params.kinds.rr = 1;
-    } else if (pi->params.kinds.i) {
-        pi->params.kinds.i = 0;
-        pi->params.kinds.ri = 1;
-    } else {
-        gas_assert(pi->params.kinds.m);
-    }
+    pi->params.kinds.rr = pi->params.kinds.r;
+    pi->params.kinds.ri = pi->params.kinds.i;
+    pi->params.kinds.r  = pi->params.kinds.i = 0;
+    gas_assert(pi->params.kinds.rr || pi->params.kinds.ri || pi->params.kinds.m);
 
     if (opcode->opcode == 12) {
         // parsed operand is already in the A operand. Just pull in stack pointer...
