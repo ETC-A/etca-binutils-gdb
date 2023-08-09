@@ -390,6 +390,21 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	PAIR(MOV_55),
 	PAIR(MOV_60),
 	PAIR(MOV_64),
+	PAIR(MOV_5_REX),
+	PAIR(MOV_10_REX),
+	PAIR(MOV_15_REX),
+	PAIR(MOV_16_REX),
+	PAIR(MOV_20_REX),
+	PAIR(MOV_25_REX),
+	PAIR(MOV_30_REX),
+	PAIR(MOV_32_REX),
+	PAIR(MOV_35_REX),
+	PAIR(MOV_40_REX),
+	PAIR(MOV_45_REX),
+	PAIR(MOV_50_REX),
+	PAIR(MOV_55_REX),
+	PAIR(MOV_60_REX),
+	PAIR(MOV_64_REX),
 #undef PAIR
 	};
 
