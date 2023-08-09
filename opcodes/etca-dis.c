@@ -87,6 +87,10 @@ struct decoded_arg {
 };
 
 struct decode_info {
+    unsigned char insn[MAX_INSTRUCTION_LENGTH];
+    bfd_vma addr;
+    bfd_size_type idx;
+    bfd_size_type offset;
     const struct etca_opc_info *opc_info;
     int8_t size;
     uint16_t opcode;
@@ -103,23 +107,25 @@ struct decode_info {
  * If the return value is positive, that is an amount of extra bytes required to parse the insn
  * This function should then be called again with the same buffer pointer.
  * If the return value is -1, the instruction is illegal. Anything inside di should be ignored
- * If the return value is -2, we parsed a prefix and added it to di. Read one more byte and call decode_insn starting there */
+ * If the return value is -2, we parsed a prefix and added it to di. Read one more byte and call decode_insn starting there
+ * If the return value is -3, we tried to read extra bytes but failed, raise a memory error */
 static int
-decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
+decode_insn(struct disassemble_info *info, unsigned char *insn, size_t byte_count) {
+    struct decode_info *di = (struct decode_info *) info->private_data;
     if (byte_count == 0) { return 1; }
     switch ((insn[0] & 0xC0) >> 6) {
 	case 0b00:
 	    if (byte_count < 2) { return 1; }
 	    di->format = ETCA_IF_BASE_ABM;
-	    di->size = (insn[0] & 0x30) >> 4;
+	    di->size =  (int8_t) ((insn[0] & 0x30) >> 4);
 	    di->opcode = insn[0] & 0x0F;
 	    di->argc = 2;
 	    if ((insn[1] & 3) == 0) {
 		di->params.kinds.rr = 1;
 		di->args[0].kinds.reg_class = GPR;
-		di->args[0].as.reg = (insn[1] & 0xE0) >> 5;
+		di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
 		di->args[1].kinds.reg_class = GPR;
-		di->args[1].as.reg = (insn[1] & 0x1C) >> 2;
+		di->args[1].as.reg = (reg_num) ((insn[1] & 0x1C) >> 2);
 	    } else {
 		return -1;
 	    }
@@ -127,12 +133,12 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
 	case 0b01:
 	    if (byte_count < 2) { return 1; }
 	    di->format = ETCA_IF_BASE_ABM;
-	    di->size = (insn[0] & 0x30) >> 4;
+	    di->size =  (int8_t) ((insn[0] & 0x30) >> 4);
 	    di->opcode = insn[0] & 0x0F;
 	    di->params.kinds.ri = 1;
 	    di->argc = 2;
 	    di->args[0].kinds.reg_class = GPR;
-	    di->args[0].as.reg = (insn[1] & 0xE0) >> 5;
+	    di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
 	    di->args[1].kinds.immAny = 1;
 	    di->args[1].kinds.imm5s = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
 	    di->args[1].kinds.imm5z = !di->args[1].kinds.imm5s;
@@ -147,7 +153,7 @@ decode_insn(struct decode_info *di, unsigned char *insn, size_t byte_count) {
                 di->opcode = insn[1] & 0x1F;
                 di->argc = 1;
                 di->args[0].kinds.reg_class = GPR;
-                di->args[0].as.reg = (insn[1] & 0xE0) >> 5;
+		di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
                 return 0;
             }
 	    if ((insn[0] & 0x20) != 0) { return -1; }
@@ -175,7 +181,8 @@ get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
     return NULL;
 }
 static
-bool transform_pop(struct decode_info *di) {
+bool transform_pop(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
     if (di->args[1].as.reg == 6) {
 	di->format = ETCA_IF_SAF_STK;
 	di->params.kinds.r = di->params.kinds.rr;
@@ -189,7 +196,8 @@ bool transform_pop(struct decode_info *di) {
     }
 }
 static
-bool transform_push(struct decode_info *di) {
+bool transform_push(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
     if (di->args[0].as.reg == 6) {
 	di->format = ETCA_IF_SAF_STK;
 	di->params.kinds.r = di->params.kinds.rr;
@@ -212,26 +220,54 @@ do {\
 (di).params.uint = (1 << OTHER);\
 } while (0)
 
+
 static
-bool beaut_readcr(struct decode_info *di) {
+bool beaut_mov_slo(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
+    int status;
+    bfd_byte extra[2];
     SELECT_MOV_PSEUDO(*di);
-    di->args[1].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
-    di->args[1].as.reg = di->args[1].as.imm;
-    return true;
-}
-static
-bool beaut_writecr(struct decode_info *di) {
-    SELECT_MOV_PSEUDO(*di);
-    struct decoded_arg source = di->args[0];
-    di->args[0].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
-    di->args[0].as.reg = di->args[1].as.imm;
-    di->args[1] = source;
+    const bfd_byte slo_expected = 0b01001100 | (di->size << 4);
+    /* TODO: Once we get REX, we need to care about it here */
+    while ((info->stop_vma == 0) || (di->addr + di->idx + 2 < info->stop_vma)) {
+	if ((status = info->read_memory_func(di->addr + di->idx, &extra[0], 2, info)) != 0) {
+	    break;
+	}
+	if (extra[0] != slo_expected) {
+	    break;
+	}
+	if (extra[1] >> 5 != di->args[0].as.reg) {
+	    break;
+	}
+	di->idx += 2;
+	di->args[1].as.imm = (di->args[1].as.imm << 5) | (extra[1] & 0x1F);
+    }
     return true;
 }
 
+static
+bool beaut_readcr(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
+    SELECT_MOV_PSEUDO(*di);
+    di->args[1].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
+    di->args[1].as.reg = (reg_num) di->args[1].as.imm;
+    return true;
+}
+static
+bool beaut_writecr(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
+    SELECT_MOV_PSEUDO(*di);
+    struct decoded_arg source = di->args[0];
+    di->args[0].kinds = (struct etca_arg_kind) {.reg_class=CTRL};
+    di->args[0].as.reg = (reg_num) di->args[1].as.imm;
+    di->args[1] = source;
+    return true;
+}
+#undef SELECT_MOV_PSEUDO
+
 static struct beautifier {
     /* Should return true if this beautifier fully handle the opcode */
-    bool (*callback)(struct decode_info *);
+    bool (*callback)(struct disassemble_info *);
 
     enum etca_iformat format;
     union etca_opc_params_field params;
@@ -246,69 +282,86 @@ static struct beautifier {
 	{transform_push, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .ri=1, .rm=1}}, 13, 1},
 	{beaut_readcr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 14, 0},
 	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
+	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},
+	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 9, 0},
 	{ NULL, ETCA_IF_ILLEGAL, {.uint=0}, 0, 0 }
+};
+
+struct beautifier mov_starts[2] = {
+	{NULL, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},
+	{NULL, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 9, 0},
 };
 
 
 int
 print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 
-#define READ_BYTES(n)                                                             \
-    do {                                                                          \
-	if ((status = info->read_memory_func(addr + idx, &insn[idx], n, info))) { \
-	    goto fail;                                                            \
-	};									  \
-	idx += n;                                                                 \
-    } while (0)
-
     int status;
     int action;
     stream = info->stream;
-    unsigned char insn[MAX_INSTRUCTION_LENGTH];
     char buffer[128];
     fpr = info->fprintf_func;
-    size_t idx = 0;
-    size_t offset = 0;
     if (info->disassembler_options) {
 	parse_etca_dis_options(info->disassembler_options);
 	info->disassembler_options = NULL;
     }
     struct decode_info di = {
+	    .insn = {},
+	    .addr = addr,
+	    .idx = 0,
+	    .offset = 0,
 	    .opc_info = NULL,
 	    .format = ETCA_IF_ILLEGAL,
-	    .params = {.uint=0},
+	    .params = {},
 	    .argc = 0,
 	    .args = {},
 	    .size = -1,
 	    .opcode = 0,
     };
+    info->private_data = &di;
+
+
+#define READ_BYTES(n)                                                             \
+    do {                                                                          \
+	if ((status = info->read_memory_func(di.addr + di.idx, &di.insn[di.idx], n, info))) { \
+	    goto memory_error;                                                            \
+	};									  \
+	di.idx += n;                                                              \
+    } while (0)
+
     READ_BYTES(1);
     while (1) {
-	action = decode_insn(&di, &insn[offset], (idx - offset));
+	action = decode_insn(info, &di.insn[di.offset], (di.idx - di.offset));
 	if (action == 0) { /* Instruction fully decoded */
 	    break;
 	} else if (action > 0) { /* We need this many more bytes*/
+	    if (di.idx + action > MAX_INSTRUCTION_LENGTH) {
+		fpr(stream, "<illegal instruction, too long>");
+		return di.idx + action;
+	    }
+	    if (di.addr + di.idx + action)
 	    READ_BYTES(action);
 	    continue; /* Try again */
-	} else if (action == -2) { /* We got a prefix */
-	    offset = idx;
+	} else if (action == -2) { /* We finished a prefix */
+	    di.offset = di.idx;
 	    READ_BYTES(1);
 	    continue; /* Parse the next prefix or the actual instruction */
+	} else if (action == -3) { /* Memory error */
+	    goto memory_error;
 	} else if (action == -1) { /* Illegal instruction (or unrecognizable) */
-	    fpr(stream, "bad"); /* TODO: We could probably print something better */
-	    return idx;
+	    fpr(stream, "<unknown instruction>");
+	    info->private_data = NULL;
+	    return di.idx;
 	}
     }
 
 #define MATCH(a, di) ((a).format == (di).format \
        && ((a).params.uint & (di).params.uint) == (di).params.uint \
        && (a).opcode == (di).opcode)
-    /* TODO: once push and pop are implemented, they need to be special cased here
-     *       This is also the place where special casing should be implemented if we want to
-     *       sometimes emit a mov pseudo invocation */
+
     for (struct beautifier *beautifier = beautifiers; beautifier->callback != NULL; beautifier++) {
 	if (MATCH(*beautifier, di) && (beautifier->no_pseudo || !no_pseudo)) {
-	    if (beautifier->callback(&di)) {
+	    if (beautifier->callback(info)) {
 		break;
 	    }
 	}
@@ -351,10 +404,12 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	}
     }
 
-
-    return idx;
-fail:
+    info->private_data = NULL;
+    return di.idx;
+memory_error:
     info->memory_error_func(status, addr, info);
+    info->private_data = NULL;
     return -1;
 #undef READ_ONE_BYTE
+#undef MATCH
 }
