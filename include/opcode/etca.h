@@ -466,6 +466,7 @@ enum etca_pseudo_opcode {
 
 extern size_t etca_calc_mov_ri_byte_count(const struct etca_cpuid *, int8_t, reg_num, int64_t *);
 extern enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *, int8_t, reg_num, int64_t *, char*);
+extern void etca_build_nop(const struct etca_cpuid *, size_t, char *);
 
 extern const struct etca_reg_info etca_registers[];
 

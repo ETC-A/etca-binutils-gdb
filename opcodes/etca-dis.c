@@ -87,7 +87,7 @@ struct decoded_arg {
 };
 
 struct decode_info {
-    unsigned char insn[MAX_INSTRUCTION_LENGTH];
+    bfd_byte insn[MAX_INSTRUCTION_LENGTH];
     bfd_vma addr;
     bfd_size_type idx;
     bfd_size_type offset;
@@ -98,6 +98,13 @@ struct decode_info {
     union etca_opc_params_field params;
     size_t argc;
     struct decoded_arg args[2];
+    struct {
+	uint8_t x: 1;
+	uint8_t b: 1;
+	uint8_t a: 1;
+	uint8_t q: 1;
+	bfd_byte full;
+    } rex;
 };
 
 /* decode the instruction or prefix at the current location in the buffer
@@ -110,7 +117,8 @@ struct decode_info {
  * If the return value is -2, we parsed a prefix and added it to di. Read one more byte and call decode_insn starting there
  * If the return value is -3, we tried to read extra bytes but failed, raise a memory error */
 static int
-decode_insn(struct disassemble_info *info, unsigned char *insn, size_t byte_count) {
+decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
+#define REX(name, value) ( (reg_num) (value) | (di->rex.name << 3))
     struct decode_info *di = (struct decode_info *) info->private_data;
     if (byte_count == 0) { return 1; }
     switch ((insn[0] & 0xC0) >> 6) {
@@ -123,9 +131,9 @@ decode_insn(struct disassemble_info *info, unsigned char *insn, size_t byte_coun
 	    if ((insn[1] & 3) == 0) {
 		di->params.kinds.rr = 1;
 		di->args[0].kinds.reg_class = GPR;
-		di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
+		di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
 		di->args[1].kinds.reg_class = GPR;
-		di->args[1].as.reg = (reg_num) ((insn[1] & 0x1C) >> 2);
+		di->args[1].as.reg = REX(b, (insn[1] & 0x1C) >> 2);
 	    } else {
 		return -1;
 	    }
@@ -138,7 +146,7 @@ decode_insn(struct disassemble_info *info, unsigned char *insn, size_t byte_coun
 	    di->params.kinds.ri = 1;
 	    di->argc = 2;
 	    di->args[0].kinds.reg_class = GPR;
-	    di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
+	    di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
 	    di->args[1].kinds.immAny = 1;
 	    di->args[1].kinds.imm5s = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
 	    di->args[1].kinds.imm5z = !di->args[1].kinds.imm5s;
@@ -166,6 +174,15 @@ decode_insn(struct disassemble_info *info, unsigned char *insn, size_t byte_coun
 	    di->args[0].as.imm = ((insn[0] & 0x10) ? (((uint64_t)(-1)) << 8) : 0) | insn[1];
 	    return 0;
 	case 0b11:
+	    if ((insn[0] & 0b00110000) == 0) {
+		if (di->rex.full) return -1;
+		di->rex.full = insn[0];
+		di->rex.x = (insn[0] & 0x1) != 0;
+		di->rex.b = (insn[0] & 0x2) != 0;
+		di->rex.a = (insn[0] & 0x4) != 0;
+		di->rex.q = (insn[0] & 0x8) != 0;
+		return -2;
+	    }
 	    return -1;
     }
     return -1;
@@ -178,6 +195,7 @@ get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
 	    return info->name;
 	}
     }
+    printf("\n%d, %d\n", index, size);
     return NULL;
 }
 static
@@ -225,22 +243,26 @@ static
 bool beaut_mov_slo(struct disassemble_info * info) {
     struct decode_info *di = (struct decode_info*)info->private_data;
     int status;
-    bfd_byte extra[2];
+    bfd_byte extra[3];
     SELECT_MOV_PSEUDO(*di);
     const bfd_byte slo_expected = 0b01001100 | (di->size << 4);
-    /* TODO: Once we get REX, we need to care about it here */
-    while ((info->stop_vma == 0) || (di->addr + di->idx + 2 < info->stop_vma)) {
-	if ((status = info->read_memory_func(di->addr + di->idx, &extra[0], 2, info)) != 0) {
+    unsigned int delta = di->rex.full ? 3 : 2;
+
+    while ((info->stop_vma == 0) || (di->addr + di->idx + delta <= info->stop_vma)) {
+	if ((status = info->read_memory_func(di->addr + di->idx, &extra[0], delta, info)) != 0) {
 	    break;
 	}
-	if (extra[0] != slo_expected) {
+	if (!di->rex.full || extra[0] != di->rex.full) {
 	    break;
 	}
-	if (extra[1] >> 5 != di->args[0].as.reg) {
+	if (extra[delta-2] != slo_expected) {
 	    break;
 	}
-	di->idx += 2;
-	di->args[1].as.imm = (di->args[1].as.imm << 5) | (extra[1] & 0x1F);
+	if (extra[delta-1] >> 5 != (di->args[0].as.reg & 7)) {
+	    break;
+	}
+	di->idx += delta;
+	di->args[1].as.imm = (di->args[1].as.imm << 5) | (extra[delta - 1] & 0x1F);
     }
     return true;
 }

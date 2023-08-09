@@ -3082,7 +3082,7 @@ struct reloc_howto_struct
   unsigned int type;
 
   /* The size of the item to be relocated in bytes.  */
-  unsigned int size:4;
+  unsigned int size:6;
 
   /* The number of bits in the field to be relocated.  This is used
      when doing overflow checking.  */
@@ -7370,11 +7370,9 @@ assembler and not (currently) written to any object files.  */
   BFD_RELOC_ETCA_MOV_5,
   BFD_RELOC_ETCA_MOV_10,
   BFD_RELOC_ETCA_MOV_15,
-  BFD_RELOC_ETCA_MOV_16,
   BFD_RELOC_ETCA_MOV_20,
   BFD_RELOC_ETCA_MOV_25,
   BFD_RELOC_ETCA_MOV_30,
-  BFD_RELOC_ETCA_MOV_32,
   BFD_RELOC_ETCA_MOV_35,
   BFD_RELOC_ETCA_MOV_40,
   BFD_RELOC_ETCA_MOV_45,
@@ -7382,14 +7380,15 @@ assembler and not (currently) written to any object files.  */
   BFD_RELOC_ETCA_MOV_55,
   BFD_RELOC_ETCA_MOV_60,
   BFD_RELOC_ETCA_MOV_64,
+  BFD_RELOC_ETCA_MOV_8,
+  BFD_RELOC_ETCA_MOV_16,
+  BFD_RELOC_ETCA_MOV_32,
   BFD_RELOC_ETCA_MOV_5_REX,
   BFD_RELOC_ETCA_MOV_10_REX,
   BFD_RELOC_ETCA_MOV_15_REX,
-  BFD_RELOC_ETCA_MOV_16_REX,
   BFD_RELOC_ETCA_MOV_20_REX,
   BFD_RELOC_ETCA_MOV_25_REX,
   BFD_RELOC_ETCA_MOV_30_REX,
-  BFD_RELOC_ETCA_MOV_32_REX,
   BFD_RELOC_ETCA_MOV_35_REX,
   BFD_RELOC_ETCA_MOV_40_REX,
   BFD_RELOC_ETCA_MOV_45_REX,
@@ -7397,6 +7396,9 @@ assembler and not (currently) written to any object files.  */
   BFD_RELOC_ETCA_MOV_55_REX,
   BFD_RELOC_ETCA_MOV_60_REX,
   BFD_RELOC_ETCA_MOV_64_REX,
+  BFD_RELOC_ETCA_MOV_8_REX,
+  BFD_RELOC_ETCA_MOV_16_REX,
+  BFD_RELOC_ETCA_MOV_32_REX,
   BFD_RELOC_UNUSED };
 typedef enum bfd_reloc_code_real bfd_reloc_code_real_type;
 

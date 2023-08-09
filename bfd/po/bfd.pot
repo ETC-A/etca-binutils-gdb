@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-08-09 04:54+0200\n"
+"POT-Creation-Date: 2023-08-09 08:21+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -74,7 +74,7 @@ msgstr ""
 #: elf32-arc.c:532 elf32-arm.c:1985 elf32-avr.c:962 elf32-bfin.c:1063
 #: elf32-bfin.c:4686 elf32-cr16.c:654 elf32-cr16.c:684 elf32-cris.c:467
 #: elf32-crx.c:429 elf32-csky.c:991 elf32-d10v.c:234 elf32-d30v.c:522
-#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-etca.c:552
+#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-etca.c:625
 #: elf32-fr30.c:381 elf32-frv.c:2559 elf32-frv.c:6240 elf32-ft32.c:304
 #: elf32-h8300.c:302 elf32-i386.c:394 elf32-ip2k.c:1241 elf32-iq2000.c:442
 #: elf32-lm32.c:496 elf32-m32c.c:305 elf32-m32r.c:1286 elf32-m32r.c:1311
@@ -399,12 +399,12 @@ msgid "R_AMD64_IMAGEBASE with __ImageBase undefined"
 msgstr ""
 
 #: coff-z80.c:351 coff-z8k.c:214 elf32-nds32.c:13189 elfxx-mips.c:13513
-#: reloc.c:8584 reloc16.c:314
+#: reloc.c:8588 reloc16.c:314
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" goes out of range\n"
 msgstr ""
 
-#: coff-z80.c:477 coff-z8k.c:378 elfxx-mips.c:13523 reloc.c:8594
+#: coff-z80.c:477 coff-z8k.c:378 elfxx-mips.c:13523 reloc.c:8598
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" is not supported\n"
 msgstr ""
@@ -1001,7 +1001,7 @@ msgid "internal error: suspicious relocation type used in shared library"
 msgstr ""
 
 #: elf-m10300.c:2650 elf32-avr.c:2488 elf32-frv.c:5621 elf64-ia64-vms.c:365
-#: elfxx-sparc.c:2684 reloc.c:8358 reloc16.c:155 elfnn-ia64.c:365
+#: elfxx-sparc.c:2684 reloc.c:8362 reloc16.c:155 elfnn-ia64.c:365
 msgid "%P%F: --relax and -r may not be used together\n"
 msgstr ""
 
@@ -2598,19 +2598,19 @@ msgstr ""
 msgid "unsupported relocation between data/insn address spaces"
 msgstr ""
 
-#: elf32-etca.c:321 elfnn-riscv.c:3034
+#: elf32-etca.c:392 elfnn-riscv.c:3034
 msgid "%X%P: internal error: out of range error\n"
 msgstr ""
 
-#: elf32-etca.c:326 elfnn-riscv.c:3039
+#: elf32-etca.c:397 elfnn-riscv.c:3039
 msgid "%X%P: internal error: unsupported relocation error\n"
 msgstr ""
 
-#: elf32-etca.c:332 elfnn-riscv.c:3045
+#: elf32-etca.c:403 elfnn-riscv.c:3045
 msgid "dangerous relocation error"
 msgstr ""
 
-#: elf32-etca.c:338 elfnn-riscv.c:3051
+#: elf32-etca.c:409 elfnn-riscv.c:3051
 msgid "%X%P: internal error: unknown error\n"
 msgstr ""
 
@@ -5603,12 +5603,12 @@ msgid ""
 "consider using `-Ttext-segment=...'"
 msgstr ""
 
-#: elfxx-mips.c:13422 reloc.c:8506
+#: elfxx-mips.c:13422 reloc.c:8510
 #, c-format
 msgid "%X%P: %pB(%pA): error: relocation for offset %V has no value\n"
 msgstr ""
 
-#: elfxx-mips.c:13532 reloc.c:8603
+#: elfxx-mips.c:13532 reloc.c:8607
 #, c-format
 msgid "%X%P: %pB(%pA): relocation \"%pR\" returns an unrecognized value %x\n"
 msgstr ""
@@ -6804,17 +6804,17 @@ msgstr ""
 msgid "Partition[%d] length = 0x%.8lx (%ld)\n"
 msgstr ""
 
-#: reloc.c:8405
+#: reloc.c:8409
 msgid "INPUT_SECTION_FLAGS are not supported"
 msgstr ""
 
-#: reloc.c:8671
+#: reloc.c:8675
 #, c-format
 msgid "%pB: unrecognized relocation type %#x in section `%pA'"
 msgstr ""
 
 #. PR 21803: Suggest the most likely cause of this error.
-#: reloc.c:8675
+#: reloc.c:8679
 #, c-format
 msgid "is this version of the linker - %s - out of date ?"
 msgstr ""

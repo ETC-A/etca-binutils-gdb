@@ -1271,7 +1271,7 @@ process_mov_pseudo(
 		&settings.current_cpuid,
 		pi->opcode_size,
 		pi->args[0].reg.gpr_reg_num,
-		KIND(1).immConc ? (&pi->args[0].imm_expr.X_add_number): NULL);
+		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number): NULL);
 	output = frag_more(byte_count);
 	enum elf_etca_reloc_type reloc_kind = etca_build_mov_ri(
 		&settings.current_cpuid,

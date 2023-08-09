@@ -142,15 +142,57 @@ static reloc_howto_type etca_elf_howto_table [] =
     HOWTO_MOV(2, 5),
     HOWTO_MOV(4, 10),
     HOWTO_MOV(6, 15),
-    HOWTO_MOV(8, 16),
     HOWTO_MOV(8, 20),
     HOWTO_MOV(10, 25),
     HOWTO_MOV(12, 30),
+    HOWTO_MOV(14, 35),
+    HOWTO_MOV(16, 40),
+    HOWTO_MOV(18, 45),
+    HOWTO_MOV(20, 50),
+    HOWTO_MOV(22, 55),
+    HOWTO_MOV(24, 60),
+    HOWTO_MOV(26, 64),
+    HOWTO_MOV(4, 8),
+    HOWTO_MOV(8, 16),
     HOWTO_MOV(14, 32),
 #undef HOWTO_MOV
+#define HOWTO_MOV_REX(bytes, bits) HOWTO( \
+		R_ETCA_MOV_ ## bits ## _REX,            \
+		0,                                  \
+		bytes,                              \
+		bits,                               \
+		false,                              \
+		0,                              \
+		complain_overflow_unsigned,           \
+		bfd_elf_generic_reloc,              \
+		"R_ETCA_MOV_" #bits "_REX",            \
+		false,                              \
+		0, \
+		(bits == 64? MINUS_ONE : ((bfd_vma) 1 << bits) - 1) & 0x1F001F001F001F00, \
+		false)
+    HOWTO_MOV_REX(3, 5),
+    HOWTO_MOV_REX(6, 10),
+    HOWTO_MOV_REX(9, 15),
+    HOWTO_MOV_REX(12, 20),
+    HOWTO_MOV_REX(15, 25),
+    HOWTO_MOV_REX(18, 30),
+    HOWTO_MOV_REX(21, 35),
+    HOWTO_MOV_REX(24, 40),
+    HOWTO_MOV_REX(27, 45),
+    HOWTO_MOV_REX(30, 50),
+    HOWTO_MOV_REX(33, 55),
+    HOWTO_MOV_REX(36, 60),
+    HOWTO_MOV_REX(39, 64),
+    HOWTO_MOV_REX(6, 8),
+    HOWTO_MOV_REX(12, 16),
+    HOWTO_MOV_REX(21, 32),
+#undef HOWTO_MOV_REX
 
 };
 
+#define GET_SIZE(old) ((old >> 4) & 3)
+#define GET_A_REG(old) ((old >> 5) & 7)
+#define GET_A_REG_REX(old) (0b1000 | ((old >> 5) & 7))
 
 static bfd_reloc_status_type
 perform_relocation (const reloc_howto_type *howto,
@@ -168,13 +210,39 @@ perform_relocation (const reloc_howto_type *howto,
 	    contents[0] |= (value & 0x100) ? 0x10 : 0;
 	    contents[1] = value & 0xFF;
 	    return bfd_reloc_ok;
-	case R_ETCA_MOV_16:
-	    etca_build_mov_ri(NULL, 0b01, (contents[1] >> 5) & 7, (int64_t * ) & value, (char *) contents);
-	    return bfd_reloc_ok;
 	default:
+	    if (R_ETCA_IS_MOV(ELF32_R_TYPE(rel->r_info))) {
+		enum elf_etca_reloc_type new = etca_build_mov_ri(
+			NULL,
+			GET_SIZE(contents[0]),
+			GET_A_REG(contents[1]),
+			(int64_t * ) & value,
+			(char *) contents);
+		size_t old_inst_count = R_ETCA_MOV_TO_INSTRUCTION_COUNT(ELF32_R_TYPE(rel->r_info));
+		size_t new_inst_count = R_ETCA_MOV_TO_INSTRUCTION_COUNT(new);
+		etca_build_nop(NULL,
+			       (old_inst_count - new_inst_count) * 2,
+			       (char*) contents + new_inst_count * 2);
+		return bfd_reloc_ok;
+	    }
+	    if (R_ETCA_IS_MOV_REX(ELF32_R_TYPE(rel->r_info))) {
+		enum elf_etca_reloc_type new = etca_build_mov_ri(
+			NULL,
+			GET_SIZE(contents[1]),
+			GET_A_REG_REX(contents[2]),
+			(int64_t * ) & value,
+			(char *) contents);
+		size_t old_inst_count = R_ETCA_MOV_TO_INSTRUCTION_COUNT(R_ETCA_MOV_REX_TO_MOV(ELF32_R_TYPE(rel->r_info)));
+		size_t new_inst_count = R_ETCA_MOV_TO_INSTRUCTION_COUNT(R_ETCA_MOV_REX_TO_MOV(new));
+		etca_build_nop(NULL,
+			       (old_inst_count - new_inst_count) * 3,
+			       (char*) contents + new_inst_count * 3);
+		return bfd_reloc_ok;
+	    }
 	    return bfd_reloc_notsupported;
     }
 }
+#undef GET_SIZE
 
 
 /* Relocate an ETCa ELF section. Mostly copied from elfnn-riscv.c
@@ -289,12 +357,15 @@ etca_elf_relocate_section(bfd *output_bfd,
 	switch (r_type) {
 	    case R_ETCA_NONE:
 		continue;
-	    case R_ETCA_MOV_16:
 	    case R_ETCA_BASE_JMP:
 		/* Nothing special to do*/
 		break;
 	    default:
-		status = bfd_reloc_notsupported;
+		if (R_ETCA_IS_MOV(r_type) || R_ETCA_IS_MOV_REX(r_type)) {
+		    break; /* Nothing to do */
+		} else {
+		    status = bfd_reloc_notsupported;
+		}
 	}
 	if (status == bfd_reloc_ok) {
 	    status = perform_relocation(howto, rel, relocation, input_section, input_bfd, contents);
@@ -351,6 +422,91 @@ etca_elf_relocate_section(bfd *output_bfd,
     return ret;
 }
 
+
+typedef bool (*relax_func_t) (bfd *, asection *, asection *,
+			      struct bfd_link_info *,
+			      Elf_Internal_Rela *,
+			      bfd_vma, bfd_vma, bfd_vma, bool *);
+
+static bool
+_bfd_etca_relax_mov (bfd *abfd ATTRIBUTE_UNUSED, asection *sec ATTRIBUTE_UNUSED, asection *sym_sec ATTRIBUTE_UNUSED,
+		     struct bfd_link_info *link_info ATTRIBUTE_UNUSED,
+		     Elf_Internal_Rela *rel ATTRIBUTE_UNUSED,
+		     bfd_vma symval ATTRIBUTE_UNUSED,
+		     bfd_vma max_alignment ATTRIBUTE_UNUSED,
+		     bfd_vma reserve_size ATTRIBUTE_UNUSED,
+		     bool *again ATTRIBUTE_UNUSED) {
+	return false;
+}
+
+/* Relax a section.
+ *
+ * Pass 0: Shortens code sequences and deletes the obsolete bytes.
+ * Pass 1: Which cannot be disabled, handles code alignment directives.  */
+
+static bool
+_bfd_etca_relax_section (bfd *abfd, asection *sec,
+			  struct bfd_link_info *info,
+			  bool *again) {
+
+    Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+    struct bfd_elf_section_data *data = elf_section_data (sec);
+    Elf_Internal_Rela *relocs;
+    size_t i;
+    *again = false;
+    bool ret = false;
+
+    /* Read this BFD's relocs if we haven't done so already.  */
+    if (data->relocs)
+	relocs = data->relocs;
+    else if (!(relocs = _bfd_elf_link_read_relocs (abfd, sec, NULL, NULL,
+						   info->keep_memory)))
+	goto fail;
+
+    /* Examine and consider relaxing each reloc.  */
+    for (i = 0; i < sec->reloc_count; i++) {
+	//asection *sym_sec;
+	Elf_Internal_Rela *rel = relocs + i;
+	relax_func_t relax_func;
+	int type = ELF64_R_TYPE(rel->r_info);
+	//bfd_vma symval;
+	//char symtype;
+
+	relax_func = NULL;
+	if (info->relax_pass == 0) {
+	    if (R_ETCA_IS_MOV(type) || R_ETCA_IS_MOV_REX(type)) {
+		relax_func = _bfd_etca_relax_mov;
+	    }
+	}
+
+	data->relocs = relocs;
+
+	/* Read this BFD's contents if we haven't done so already.  */
+	if (!data->this_hdr.contents
+	    && !bfd_malloc_and_get_section (abfd, sec, &data->this_hdr.contents)) {
+	    goto fail;
+	}
+
+	/* Read this BFD's symbols if we haven't done so already.  */
+	if (symtab_hdr->sh_info != 0
+	    && !symtab_hdr->contents
+	    && !(symtab_hdr->contents =
+			 (unsigned char *) bfd_elf_get_elf_syms (abfd, symtab_hdr,
+								 symtab_hdr->sh_info,
+								 0, NULL, NULL, NULL))) {
+	    goto fail;
+	}
+	(void) relax_func;
+    }
+fail:
+    if (relocs != data->relocs)
+	free (relocs);
+
+    return ret;
+
+}
+
+
 /* Map BFD reloc types to ETCA ELF reloc types.  */
 
 struct etca_reloc_map
@@ -378,11 +534,9 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	PAIR(MOV_5),
 	PAIR(MOV_10),
 	PAIR(MOV_15),
-	PAIR(MOV_16),
 	PAIR(MOV_20),
 	PAIR(MOV_25),
 	PAIR(MOV_30),
-	PAIR(MOV_32),
 	PAIR(MOV_35),
 	PAIR(MOV_40),
 	PAIR(MOV_45),
@@ -390,14 +544,15 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	PAIR(MOV_55),
 	PAIR(MOV_60),
 	PAIR(MOV_64),
+	PAIR(MOV_8),
+	PAIR(MOV_16),
+	PAIR(MOV_32),
 	PAIR(MOV_5_REX),
 	PAIR(MOV_10_REX),
 	PAIR(MOV_15_REX),
-	PAIR(MOV_16_REX),
 	PAIR(MOV_20_REX),
 	PAIR(MOV_25_REX),
 	PAIR(MOV_30_REX),
-	PAIR(MOV_32_REX),
 	PAIR(MOV_35_REX),
 	PAIR(MOV_40_REX),
 	PAIR(MOV_45_REX),
@@ -405,6 +560,9 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	PAIR(MOV_55_REX),
 	PAIR(MOV_60_REX),
 	PAIR(MOV_64_REX),
+	PAIR(MOV_8_REX),
+	PAIR(MOV_16_REX),
+	PAIR(MOV_32_REX),
 #undef PAIR
 	};
 
@@ -484,22 +642,27 @@ etca_elf_obj_attrs_arg_type (int tag ATTRIBUTE_UNUSED)
 
 /* These functions are also used in the assembler */
 
+static
+uint8_t number_of_needed_bits(int64_t value) {
+    return 64 - __builtin_clrsbll(value);
+}
+
+static uint8_t size_to_width[4]  = {8,16,32,64};
+
 size_t etca_calc_mov_ri_byte_count(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t size, reg_num reg,
 				   int64_t *value_pointer ATTRIBUTE_UNUSED) {
-    /* TODO: Actually implement this */
     int factor = (reg < 8) ? 2 : 3;
-    switch (size) {
-	case 0b00:
-	    return 2 * factor;
-	case 0b01:
-	    return 4 * factor;
-	case 0b10:
-	    return 7 * factor;
-	case 0b11:
-	    return 13 * factor;
-	default:
-	    abort();
+    if (size < 0 || size > 3) {
+	abort();
     }
+    uint8_t bits;
+    if (value_pointer == NULL) {
+	bits = size_to_width[size];
+    } else {
+	bits = number_of_needed_bits(*value_pointer);
+    }
+    uint8_t insn = (bits + 4) / 5;
+    return insn * factor;
 }
 
 enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t size, reg_num reg,
@@ -511,47 +674,87 @@ enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *current_cpui
     const char slo = 0b01001100 | (size << 4);
 #define ARG(val) ((reg & 7) << 5 | (val & 0x1F))
     /* TODO: Actually implement this */
-    uint64_t value = (value_pointer == NULL) ? 0 : (uint64_t) * (value_pointer);
+    uint64_t value;
+    if (size < 0 || size > 3) {
+	abort();
+    }
+    uint8_t bits;
+    if (value_pointer == NULL) {
+	value = 0;
+	bits = size_to_width[size];
+    } else {
+	value = *value_pointer;
+	bits = number_of_needed_bits(value);
+    }
     size_t idx = 0;
-    ssize_t bit_offset;
-    enum elf_etca_reloc_type ret;
+    enum elf_etca_reloc_type ret = R_ETCA_NONE;
     switch (size) {
 	case 0b00:
-	    bit_offset = 10;
-	    ret = R_ETCA_MOV_10;
+	    if (bits >= 8) {
+		bits = 8;
+		ret = R_ETCA_MOV_8;
+	    }
 	    break;
 	case 0b01:
-	    bit_offset = 20;
-	    ret = R_ETCA_MOV_16;
+	    if (bits >= 16) {
+		bits = 16;
+		ret = R_ETCA_MOV_16;
+	    }
 	    break;
 	case 0b10:
-	    bit_offset = 35;
-	    ret = R_ETCA_MOV_32;
+	    if (bits >= 32) {
+		bits = 32;
+		ret = R_ETCA_MOV_32;
+	    }
 	    break;
 	case 0b11:
+	    if (bits >= 64) {
+		bits = 64;
+		ret = R_ETCA_MOV_64;
+	    }
+	    break;
 	default:
 	    abort();
     }
+    uint8_t insn = (bits + 4) / 5;
+    if (ret == R_ETCA_NONE) {
+	ret = R_ETCA_MOV_FROM_INSTRUCTION_COUNT(insn);
+    }
     if (need_rex) {
+	ret = R_ETCA_MOV_TO_MOV_REX(ret);
 	output[idx++] = rex_a;
     }
-    if (value & (1 << bit_offset)) {
+    if (value & (1 << (bits - 1))) {
 	output[idx++] = movs;
     } else {
 	output[idx++] = movz;
     }
-    output[idx++] = ARG(value >> (bit_offset - 5));
-    bit_offset -= 10;
-    for (; bit_offset >= 0; bit_offset -= 5) {
+    output[idx++] = ARG(value >> ((insn - 1) * 5));
+
+    for (int8_t i = insn - 1; i >= 0; i--) {
 	if (need_rex) {
 	    output[idx++] = rex_a;
 	}
 	output[idx++] = slo;
-	output[idx++] = ARG(value >> bit_offset);
+	output[idx++] = ARG(value >> ((i - 1) * 5));
     }
     return ret;
 #undef ARG
 }
+
+void etca_build_nop(const struct etca_cpuid * current_cpuid ATTRIBUTE_UNUSED, size_t byte_count, char *output) {
+    if (byte_count % 2 == 1) {
+	*(output++) = 0b10101110;
+	byte_count--;
+    }
+    while (byte_count > 0) {
+	*(output++) = 0b10001111;
+	*(output++) = 0;
+	byte_count -= 2;
+    }
+}
+
+
 
 #define TARGET_LITTLE_SYM	etca_elf32_vec
 #define TARGET_LITTLE_NAME	"elf32-etca"
@@ -563,6 +766,7 @@ enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *current_cpui
 #define elf_info_to_howto_rel			NULL
 #define elf_info_to_howto			etca_info_to_howto_rela
 #define elf_backend_relocate_section		etca_elf_relocate_section
+#define bfd_elf32_bfd_relax_section		_bfd_etca_relax_section
 //#define elf_backend_gc_mark_hook		etca_elf_gc_mark_hook
 //#define elf_backend_check_relocs		etca_elf_check_relocs
 #define bfd_elf32_bfd_reloc_type_lookup		etca_reloc_type_lookup
