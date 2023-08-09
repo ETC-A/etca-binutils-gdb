@@ -279,7 +279,7 @@ enum {
     might come from an instruction being assembled, or from an instruction
     being disassembled. */
     ImmAny,
-    /* The value of this immediate is already known */
+    /* The value of this immediate is concrete after parsing. */
     ImmConcrete,
     /* An 8-bit displacement, used in MO1/MO2 formats. */
     Disp8,

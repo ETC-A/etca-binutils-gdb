@@ -47,11 +47,10 @@ struct etca_arg {
      * Otherwise, it's not resolved yet and we have to emit a fixup.
      * (We can emit a fixup anyway if we don't want to deal with it right now)
      * If need be, we can use imm_expr.X_md for our purposes.
+     * 
+     * This field is also used for displacements.
      */
     struct expressionS imm_expr;
-
-    /* See imm_expr, but for displacements. */
-    struct expressionS disp_expr;
 
     struct {
 	/* -1 if we don't have a base register. */
@@ -96,9 +95,11 @@ static char *parse_register_name(char *str, struct etca_arg *result);
 
 static char *parse_immediate(char *str, struct etca_arg *result);
 
-static char *parse_memory_location(char *str, struct etca_arg *result);
-
-static char *parse_memory_upper(char *str, struct etca_arg *result);
+static void
+check_adr_size(const struct etca_opc_info *, int8_t adr_size);
+static char *parse_memory_inner(char *str, struct etca_arg *result);
+static char *parse_asp         (char *str, struct etca_arg *result);
+static char *parse_memory_outer(char *str, struct etca_arg *result);
 
 static char *parse_operand(char *str, struct etca_arg *result);
 
@@ -282,7 +283,7 @@ static struct etca_reg_info *lookup_register_name_checked(char **str, int have_p
     // We use this if we have to return a register after calling as_bad. Otherwise,
     // we'll try and backtrack even though we know we are supposed to
     // be looking at a register here.
-    static struct etca_reg_info spoofed = { .name = "error-reg", .class=GPR };
+    static struct etca_reg_info spoofed = { .name = "error-reg", .class=GPR, .aux.reg_size=-1 };
 
     // If we don't have a prefix, but prefixes are required, that's not an error.
     // What it actually means is that anything that might've looked like a register name
@@ -457,18 +458,211 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
     return str;
 }
 
-/* Parse a non-nested memory location, setting the fields in result correctly.
- */
-static char *parse_memory_location(char *str ATTRIBUTE_UNUSED, struct etca_arg *result ATTRIBUTE_UNUSED) {
-    as_fatal("Memory location syntax not implemented");
-    return NULL;
+// helpers for parsing memory_inner
+static char *parse_ptr_register(char *str, struct etca_arg *result);
+
+// impl helpers for parsing memory_inner
+static char *parse_ptr_register(char *str, struct etca_arg *result) {
+    str = parse_register_name(str, result);
+    if (result->kind.reg_class == CTRL) {
+        as_bad("invalid use of control register");
+        result->reg.gpr_reg_num = 0;
+        result->kind.reg_class = GPR;
+        return str; // try to keep going as though we found a register.
+    }
+    // not a register; indicate as such (and probably try something else).
+    if (!str) return NULL;
+    // check address size is good
+    check_adr_size(NULL, result->reg_size);
+    return str;
 }
 
-/* Parse a potentially nested-or-ASP memory location reference.
+/* Parse a non-nested memory location, setting the fields in result correctly.
+
+    Only handles the simplest case of one register and no displacement for now.
  */
-static char *parse_memory_upper(char *str, struct etca_arg *result) {
-    parse_memory_location(str, result);
-    return NULL;
+static char *parse_memory_inner(char *str, struct etca_arg *result) {
+    struct etca_arg a_reg;
+
+    // initialize the memory parameters as all absent.
+    result->imm_expr.X_op = O_absent;
+    result->memory.base_reg = -1;
+    result->memory.index_reg = -1;
+
+    str = parse_ptr_register(str, &a_reg);
+
+    // if that wasn't a ptr register, or next isn't ']', give up:
+    if (!str || *str != ']') {
+        as_fatal("Generic memory location syntax not implemented");
+        return NULL;
+    }
+    str++; // consume ']'
+
+    result->memory.base_reg = a_reg.reg.gpr_reg_num;
+    result->kind.memory = 1;
+    result->reg_size = -1;
+
+    return str;
+}
+
+/* Parse an ASP memory location. We accept both postdec and preinc grammatically
+    for the purpose of rejecting them semantically with a better error message.
+    The other ones still need to be checked for order, which process_mov_pseudo
+    will handle.
+
+    A return value of NULL indicates an error.
+    A return value equal to the input str indicates that we should
+    backtrack and try a regular MemoryInner.
+
+ * ASP ::=
+     | '++' REG ']'  { error }
+     | '--' REG ']'  { predec $2 }
+     | REG '++' ']'  { postinc $1 }
+     | REG '--' ']'  { error }
+ */
+static char *parse_asp(char *str, struct etca_arg *result) {
+    // TODO: Gas's scrubber currently turns `[%r0 + +]` into `[%r0++]`.
+    // Decide: should that be allowed? If no, figure out how to fix.
+    static const char *not_reg = "operand of `%s' must be a register";
+    static const char *bad_op  = "`%s' of ptr register is not allowed";
+    enum asp_ops {
+        PREINC,
+        PREDEC,
+        POSTINC,
+        POSTDEC
+    };
+    static const char *op_sym[4] = {
+        "preinc", "predec", "postinc", "postdec"
+    };
+    enum asp_ops op;
+    char *backtrack = str;
+    bool got_register = true;
+
+    // if ASP isn't available, backtrack immediately.
+    if (!(settings.current_cpuid.cpuid1 & ETCA_CP1_ASP)) {
+        return backtrack;
+    }
+
+    if (*str == '+' && *(str+1) == '+') {
+        op = PREINC;
+        str = parse_register_name(str+2, result);
+        // if we didn't get a register, wait to return until we're
+        // done searching for a closing ']'.
+        if (!str || result->kind.reg_class != GPR) {
+            as_bad(not_reg, op_sym[op]);
+            got_register = false;
+        }
+    } else if (*str == '-' && *(str+1) == '-') {
+        op = PREDEC;
+        str = parse_register_name(str+2, result);
+        if (!str || result->kind.reg_class != GPR) {
+            as_bad(not_reg, op_sym[op]);
+            got_register = false;
+        }
+        result->kind.predec = 1;
+    } else {
+        str = parse_register_name(str, result);
+        // in this case it might just be a regular memory operand,
+        // so definitely don't call as_bad. We can't check for postinc
+        // or postdec here since we don't know how much parse_register_name
+        // tried to consume.
+        if (!str) return backtrack;
+        // otherwise check for postinc/postdec. If it's not one of those,
+        // it's still not an error... just backtrack.
+        if (*str == '+' && *(str+1) == '+') {
+            op = POSTINC;
+            str += 2;
+            result->kind.postinc = 1;
+        } else if (*str == '-' && *(str+1) == '-') {
+            op = POSTDEC;
+            str += 2;
+        } else {
+            return backtrack;
+        }
+        if (result->kind.reg_class != GPR) {
+            as_bad(not_reg, op_sym[op]);
+            got_register = false;
+        }
+    }
+
+    // if we did get a register, ensure the size agrees with address.
+    if (got_register) {
+        check_adr_size(NULL, result->reg_size);
+        // we're later going to run this past an opr_opr check,
+        // if it is indeed a mov pseudo, so don't let a ptr size
+        // fail an opr check!
+        result->reg_size = -1;
+    }
+
+    // ensure that result is an acceptable spoof before
+    // we go onto returning (potentially with a recoverable error).
+    // That means: it does **not** say this is a register,
+    // or in fact anything at all except possibly a true
+    // predec/postinc. Anything else may cause or prevent
+    // params kinds check errors incorrectly.
+    // Leave the register in the reg.gpr_reg_num field for convenience though.
+    result->kind.reg_class = 0;
+
+    if (*str != ']') {
+        char *end = str;
+        as_bad("generic memory operands cannot contain ASP syntax");
+        // search for a ']' or ',' and proceed from there. If we can't find one... rip.
+        while (*++str != ']' && *str != ',' && *str != '\0') {}
+        if (*str == '\0') return end;
+        if (*str == ',') return str;
+        return str+1; // found ']', consume it
+    }
+    str++; // consume ']'
+
+    // if we didn't actually get a register, quit now.
+    if (!got_register) {
+        return str;
+    }
+
+    // otherwise we've successfully parsed an ASP operand. Check
+    // that it's one of the ops that's actually legal...
+    if (op == PREINC || op == POSTDEC) {
+        as_bad(bad_op, op_sym[op]);
+        return str;
+    }
+
+    return str;
+}
+
+/* Grammar:
+ * Operand ::= '[' MemoryOuter | ...
+ * MemoryOuter ::=
+    | ASP
+    | MemoryInner
+    | '[' MemoryInner ']'
+
+   Note that ASP and MemoryInner both consume the trailing ']'.
+ */
+static char *parse_memory_outer(char *str, struct etca_arg *result) {
+    // ASP and MEM have some grammatical overlap; rather than trying to
+    // factor it (which is tricky but possible), ASP just backtracks
+    // if it fails.
+    char *start_str = str;
+
+    if (*str == '[') {
+        str++;
+        str = parse_memory_inner(str, result);
+        if (*str == ']') {
+            str++;
+        } else {
+            as_bad("unmatched '['");
+        }
+        result->kind.nested_memory = result->kind.memory;
+        result->kind.memory = 0;
+        return str;
+    }
+
+    str = parse_asp(str, result);
+    // if str is NULL, we found an error, return NULL.
+    // if str is start_str, don't return that though - then we backtrack.
+    if (!str || str != start_str) return str;
+
+    return parse_memory_inner(start_str, result);
 }
 
 /* Parse an arbitrary component, deferring to the correct parse_* function.
@@ -478,7 +672,7 @@ char *parse_operand(char *str, struct etca_arg *result) {
     switch (*str) {
 	case '[':
 	    str++;
-	    return parse_memory_upper(str, result);
+	    return parse_memory_outer(str, result);
 	default: {
             char *save_str = str;
             // Try parsing a register name...
@@ -1081,9 +1275,6 @@ SIZE_CHK_HDR(compute_nullary_size);
 static int8_t
 check_opcode_matches_opr_size(const struct etca_opc_info *, int8_t opcode_size, int8_t reg_size);
 
-static void
-check_adr_size(const struct etca_opc_info *, int8_t adr_size);
-
 // potential errors while computing operand sizes
 static void operand_size_mismatch(const struct etca_opc_info *);
 static void suffix_operand_disagree(const struct etca_opc_info *, int8_t suffix, int8_t opsize);
@@ -1223,7 +1414,13 @@ static void indeterminate_operand_size(const struct etca_opc_info *opc) {
     as_bad("can't determine operand size for `%s'", opc->name);
 }
 static void bad_address_reg_size(const struct etca_opc_info *opc, int8_t reg_size) {
-    as_bad("bad address register size `%c' for `%s'", size_chars[reg_size], opc->name);
+    // while parsing memory operands we may call this without wanting
+    // to print the opcode name; support that here.
+    if (!opc) {
+        as_bad("bad ptr register size `%c'", size_chars[reg_size]);
+    } else {
+        as_bad("bad ptr register size `%c' for `%s'", size_chars[reg_size], opc->name);
+    }
 }
 static void must_be_a_label(const struct etca_opc_info *opc) {
     as_bad("the operand of `%s' must be a label", opc->name);
@@ -1237,8 +1434,37 @@ process_mov_pseudo(
     struct parse_info *pi
 ) {
 #define KIND(idx) (pi->args[idx].kind)
-    // two (GP) registers: it's just movs.
-    if (KIND(0).reg_class == GPR && KIND(1).reg_class == GPR) {
+// TODO: simple mem should include displacement but no register
+#define SIMPLE_MEM(idx) (KIND(idx).memory && pi->args[idx].imm_expr.X_op == O_absent && pi->args[idx].memory.index_reg == -1)
+    // simple MEM <- reg: store
+    if (SIMPLE_MEM(0) && KIND(1).reg_class == GPR) {
+        struct etca_opc_info *store = str_hash_find(opcode_hash_control, "store");
+        struct etca_arg mem = pi->args[0];
+        pi->params.kinds.rr = 1;
+        pi->args[0] = pi->args[1]; // store #0 is store source, but we have that at #1
+        pi->args[1].kind = (struct etca_arg_kind){0}; // 0 out whatever kind info we had
+        pi->args[1].kind.reg_class = GPR; // and we have a GPR
+        pi->args[1].reg.gpr_reg_num = mem.memory.base_reg; // specifically the base addr reg
+        // pi->args[1].reg_size = -1; // size is already computed so we can skip this
+        assemble_base_abm(store, pi);
+        return;
+    }
+    // reg <- simple MEM: load
+    if (KIND(0).reg_class == GPR && SIMPLE_MEM(1)) {
+        struct etca_opc_info *load = str_hash_find(opcode_hash_control, "load");
+        pi->params.kinds.rr = 1;
+        pi->args[1].kind = (struct etca_arg_kind){0}; // erase kind info
+        pi->args[1].kind.reg_class = GPR; // instead we have a GPR
+        pi->args[1].reg.gpr_reg_num = pi->args[1].memory.base_reg; // the base addr reg
+        // pi->args[1].memory = (?){0}; // no need, assemble_base_abm won't look at this
+        // pi->args[1].reg_size = -1; // size is already computed so no need for this
+        assemble_base_abm(load, pi);
+        return;
+    }
+    // two (GP) registers, or GPR and (any) MEM, or (any) MEM and GPR: it's just movs.
+    if ((KIND(0).reg_class == GPR && KIND(1).reg_class == GPR)
+        || (KIND(0).reg_class == GPR && KIND(1).memory)
+        || (KIND(0).memory && KIND(1).reg_class == GPR)) {
         struct etca_opc_info *movs = str_hash_find(opcode_hash_control, "movs");
         pi->params.kinds.rr = 1;
         assemble_base_abm(movs, pi);
@@ -1262,8 +1488,9 @@ process_mov_pseudo(
         assemble_base_abm(writecr, pi);
         return;
     }
-    //  GP register <- IMM
-    //
+    // GP register <- IMM
+    // This is the large-immediate mov pseudo. It's mainly handled in elf32-etca.c,
+    // but we need to construct the correct fixup if the immediate isn't concrete.
     if (KIND(0).reg_class == GPR && KIND(1).immAny) {
 	char *output;
 
@@ -1271,7 +1498,7 @@ process_mov_pseudo(
 		&settings.current_cpuid,
 		pi->opcode_size,
 		pi->args[0].reg.gpr_reg_num,
-		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number): NULL);
+		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number) : NULL);
 	output = frag_more(byte_count);
 	enum elf_etca_reloc_type reloc_kind = etca_build_mov_ri(
 		&settings.current_cpuid,
@@ -1281,17 +1508,50 @@ process_mov_pseudo(
 		output);
 	if (!KIND(1).immConc) {
 	    fix_new_exp(frag_now,
-				     (output - frag_now->fr_literal),
-				     byte_count,
-				     &pi->args[1].imm_expr,
-				     false,
-				     (bfd_reloc_code_real_type) (BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
+		(output - frag_now->fr_literal),
+		byte_count,
+		&pi->args[1].imm_expr,
+		false,
+		(bfd_reloc_code_real_type) (BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
 	    //TODO: Define a function in elf32-etca (I think?) that does the transformation r_type -> bfd_reloc_code correctly.
 	}
 	return;
     }
-    
-    as_fatal("implementation of the `mov' pseudoinstruction is not complete.");
+    // predec/postinc <- reg/imm: ASP push
+    // Can't parse this if ASP isn't available so we don't have to check.
+    // Enforce that left arg is predec.
+    if ((KIND(0).predec || KIND(0).postinc) && (KIND(1).reg_class == GPR || KIND(1).immAny)) {
+        if (KIND(0).postinc) {
+            as_bad("ptr postinc can only be the second operand of `mov'");
+            // but assemble as predec anyway for simplicity
+        }
+        struct etca_opc_info *push = str_hash_find(opcode_hash_control, "push");
+        pi->params.kinds.rr = KIND(1).reg_class == GPR;
+        pi->params.kinds.ri = KIND(1).immAny;
+        // replace the predec arg with just a GPR of the same regnum.
+        pi->args[0].kind = (struct etca_arg_kind){0};
+        pi->args[0].kind.reg_class = GPR;
+        // pi->args[0].reg.gpr_reg_num is already set correctly!
+        assemble_base_abm(push, pi);
+        return;
+    }
+    // reg <- predec/postinc: ASP pop
+    // Once again, if we parsed this, we know we have ASP (and therefore SAF).
+    // Enforce that the right arg is postinc.
+    if (KIND(0).reg_class == GPR && (KIND(1).predec || KIND(1).postinc)) {
+        if (KIND(1).predec) {
+            as_bad("ptr predec can only be the first operand of `mov'");
+        }
+        struct etca_opc_info *pop = str_hash_find(opcode_hash_control, "pop");
+        pi->params.kinds.rr = 1;
+        // replace postinc arg with GPR of the same regnum.
+        pi->args[1].kind = (struct etca_arg_kind){0};
+        pi->args[1].kind.reg_class = GPR;
+        assemble_base_abm(pop, pi);
+        return;
+    }
+
+    as_bad("bad operands for `mov'");
 
 #undef KIND
 }
