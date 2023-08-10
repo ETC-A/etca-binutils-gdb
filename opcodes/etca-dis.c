@@ -178,6 +178,17 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
                 return 0;
             }
+            if ((insn[0] & 0xF0) == 0xB0) { /* SAF 12-bit call */
+                di->format = ETCA_IF_SAF_CALL;
+                // the opcode is arbitrary so the table has 0. We have to match the table.
+                di->opcode = 0;
+                di->params.kinds.i = 1;
+                di->argc = 1;
+                // The bit below to print labels checks for immAny... is that right?
+                di->args[0].kinds.disp12 = di->args[0].kinds.immAny = 1;
+                di->args[0].as.imm = ((insn[0] & 0xF) << 8) | insn[1];
+                return 0;
+            }
 	    if ((insn[0] & 0x20) != 0) { return -1; }
             // otherwise, regular base jmp
 	    di->format = ETCA_IF_BASE_JMP;
