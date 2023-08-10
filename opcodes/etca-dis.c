@@ -113,6 +113,8 @@ struct decode_info {
     } rex;
 };
 
+#define SIGN_EXTEND(value, bit) ((((value) & (1 << (bit - 1))) ? ((bfd_vma) (-1) << bit) : 0) | ((value) & ((1 << bit) - 1)))
+
 /* decode the instruction or prefix at the current location in the buffer
  * This is potentially called multiple times to decode prefixes or situations where more bytes are needed
  * byte_count should be the number of bytes that are currently valid in buffer
@@ -156,8 +158,10 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    di->args[1].kinds.immAny = 1;
 	    di->args[1].kinds.imm5s = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
 	    di->args[1].kinds.imm5z = !di->args[1].kinds.imm5s;
-	    di->args[1].as.imm =
-		    (insn[1] & 0x1F) | ((di->args[1].kinds.imm5s && insn[1] & 0x10) ? ((uint64_t)(-1) << 5) : 0);
+	    di->args[1].as.imm  = insn[1] & 0x1F;
+	    if (di->args[1].kinds.imm5s) {
+		di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, 5);
+	    }
 	    return 0;
 	case 0b10:
 	    if (insn[0] == 0xAE) { /* One byte nop*/
@@ -184,9 +188,9 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->opcode = 0;
                 di->params.kinds.i = 1;
                 di->argc = 1;
-                // The bit below to print labels checks for immAny... is that right?
-                di->args[0].kinds.disp12 = di->args[0].kinds.immAny = 1;
-                di->args[0].as.imm = ((insn[0] & 0xF) << 8) | insn[1];
+                di->args[0].kinds.disp12 = di->args[0].kinds.dispAny = 1;
+                di->args[0].as.imm = (((insn[0] & 0xF) << 8) | insn[1]);
+                di->args[0].as.imm = di->addr + SIGN_EXTEND(di->args[0].as.imm, 12);
                 return 0;
             }
 	    if ((insn[0] & 0x20) != 0) { return -1; }
@@ -195,8 +199,8 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    di->params.kinds.i = 1;
 	    di->opcode = insn[0] & 0x0F;
 	    di->argc = 1;
-	    di->args[0].kinds.immAny = 1;
-	    di->args[0].as.imm = ((insn[0] & 0x10) ? (((uint64_t)(-1)) << 8) : 0) | insn[1];
+	    di->args[0].kinds.disp9 = di->args[0].kinds.dispAny = 1;
+	    di->args[0].as.imm = di->addr + (((insn[0] & 0x10) ? (((uint64_t)(-1)) << 8) : 0) | insn[1]);
 	    return 0;
 	case 0b11:
 	    if ((insn[0] & 0b00110000) == 0) {
@@ -280,7 +284,7 @@ bool transform_never_jump(struct disassemble_info * info) {
     di->opcode = ETCA_NOP;
     di->params.kinds = (struct etca_params_kind) {.e=1};
     di->size = 1;
-    switch (di->args[0].as.imm) {
+    switch (di->args[0].as.imm - di->addr) {
 	case 0:
 	    di->argc = 0;
 	    return true;
@@ -544,8 +548,8 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
             if (di.args[i].kinds.nested_memory) fpr(stream, "]");
         } else if (di.args[i].kinds.reg_class != RegClassNone) {
 	    fpr(stream, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
-	} else if (di.args[i].kinds.immAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
-	    info->print_address_func(addr + di.args[i].as.imm, info);
+	} else if (di.args[i].kinds.dispAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
+	    info->print_address_func(di.args[i].as.imm, info);
 	} else if (di.args[i].kinds.imm5z || di.args[i].kinds.imm8z) {
 	    fpr(stream, "%" PRIu64, di.args[i].as.imm);
 	} else if (di.args[i].kinds.immAny) {
