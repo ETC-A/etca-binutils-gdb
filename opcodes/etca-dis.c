@@ -175,7 +175,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->opcode = insn[1] & 0x1F;
                 di->argc = 1;
                 di->args[0].kinds.reg_class = GPR;
-		di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
+                di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
                 return 0;
             }
 	    if ((insn[0] & 0x20) != 0) { return -1; }
@@ -335,11 +335,9 @@ bool beaut_load(struct disassemble_info *info) {
     SELECT_MOV_PSEUDO(*di);
     // args[0] is fine
     di->args[1].kinds = (struct etca_arg_kind){.memory = 1};
-    di->args[1].as.memory = (struct decoded_mem){
-        .base_reg = ptr_reg,
-        .index_reg = -1,
-        .disp = 0,
-    };
+    di->args[1].as.memory.base_reg = ptr_reg;
+    di->args[1].as.memory.index_reg = -1;
+    di->args[1].as.memory.disp = 0;
     return true;
 }
 static
@@ -350,11 +348,20 @@ bool beaut_store(struct disassemble_info *info) {
     // args[0] has the mov src operand so we have to move it over.
     di->args[1] = di->args[0];
     di->args[0].kinds = (struct etca_arg_kind){.memory = 1};
-    di->args[0].as.memory = (struct decoded_mem){
-        .base_reg = ptr_reg,
-        .index_reg = -1,
-        .disp = 0,
-    };
+    di->args[0].as.memory.base_reg = ptr_reg;
+    di->args[0].as.memory.index_reg = -1;
+    di->args[0].as.memory.disp = 0;
+    return true;
+}
+
+static
+bool beaut_ret(struct disassemble_info *info) {
+    struct decode_info *di = info->private_data;
+    // we "fully handle" jumps that are not through %r7 by doing nothing.
+    if (di->args[0].as.reg != 7) return true;
+    // otherwise, delete the arg. It'll then match the 'ret' patterns.
+    di->argc = 0;
+    di->params.kinds = (struct etca_params_kind){.e=1};
     return true;
 }
 
@@ -366,7 +373,7 @@ static struct beautifier {
 
     enum etca_iformat format;
     union etca_opc_params_field params;
-    uint16_t opcode;
+    int16_t opcode; // if this is -1, we should match any opcode
 
     /* This beautifier does not produce a pseudo instruction and can therefore not be deactivated */
     uint16_t no_pseudo: 1;
@@ -382,6 +389,7 @@ static struct beautifier {
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 9, 0},
         {beaut_load,    ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 10, 0},
         {beaut_store,   ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 11, 0},
+        {beaut_ret,     ETCA_IF_SAF_JMP,  {.kinds={.r=1}}, -1, 0},
 	{ NULL, ETCA_IF_ILLEGAL, {.uint=0}, 0, 0 }
 };
 
@@ -455,7 +463,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 
 #define MATCH(a, di) ((a).format == (di).format \
        && ((a).params.uint & (di).params.uint) == (di).params.uint \
-       && (a).opcode == (di).opcode)
+       && ((a).opcode == (di).opcode || (a).opcode == -1))
 
     for (struct beautifier *beautifier = beautifiers; beautifier->callback != NULL; beautifier++) {
 	if (MATCH(*beautifier, di) && (beautifier->no_pseudo || !no_pseudo)) {
@@ -518,7 +526,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
                     pos_disp = disp;
                 }
                 if (have_thing && disp < 0) fpr(stream, " - ");
-                else if (disp < 0)          fpr(stream, " -"); // no space after -
+                else if (disp < 0)          fpr(stream, "-");
                 printf("%" PRIu64, pos_disp);
             }
             fpr(stream, "]");

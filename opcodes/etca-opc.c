@@ -199,10 +199,13 @@ struct etca_opc_info etca_opcodes[] = {
 
 #define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
                                {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(r), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
+// just an alias for SAF_JMP with an implicit ADR operand of %ln
+#define SAF_RET(name, opcode)  {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(e), NOSUFFIX(NULLARY), ETCA_PAT(SAF), 0}
 /* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
 #define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(r), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
 // doing things this way simplifies adding aliases and the c<code> prefix in the future.
-#define CONDITIONAL(ccode, value) BASE_JMP("j" ccode, value), SAF_COND_CALL("call" ccode, value)
+#define CONDITIONAL(ccode, value) BASE_JMP("j" ccode, value), \
+                SAF_RET("ret" ccode, value), SAF_COND_CALL("call" ccode, value)
         CONDITIONAL("z",   0), CONDITIONAL("e", 0),
         CONDITIONAL("nz",  1), CONDITIONAL("ne", 1),
         CONDITIONAL("n",   2),
@@ -223,11 +226,13 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_JMP("j",   14),
 #undef BASE_JMP
 
+        SAF_RET("ret", 14),
+#undef SAF_RET
+
 	SAF_COND_CALL("call",   14),
         /* Also the SAF uncond call i, which shares the opcode name with call r */
         {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(SAF), 0},
 #undef SAF_COND_CALL
-
 
         {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), NOSUFFIX(0), ETCA_PAT(BASE), 0}
 };

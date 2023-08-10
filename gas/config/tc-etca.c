@@ -880,6 +880,20 @@ not_an_opcode:
 	as_bad(_("unknown opcode %s"), save_str);
 	return;
     }
+    // we've pulled up the first opcode entry. But this one might not be
+    // valid. We must try to find one which is enabled (ignorant of params).
+    // If none are enabled, we have an unknown opcode (and need to jump back).
+    {
+        bool opcode_enabled = false;
+        const struct etca_opc_info *sweep = opcode;
+        do {
+            if (etca_match_cpuid_pattern(&sweep->requirements, &settings.current_cpuid)) {
+                opcode_enabled = true;
+                break;
+            }
+        } while ((sweep++)->try_next_assembly);
+        if (!opcode_enabled) goto not_an_opcode;
+    }
 
     // check for opcode suffix pedantically
     if (settings.pedantic && opcode->size_info.suffix_allowed && pi.opcode_size == -1) {
@@ -1438,6 +1452,7 @@ process_nop_pseudo(
 	const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
 	struct parse_info *pi
 ) {
+    size_t byte_count;
     if (pi->opcode_size == -1) {
 	if (etca_match_cpuid_pattern(&any_vwi_pat, &settings.current_cpuid)) {
 	    pi->opcode_size = 0; /* We are going to use the 1byte NOP by default*/
@@ -1445,23 +1460,10 @@ process_nop_pseudo(
 	    pi->opcode_size = 1; /* We need to use the base-isa 2byte NOP*/
 	}
     }
-    size_t byte_count;
-    switch (pi->opcode_size) {
-	case 0:
-	    byte_count = 1;
-	    break;
-	case 1:
-	    byte_count = 2;
-	    break;
-	case 2:
-	    byte_count = 4;
-	    break;
-	case 3:
-	    byte_count = 8;
-	    break;
-	default:
-	    as_fatal("internal error: Illegal opcode_size=%d", pi->opcode_size);
+    if (((uint8_t)pi->opcode_size) > 3) {
+	as_fatal("internal error: Illegal opcode_size=%d", pi->opcode_size);
     }
+    byte_count = 1 << pi->opcode_size;
     char *output = frag_more(byte_count);
     etca_build_nop(&settings.current_cpuid, byte_count, output);
 }
@@ -1772,7 +1774,13 @@ void assemble_saf_12_call(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, s
 void assemble_saf_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
     char *output;
     size_t idx = 0;
-    gas_assert(pi->argc == 1 && pi->args[0].kind.reg_class == GPR);
+    // nullary is a ret, if there's 1 arg it must be an explicit GPR.
+    gas_assert(pi->argc == 0 || (pi->argc == 1 && pi->args[0].kind.reg_class == GPR));
+
+    if (pi->argc == 0) {
+        pi->argc = 1;
+        pi->args[0].reg.gpr_reg_num = 7; // %ln
+    }
 
     output = frag_more(2);
     output[idx++] = 0b10101111;

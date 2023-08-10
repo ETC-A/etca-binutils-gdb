@@ -430,14 +430,17 @@ enum etca_iformat {
     ETCA_IFORMAT_COUNT
 };
 
+// declare this separately or some linters get mad
+union etca_opc_params_field {
+    struct etca_params_kind kinds;
+    uint16_t uint;
+};
+
 struct etca_opc_info {
     const char *name;
     enum etca_iformat format;
     uint16_t opcode; /* Exact meaning depends on format */
-    union etca_opc_params_field {
-        struct etca_params_kind kinds;
-        uint16_t uint;
-    } params;
+    union etca_opc_params_field params;
     struct etca_opc_size_info size_info;
     struct etca_cpuid_pattern requirements;
     char try_next_assembly; /* bool - will be set correctly during md_begin*/
