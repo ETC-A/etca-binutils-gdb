@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-08-10 05:25+0200\n"
+"POT-Creation-Date: 2023-08-10 19:08+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -74,7 +74,7 @@ msgstr ""
 #: elf32-arc.c:532 elf32-arm.c:1985 elf32-avr.c:962 elf32-bfin.c:1063
 #: elf32-bfin.c:4686 elf32-cr16.c:654 elf32-cr16.c:684 elf32-cris.c:467
 #: elf32-crx.c:429 elf32-csky.c:991 elf32-d10v.c:234 elf32-d30v.c:522
-#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-etca.c:633
+#: elf32-d30v.c:544 elf32-dlx.c:546 elf32-epiphany.c:373 elf32-etca.c:719
 #: elf32-fr30.c:381 elf32-frv.c:2559 elf32-frv.c:6240 elf32-ft32.c:304
 #: elf32-h8300.c:302 elf32-i386.c:394 elf32-ip2k.c:1241 elf32-iq2000.c:442
 #: elf32-lm32.c:496 elf32-m32c.c:305 elf32-m32r.c:1286 elf32-m32r.c:1311
@@ -2598,19 +2598,19 @@ msgstr ""
 msgid "unsupported relocation between data/insn address spaces"
 msgstr ""
 
-#: elf32-etca.c:389 elfnn-riscv.c:3034
+#: elf32-etca.c:471 elfnn-riscv.c:3034
 msgid "%X%P: internal error: out of range error\n"
 msgstr ""
 
-#: elf32-etca.c:394 elfnn-riscv.c:3039
+#: elf32-etca.c:476 elfnn-riscv.c:3039
 msgid "%X%P: internal error: unsupported relocation error\n"
 msgstr ""
 
-#: elf32-etca.c:400 elfnn-riscv.c:3045
+#: elf32-etca.c:482 elfnn-riscv.c:3045
 msgid "dangerous relocation error"
 msgstr ""
 
-#: elf32-etca.c:406 elfnn-riscv.c:3051
+#: elf32-etca.c:488 elfnn-riscv.c:3051
 msgid "%X%P: internal error: unknown error\n"
 msgstr ""
 

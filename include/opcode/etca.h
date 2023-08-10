@@ -453,6 +453,7 @@ struct etca_opc_info {
 enum etca_pseudo_opcode {
     ETCA_MOV,
     ETCA_NOP,
+    ETCA_HLT,
     ETCA_PSEUDO_COUNT
 };
 

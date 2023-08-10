@@ -188,6 +188,61 @@ static reloc_howto_type etca_elf_howto_table [] =
     HOWTO_MOV_REX(21, 32),
 #undef HOWTO_MOV_REX
 
+    HOWTO (R_ETCA_8,     	/* type */
+	   0,			/* rightshift */
+	   1,			/* size */
+	   8,			/* bitsize */
+	   false,		/* pc_relative */
+	   0,			/* bitpos */
+	   complain_overflow_bitfield, /* complain_on_overflow */
+	   bfd_elf_generic_reloc,	/* special_function */
+	   "R_ETCA_8",		/* name */
+	   false,		/* partial_inplace */
+	   0x00000000,		/* src_mask */
+	   0xFF,		/* dst_mask */
+	   false),		/* pcrel_offset */
+
+    HOWTO (R_ETCA_16,     	/* type */
+	   0,			/* rightshift */
+	   2,			/* size */
+	   16,			/* bitsize */
+	   false,		/* pc_relative */
+	   0,			/* bitpos */
+	   complain_overflow_bitfield, /* complain_on_overflow */
+	   bfd_elf_generic_reloc,	/* special_function */
+	   "R_ETCA_16",		/* name */
+	   false,		/* partial_inplace */
+	   0x00000000,		/* src_mask */
+	   0xFFFF,		/* dst_mask */
+	   false),		/* pcrel_offset */
+
+    HOWTO (R_ETCA_32,     	/* type */
+	   0,			/* rightshift */
+	   4,			/* size */
+	   32,			/* bitsize */
+	   false,		/* pc_relative */
+	   0,			/* bitpos */
+	   complain_overflow_bitfield, /* complain_on_overflow */
+	   bfd_elf_generic_reloc,	/* special_function */
+	   "R_ETCA_32",		/* name */
+	   false,		/* partial_inplace */
+	   0x00000000,		/* src_mask */
+	   0xFFFFFFFF,		/* dst_mask */
+	   false),		/* pcrel_offset */
+
+    HOWTO (R_ETCA_64,     	/* type */
+	   0,			/* rightshift */
+	   8,			/* size */
+	   64,			/* bitsize */
+	   false,		/* pc_relative */
+	   0,			/* bitpos */
+	   complain_overflow_bitfield, /* complain_on_overflow */
+	   bfd_elf_generic_reloc,	/* special_function */
+	   "R_ETCA_64",		/* name */
+	   false,		/* partial_inplace */
+	   0x00000000,		/* src_mask */
+	   0xFFFFFFFFFFFFFFFF,		/* dst_mask */
+	   false),		/* pcrel_offset */
 };
 
 #define GET_SIZE(old) ((old >> 4) & 3)
@@ -213,6 +268,29 @@ perform_relocation (const reloc_howto_type *howto,
 	case R_ETCA_SAF_CALL:
 	    contents[0] |= (value & 0xF00) >> 8;
 	    contents[1] = value & 0xFF;
+	    return bfd_reloc_ok;
+	case R_ETCA_8: /* We could probably use functions for these, but it's honestly not even worth it*/
+	    contents[0] = value & 0xFF;
+	    return bfd_reloc_ok;
+	case R_ETCA_16:
+	    contents[0] = (value >> 0) & 0xFF;
+	    contents[1] = (value >> 8) & 0xFF;
+	    return bfd_reloc_ok;
+	case R_ETCA_32:
+	    contents[0] = (value >> 0) & 0xFF;
+	    contents[1] = (value >> 8) & 0xFF;
+	    contents[3] = (value >> 16) & 0xFF;
+	    contents[4] = (value >> 24) & 0xFF;
+	    return bfd_reloc_ok;
+	case R_ETCA_64:
+	    contents[0] = (value >> 0) & 0xFF;
+	    contents[1] = (value >> 8) & 0xFF;
+	    contents[3] = (value >> 16) & 0xFF;
+	    contents[4] = (value >> 24) & 0xFF;
+	    contents[5] = (value >> 32) & 0xFF;
+	    contents[6] = (value >> 40) & 0xFF;
+	    contents[7] = (value >> 48) & 0xFF;
+	    contents[8] = (value >> 56) & 0xFF;
 	    return bfd_reloc_ok;
 	default:
 	    if (R_ETCA_IS_MOV(ELF32_R_TYPE(rel->r_info))) {
@@ -355,6 +433,10 @@ etca_elf_relocate_section(bfd *output_bfd,
 		continue;
 	    case R_ETCA_BASE_JMP:
 	    case R_ETCA_SAF_CALL:
+	    case R_ETCA_8:
+	    case R_ETCA_16:
+	    case R_ETCA_32:
+	    case R_ETCA_64:
 		/* Nothing special to do*/
 		break;
 	    default:
@@ -523,6 +605,7 @@ struct etca_reloc_map
     unsigned int etca_reloc_val;
 };
 
+/* The order in this tables *needs* to match the order in the table above */
 static const struct etca_reloc_map etca_reloc_map [] =
 	{
 #define PAIR(NAME) { BFD_RELOC_ETCA_ ## NAME,       	R_ETCA_ ## NAME }
@@ -570,7 +653,10 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	PAIR(MOV_64_REX),
 	PAIR(MOV_8_REX),
 	PAIR(MOV_16_REX),
-	PAIR(MOV_32_REX),
+	{ BFD_RELOC_8,	       R_ETCA_8 },
+	{ BFD_RELOC_16,	       R_ETCA_16 },
+	{ BFD_RELOC_32,	       R_ETCA_32 },
+	{ BFD_RELOC_64,	       R_ETCA_64 },
 #undef PAIR
 	};
 

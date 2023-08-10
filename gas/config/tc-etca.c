@@ -112,6 +112,7 @@ static bool compute_params(struct parse_info *pi);
 
 static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *);
 static void process_nop_pseudo(const struct etca_opc_info *, struct parse_info *);
+static void process_hlt_pseudo(const struct etca_opc_info *, struct parse_info *);
 
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
@@ -180,6 +181,7 @@ struct etca_settings {
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
 	process_mov_pseudo, /* mov */
 	process_nop_pseudo, /* nop */
+	process_hlt_pseudo, /* hlt */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	0, /* ILLEGAL */
@@ -1466,6 +1468,17 @@ process_nop_pseudo(
     byte_count = 1 << pi->opcode_size;
     char *output = frag_more(byte_count);
     etca_build_nop(&settings.current_cpuid, byte_count, output);
+}
+
+/* Process the hlt pseudo instruction. It was already verified that there are no arguments */
+static void
+process_hlt_pseudo(
+	const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
+	struct parse_info *pi ATTRIBUTE_UNUSED
+) {
+    char *output = frag_more(2);
+    output[0] = 0b10001110;
+    output[0] = 0;
 }
 
 /* Process the mov pseudo instruction. The only thing that needs to be guaranteed

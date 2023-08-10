@@ -224,6 +224,11 @@ struct etca_opc_info etca_opcodes[] = {
 
         BASE_JMP("jmp", 14),
         BASE_JMP("j",   14),
+
+	/* While this could be marked as ETCA_IF_BASE_JMP, that would lead to emitting a relocation.
+	 * We also might want to overwrite this encoding to a different one for use with the interupt
+	 * extensions. */
+	{"hlt", ETCA_IF_PSEUDO, 14, PARAMS1(e), NOSUFFIX(NULLARY), ETCA_PAT(BASE), 0},
 #undef BASE_JMP
 
         SAF_RET("ret", 14),
