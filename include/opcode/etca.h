@@ -225,6 +225,11 @@ struct etca_cpuid_pattern {
     ETCA_CP2_##ext1 | ETCA_CP2_##ext2 | ETCA_CP2_##ext3, \
     ETCA_FT_##ext1  | ETCA_FT_##ext2  | ETCA_FT_##ext3)
 
+#define ETCA_EXT_PAT6(ext1, ext2, ext3, ext4, ext5, ext6) MK_ETCA_CPI( \
+    ETCA_CP1_##ext1 | ETCA_CP1_##ext2 | ETCA_CP1_##ext3 | ETCA_CP1_##ext4 | ETCA_CP1_##ext5 | ETCA_CP1_##ext6, \
+    ETCA_CP2_##ext1 | ETCA_CP2_##ext2 | ETCA_CP2_##ext3 | ETCA_CP2_##ext4 | ETCA_CP2_##ext5 | ETCA_CP2_##ext6, \
+    ETCA_FT_##ext1  | ETCA_FT_##ext2  | ETCA_FT_##ext3 | ETCA_FT_##ext4  | ETCA_FT_##ext5  | ETCA_FT_##ext6)
+
 #define ETCA_PAT(ext) ((struct etca_cpuid_pattern){1, ETCA_CPI_##ext})
 #define ETCA_PAT_OR2(ext1, ext2) \
     ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT2(ext1, ext2)})
@@ -234,6 +239,8 @@ struct etca_cpuid_pattern {
     ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT3(ext1, ext2, ext3)})
 #define ETCA_PAT_AND3(ext1, ext2, ext3) \
     ((struct etca_cpuid_pattern){1, ETCA_EXT_PAT3(ext1, ext2, ext3)})
+#define ETCA_PAT_OR6(ext1, ext2, ext3, ext4, ext5, ext6) \
+    ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT6(ext1, ext2, ext3, ext4, ext5, ext6)})
 
 /* Return 0 if the pattern does not match, 1 otherwise. */
 extern unsigned
@@ -360,23 +367,6 @@ struct etca_reg_info {
     enum etca_register_class class;
 };
 
-// This enum generates bit indices into the etca_params_kind bitfield.
-enum {
-    NULLARY,
-    REG,
-    MEM,
-    IMM,
-    REG_IMM,
-    REG_REG,
-    REG_MEM,
-    MEM_REG,
-    MEM_IMM,
-
-    REG_CTRL,
-
-    OTHER,
-};
-
 /* A bitfield used to represent a legal combinations of argument types
  * Not all combinations that can appear are listed here. Specifically
  * the `mov` pseduop is special cased so that stuff only needed by it
@@ -400,7 +390,8 @@ struct etca_params_kind {
 };
 
 enum etca_args_size {
-    OPR = 1, // one operand
+    NULLARY, // no operangs
+    OPR,     // one operand
     ADR,     // one address (register)
     LBL,     // one label (that is, a non-concrete expression)
     OPR_OPR, // two operands
@@ -458,14 +449,19 @@ struct etca_opc_info {
 // the pseudo_functions table in tc-etca.c.
 enum etca_pseudo_opcode {
     ETCA_MOV,
+    ETCA_NOP,
     ETCA_PSEUDO_COUNT
 };
 
 #define ETCA_BASE_ABM_IMM_SIGNED(opcode) ((opcode) < 8 || (opcode) == 9)
 #define ETCA_BASE_ABM_IMM_UNSIGNED(opcode) (!ETCA_BASE_ABM_IMM_SIGNED(opcode))
 
-extern size_t etca_calc_mov_ri_byte_count(const struct etca_cpuid *, int8_t, reg_num, int64_t *);
-extern enum elf_etca_reloc_type etca_build_mov_ri(const struct etca_cpuid *, int8_t, reg_num, int64_t *, char*);
+extern enum elf_etca_reloc_type
+etca_calc_mov_ri(const struct etca_cpuid *, int8_t, reg_num, int64_t *);
+
+extern enum elf_etca_reloc_type
+etca_build_mov_ri(const struct etca_cpuid *, int8_t, reg_num, int64_t *, enum elf_etca_reloc_type, char *);
+
 extern void etca_build_nop(const struct etca_cpuid *, size_t, char *);
 
 extern const struct etca_reg_info etca_registers[];

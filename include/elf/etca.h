@@ -53,16 +53,20 @@ START_RELOC_NUMBERS (elf_etca_reloc_type)
   RELOC_NUMBER (R_ETCA_MOV_16_REX, 43)
   RELOC_NUMBER (R_ETCA_MOV_32_REX, 44)
 END_RELOC_NUMBERS (R_ETCA_max)
+#define _R_ETCA_MOV_DELTA (R_ETCA_MOV_5_REX - R_ETCA_MOV_5)
 
 #define R_ETCA_IS_MOV(r_type) (R_ETCA_MOV_5 <= (r_type) && (r_type) <= R_ETCA_MOV_32)
 #define R_ETCA_IS_MOV_REX(r_type) (R_ETCA_MOV_5_REX <= (r_type) && (r_type) <= R_ETCA_MOV_32_REX)
 #define R_ETCA_MOV_FROM_INSTRUCTION_COUNT(n) (R_ETCA_MOV_5 + (n - 1))
-#define R_ETCA_MOV_TO_INSTRUCTION_COUNT(r_type) (r_type == R_ETCA_MOV_8 ? 2 : \
-		(r_type == R_ETCA_MOV_16? 4 :                                               \
-		(r_type == R_ETCA_MOV_32? 7 :                                               \
-		(r_type - R_ETCA_MOV_5 + 1))))
-#define R_ETCA_MOV_TO_MOV_REX(r_type) ((r_type - R_ETCA_MOV_5) + R_ETCA_MOV_5_REX)
-#define R_ETCA_MOV_REX_TO_MOV(r_type) ((r_type - R_ETCA_MOV_5_REX) + R_ETCA_MOV_5)
+#define R_ETCA_MOV_TO_MOV_REX(r_type) (r_type + _R_ETCA_MOV_DELTA)
+#define R_ETCA_MOV_REX_TO_MOV(r_type) (r_type - _R_ETCA_MOV_DELTA)
+#define R_ETCA_MOV_NORM(r_type) (R_ETCA_IS_MOV_REX(r_type)? R_ETCA_MOV_REX_TO_MOV(r_type) : r_type )
+#define R_ETCA_MOV_TO_INSTRUCTION_COUNT(r_type) (R_ETCA_MOV_NORM(r_type) == R_ETCA_MOV_8 ? 2 : \
+                (R_ETCA_MOV_NORM(r_type) == R_ETCA_MOV_16? 4 :                                 \
+                (R_ETCA_MOV_NORM(r_type) == R_ETCA_MOV_32? 7 :                                 \
+                (R_ETCA_MOV_NORM(r_type) - R_ETCA_MOV_5 + 1))))
+#define R_ETCA_MOV_TO_BYTECOUNT(r_type) (R_ETCA_MOV_TO_INSTRUCTION_COUNT(r_type)\
+                * (R_ETCA_IS_MOV_REX(r_type)? 3:2))
 
 #define SHT_ETCA_ATTRIBUTES 0x70000003
 

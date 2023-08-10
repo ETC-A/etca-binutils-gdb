@@ -160,6 +160,14 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 		    (insn[1] & 0x1F) | ((di->args[1].kinds.imm5s && insn[1] & 0x10) ? ((uint64_t)(-1) << 5) : 0);
 	    return 0;
 	case 0b10:
+	    if (insn[0] == 0xAE) { /* One byte nop*/
+		di->format = ETCA_IF_PSEUDO;
+		di->opcode = ETCA_NOP;
+		di->argc = 0;
+		di->size = 0;
+		di->params.kinds.e = 1;
+		return 0;
+	    }
 	    if (byte_count < 2) { return 1; }
             if (insn[0] == 0xAF) {
                 di->format = ETCA_IF_SAF_JMP;
@@ -213,7 +221,7 @@ get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
 do {\
 (di).format = ETCA_IF_SPECIAL;\
 (di).opcode = ETCA_MOV;\
-(di).params.uint = (1 << OTHER);\
+(di).params.kinds = (struct etca_params_kind) {.other=1};\
 } while (0)
 
 static
@@ -253,6 +261,26 @@ bool transform_push(struct disassemble_info * info) {
     return true;
 }
 
+
+static
+bool transform_never_jump(struct disassemble_info * info) {
+    struct decode_info *di = (struct decode_info*)info->private_data;
+    di->format = ETCA_IF_PSEUDO;
+    di->opcode = ETCA_NOP;
+    di->params.kinds = (struct etca_params_kind) {.e=1};
+    di->size = 1;
+    switch (di->args[0].as.imm) {
+	case 0:
+	    di->argc = 0;
+	    return true;
+	default:
+	    /* Print the immediate argument for this unknown non-canonical NOP. That isn't valid
+	     * syntax, but it should highlight that something is weird here. */
+	    di->argc = 1;
+	    return false;
+    }
+}
+
 static
 bool beaut_mov_slo(struct disassemble_info * info) {
     struct decode_info *di = (struct decode_info*)info->private_data;
@@ -260,13 +288,13 @@ bool beaut_mov_slo(struct disassemble_info * info) {
     bfd_byte extra[3];
     SELECT_MOV_PSEUDO(*di);
     const bfd_byte slo_expected = 0b01001100 | (di->size << 4);
-    unsigned int delta = di->rex.full ? 3 : 2;
+    const unsigned int delta = di->rex.full ? 3 : 2;
 
     while ((info->stop_vma == 0) || (di->addr + di->idx + delta <= info->stop_vma)) {
 	if ((status = info->read_memory_func(di->addr + di->idx, &extra[0], delta, info)) != 0) {
 	    break;
 	}
-	if (!di->rex.full || extra[0] != di->rex.full) {
+	if (di->rex.full && extra[0] != di->rex.full) {
 	    break;
 	}
 	if (extra[delta-2] != slo_expected) {
@@ -347,6 +375,7 @@ static struct beautifier {
 	 * all entries with the same format should be consecutive */
 	{transform_pop, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .mr=1}}, 12, 1},
 	{transform_push, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .ri=1, .rm=1}}, 13, 1},
+	{transform_never_jump, ETCA_IF_BASE_JMP, {.kinds={.i=1}}, 15, 1},
 	{beaut_readcr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 14, 0},
 	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},

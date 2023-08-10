@@ -47,7 +47,7 @@ struct etca_arg {
      * Otherwise, it's not resolved yet and we have to emit a fixup.
      * (We can emit a fixup anyway if we don't want to deal with it right now)
      * If need be, we can use imm_expr.X_md for our purposes.
-     * 
+     *
      * This field is also used for displacements.
      */
     struct expressionS imm_expr;
@@ -111,6 +111,7 @@ static int8_t compute_operand_size(const struct etca_opc_info *, struct parse_in
 static bool compute_params(struct parse_info *pi);
 
 static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *);
+static void process_nop_pseudo(const struct etca_opc_info *, struct parse_info *);
 
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
@@ -177,6 +178,7 @@ struct etca_settings {
 
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
 	process_mov_pseudo, /* mov */
+	process_nop_pseudo, /* nop */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	0, /* ILLEGAL */
@@ -258,6 +260,8 @@ static struct etca_cpuid_pattern size_pats[4] = {
 };
 static struct etca_cpuid_pattern any_size_pat =
     ETCA_PAT_OR3(BYTE, DW, QW);
+static struct etca_cpuid_pattern any_vwi_pat =
+    ETCA_PAT_OR6(FI, COND, REX, MO1, MO2, EXOP);
 
 /* Lookup the given name (passed by pointer) as a register.
  * The name should have a '%' prefix stripped. Also say if there was a '%' prefix.
@@ -1299,8 +1303,8 @@ static int8_t compute_operand_size(const struct etca_opc_info *opcode, struct pa
 SIZE_CHK_HDR(compute_nullary_size) {
     gas_assert(pi->argc == 0);
     gas_assert(opc->size_info.args_size == 0);
-    // the expectation is that these opcodes don't have sizes. But if we add
-    // suffixes for nop at some point, for example, this might need revisiting.
+    // Mostly the opcodes don't have a size. The NOP pseudo instruction
+    // deals with potentially absent size itself, so just pass over the existing value
     return pi->opcode_size;
 }
 
@@ -1426,6 +1430,41 @@ static void must_be_a_label(const struct etca_opc_info *opc) {
     as_bad("the operand of `%s' must be a label", opc->name);
 }
 
+
+/* Process the nop pseudo instruction. It was already verified that there are no arguments */
+static void
+process_nop_pseudo(
+	const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
+	struct parse_info *pi
+) {
+    if (pi->opcode_size == -1) {
+	if (etca_match_cpuid_pattern(&any_vwi_pat, &settings.current_cpuid)) {
+	    pi->opcode_size = 0; /* We are going to use the 1byte NOP by default*/
+	} else {
+	    pi->opcode_size = 1; /* We need to use the base-isa 2byte NOP*/
+	}
+    }
+    size_t byte_count;
+    switch (pi->opcode_size) {
+	case 0:
+	    byte_count = 1;
+	    break;
+	case 1:
+	    byte_count = 2;
+	    break;
+	case 2:
+	    byte_count = 4;
+	    break;
+	case 3:
+	    byte_count = 8;
+	    break;
+	default:
+	    as_fatal("internal error: Illegal opcode_size=%d", pi->opcode_size);
+    }
+    char *output = frag_more(byte_count);
+    etca_build_nop(&settings.current_cpuid, byte_count, output);
+}
+
 /* Process the mov pseudo instruction. The only thing that needs to be guaranteed
     beforehand is that there are two params. */
 static void 
@@ -1492,25 +1531,27 @@ process_mov_pseudo(
     if (KIND(0).reg_class == GPR && KIND(1).immAny) {
 	char *output;
 
-	size_t byte_count = etca_calc_mov_ri_byte_count(
+	enum elf_etca_reloc_type r_type = etca_calc_mov_ri(
 		&settings.current_cpuid,
 		pi->opcode_size,
 		pi->args[0].reg.gpr_reg_num,
-		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number) : NULL);
+		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number ): NULL);
+	size_t byte_count = R_ETCA_MOV_TO_BYTECOUNT(r_type);
 	output = frag_more(byte_count);
 	enum elf_etca_reloc_type reloc_kind = etca_build_mov_ri(
 		&settings.current_cpuid,
 		pi->opcode_size,
 		pi->args[0].reg.gpr_reg_num,
 		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number) : NULL,
+		r_type,
 		output);
 	if (!KIND(1).immConc) {
 	    fix_new_exp(frag_now,
-		(output - frag_now->fr_literal),
-		byte_count,
-		&pi->args[1].imm_expr,
-		false,
-		(bfd_reloc_code_real_type) (BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
+			(output - frag_now->fr_literal),
+			byte_count,
+			&pi->args[1].imm_expr,
+			false,
+			(bfd_reloc_code_real_type)(BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
 	    //TODO: Define a function in elf32-etca (I think?) that does the transformation r_type -> bfd_reloc_code correctly.
 	}
 	return;
