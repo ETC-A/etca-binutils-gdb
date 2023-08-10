@@ -83,6 +83,12 @@ struct decoded_arg {
     union {
 	reg_num reg;
 	uint64_t imm;
+        struct decoded_mem {
+            int64_t disp;
+            reg_num base_reg;
+            reg_num index_reg;
+            uint8_t scale;
+        } memory;
     } as;
 };
 
@@ -188,6 +194,10 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
     return -1;
 }
 
+static int8_t get_ptr_size(void) {
+    return 1;
+}
+
 static const char*
 get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
     for (const struct etca_reg_info *info = etca_registers; info->name != NULL; info++) {
@@ -198,6 +208,14 @@ get_reg_name(enum etca_register_class cls, reg_num index, int8_t size) {
     printf("\n%d, %d\n", index, size);
     return NULL;
 }
+
+#define SELECT_MOV_PSEUDO(di) \
+do {\
+(di).format = ETCA_IF_SPECIAL;\
+(di).opcode = ETCA_MOV;\
+(di).params.uint = (1 << OTHER);\
+} while (0)
+
 static
 bool transform_pop(struct disassemble_info * info) {
     struct decode_info *di = (struct decode_info*)info->private_data;
@@ -207,11 +225,13 @@ bool transform_pop(struct disassemble_info * info) {
 	di->params.kinds.m = di->params.kinds.mr;
 	di->params.kinds.rr = di->params.kinds.mr = 0;
 	di->argc = 1; /* We can just ignore the second argument from now on */
-	return true;
     } else {
-	/* Don't worry about ASP right now */
-	return false;
+        // in some sense, ASP is a pseudo-syntax, but there's no _actual_
+        // syntax, so doing it in this no-pseudo transformer is fine.
+        SELECT_MOV_PSEUDO(*di);
+        di->args[1].kinds.postinc = 1; // leave it in the GPR though, that's fine.
     }
+    return true;
 }
 static
 bool transform_push(struct disassemble_info * info) {
@@ -224,20 +244,14 @@ bool transform_push(struct disassemble_info * info) {
 	di->params.kinds.rr = di->params.kinds.rm = di->params.kinds.ri = 0;
 	di->argc = 1; /* We can just ignore the second argument from now on */
 	di->args[0] = di->args[1];
-	return true;
     } else {
-	/* Don't worry about ASP right now */
-	return false;
+        // in some sense, ASP is a pseudo-syntax, but there's no _actual_
+        // syntax, so doing it in this no-pseudo transformer is fine.
+        SELECT_MOV_PSEUDO(*di);
+        di->args[0].kinds.predec = 1; // leave it in the GPR though, that's fine.
     }
+    return true;
 }
-
-#define SELECT_MOV_PSEUDO(di) \
-do {\
-(di).format = ETCA_IF_SPECIAL;\
-(di).opcode = ETCA_MOV;\
-(di).params.uint = (1 << OTHER);\
-} while (0)
-
 
 static
 bool beaut_mov_slo(struct disassemble_info * info) {
@@ -285,6 +299,37 @@ bool beaut_writecr(struct disassemble_info * info) {
     di->args[1] = source;
     return true;
 }
+
+static
+bool beaut_load(struct disassemble_info *info) {
+    struct decode_info *di = info->private_data;
+    reg_num ptr_reg = di->args[1].as.reg;
+    SELECT_MOV_PSEUDO(*di);
+    // args[0] is fine
+    di->args[1].kinds = (struct etca_arg_kind){.memory = 1};
+    di->args[1].as.memory = (struct decoded_mem){
+        .base_reg = ptr_reg,
+        .index_reg = -1,
+        .disp = 0,
+    };
+    return true;
+}
+static
+bool beaut_store(struct disassemble_info *info) {
+    struct decode_info *di = info->private_data;
+    reg_num ptr_reg = di->args[1].as.reg;
+    SELECT_MOV_PSEUDO(*di);
+    // args[0] has the mov src operand so we have to move it over.
+    di->args[1] = di->args[0];
+    di->args[0].kinds = (struct etca_arg_kind){.memory = 1};
+    di->args[0].as.memory = (struct decoded_mem){
+        .base_reg = ptr_reg,
+        .index_reg = -1,
+        .disp = 0,
+    };
+    return true;
+}
+
 #undef SELECT_MOV_PSEUDO
 
 static struct beautifier {
@@ -306,6 +351,8 @@ static struct beautifier {
 	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 9, 0},
+        {beaut_load,    ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 10, 0},
+        {beaut_store,   ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 11, 0},
 	{ NULL, ETCA_IF_ILLEGAL, {.uint=0}, 0, 0 }
 };
 
@@ -411,9 +458,43 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	snprintf(buffer, sizeof(buffer), "%s", di.opc_info->name);
     }
     fpr(stream, "%-7s ", buffer);
+
     for (size_t i = 0; i < di.argc; i++) {
 	if (i != 0) { fpr(stream, ", "); };
-	if (di.args[i].kinds.reg_class != RegClassNone) {
+        if (di.args[i].kinds.predec || di.args[i].kinds.postinc) {
+            fpr(stream, "[%s%%%s%s]", 
+                di.args[i].kinds.predec ? "--" : "",
+                get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, get_ptr_size()),
+                di.args[i].kinds.postinc ? "++" : ""
+            );
+        } else if (di.args[i].kinds.nested_memory || di.args[i].kinds.memory) {
+            bool have_thing = false; // should we print a + before the next term?
+            if (di.args[i].kinds.nested_memory) fpr(stream, "[");
+            fpr(stream, "[");
+            if (di.args[i].as.memory.base_reg >= 0) {
+                fpr(stream, "%%%s", get_reg_name(GPR, di.args[i].as.memory.base_reg, get_ptr_size()));
+                have_thing = true;
+            }
+            if (di.args[i].as.memory.index_reg >= 0) {
+                if (have_thing) fpr(stream, " + ");
+                fpr(stream, "%" PRIu8 "*%%%s", di.args[i].as.memory.scale,
+                    get_reg_name(GPR, di.args[i].as.memory.index_reg, get_ptr_size()));
+                have_thing = true;
+            }
+            if (di.args[i].as.memory.disp != 0) {
+                int64_t disp = di.args[i].as.memory.disp;
+                uint64_t pos_disp = (uint64_t)(-disp); // this way INT_MIN properly becomes INT_MAX+1
+                if (have_thing && disp > 0) {
+                    fpr(stream, " + ");
+                    pos_disp = disp;
+                }
+                if (have_thing && disp < 0) fpr(stream, " - ");
+                else if (disp < 0)          fpr(stream, " -"); // no space after -
+                printf("%" PRIu64, pos_disp);
+            }
+            fpr(stream, "]");
+            if (di.args[i].kinds.nested_memory) fpr(stream, "]");
+        } else if (di.args[i].kinds.reg_class != RegClassNone) {
 	    fpr(stream, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
 	} else if (di.args[i].kinds.immAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
 	    info->print_address_func(addr + di.args[i].as.imm, info);

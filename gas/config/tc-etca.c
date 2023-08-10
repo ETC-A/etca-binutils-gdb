@@ -1442,8 +1442,7 @@ process_mov_pseudo(
         struct etca_arg mem = pi->args[0];
         pi->params.kinds.rr = 1;
         pi->args[0] = pi->args[1]; // store #0 is store source, but we have that at #1
-        pi->args[1].kind = (struct etca_arg_kind){0}; // 0 out whatever kind info we had
-        pi->args[1].kind.reg_class = GPR; // and we have a GPR
+        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
         pi->args[1].reg.gpr_reg_num = mem.memory.base_reg; // specifically the base addr reg
         // pi->args[1].reg_size = -1; // size is already computed so we can skip this
         assemble_base_abm(store, pi);
@@ -1453,8 +1452,7 @@ process_mov_pseudo(
     if (KIND(0).reg_class == GPR && SIMPLE_MEM(1)) {
         struct etca_opc_info *load = str_hash_find(opcode_hash_control, "load");
         pi->params.kinds.rr = 1;
-        pi->args[1].kind = (struct etca_arg_kind){0}; // erase kind info
-        pi->args[1].kind.reg_class = GPR; // instead we have a GPR
+        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
         pi->args[1].reg.gpr_reg_num = pi->args[1].memory.base_reg; // the base addr reg
         // pi->args[1].memory = (?){0}; // no need, assemble_base_abm won't look at this
         // pi->args[1].reg_size = -1; // size is already computed so no need for this
@@ -1529,8 +1527,7 @@ process_mov_pseudo(
         pi->params.kinds.rr = KIND(1).reg_class == GPR;
         pi->params.kinds.ri = KIND(1).immAny;
         // replace the predec arg with just a GPR of the same regnum.
-        pi->args[0].kind = (struct etca_arg_kind){0};
-        pi->args[0].kind.reg_class = GPR;
+        pi->args[0].kind = (struct etca_arg_kind){.reg_class = GPR};
         // pi->args[0].reg.gpr_reg_num is already set correctly!
         assemble_base_abm(push, pi);
         return;
@@ -1545,8 +1542,7 @@ process_mov_pseudo(
         struct etca_opc_info *pop = str_hash_find(opcode_hash_control, "pop");
         pi->params.kinds.rr = 1;
         // replace postinc arg with GPR of the same regnum.
-        pi->args[1].kind = (struct etca_arg_kind){0};
-        pi->args[1].kind.reg_class = GPR;
+        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
         assemble_base_abm(pop, pi);
         return;
     }
