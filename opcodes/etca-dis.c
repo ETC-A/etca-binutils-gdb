@@ -113,7 +113,7 @@ struct decode_info {
     } rex;
 };
 
-#define SIGN_EXTEND(value, bit) ((((value) & (1 << (bit - 1))) ? ((bfd_vma) (-1) << bit) : 0) | ((value) & ((1 << bit) - 1)))
+#define SIGN_EXTEND(value, bit) (((value & ((1 << bit) -1)) ^ (1 << (bit - 1))) - (1 << (bit - 1)))
 
 /* decode the instruction or prefix at the current location in the buffer
  * This is potentially called multiple times to decode prefixes or situations where more bytes are needed

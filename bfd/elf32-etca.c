@@ -741,7 +741,10 @@ uint8_t number_of_needed_bits(int64_t value) {
     return 64 - __builtin_clrsbll(value);
 }
 
-static uint8_t size_to_width[4]  = {8,16,32,64};
+#define SIGN_EXTEND(value, bit) (((value & ((1 << bit) -1)) ^ (1 << (bit - 1))) - (1 << (bit - 1)))
+
+static uint8_t size_to_width[4] = {8, 16, 32, 64};
+#define GET_5B_SECTION(value, idx) (((value) >> ((idx) * 5)) & 0x1F)
 
 enum elf_etca_reloc_type
 etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t size, reg_num reg,
@@ -750,7 +753,7 @@ etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t
     if (value_pointer == NULL) {
 	bits = size_to_width[size];
     } else {
-	bits = number_of_needed_bits(*value_pointer);
+	bits = number_of_needed_bits(SIGN_EXTEND(*value_pointer, size_to_width[size]));
     }
     if (size < 0 || size > 3) {
 	abort();
@@ -786,6 +789,10 @@ etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t
     }
     uint8_t insn = (bits + 4) / 5;
     if (ret == R_ETCA_NONE) {
+	uint64_t value = *value_pointer;
+	if (insn > 1 && (GET_5B_SECTION(value, insn - 1) == 0 || GET_5B_SECTION(value, insn - 1) == 0x1F)) {
+	    insn -= 1;
+	}
 	ret = R_ETCA_MOV_FROM_INSTRUCTION_COUNT(insn);
     }
     if (reg > 8) {
@@ -808,31 +815,29 @@ etca_build_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_
     const enum elf_etca_reloc_type current = etca_calc_mov_ri(current_cpuid, size, reg, value_pointer);
     const unsigned int insn = R_ETCA_MOV_TO_INSTRUCTION_COUNT(current);
     uint64_t value;
-    uint8_t bits;
     if (value_pointer == NULL) {
 	value = 0;
-	bits = size_to_width[size];
     } else {
-	value = *value_pointer;
-	bits = number_of_needed_bits(value);
+	value = SIGN_EXTEND(*value_pointer, size_to_width[size]);
     }
+    int8_t i = insn - 1;
     size_t idx = 0;
     if (need_rex) {
 	output[idx++] = rex_a;
     }
-    if (value & (1 << (bits - 1))) {
-	output[idx++] = movs;
-    } else {
+    if (GET_5B_SECTION(value, insn) == 0) {
 	output[idx++] = movz;
+    } else {
+	output[idx++] = movs;
     }
-    output[idx++] = ARG(value >> ((insn - 1) * 5));
+    output[idx++] = ARG(GET_5B_SECTION(value, i--));
 
-    for (int8_t i = insn - 1; i > 0; i--) {
+    for (; i >= 0; i--) {
 	if (need_rex) {
 	    output[idx++] = rex_a;
 	}
 	output[idx++] = slo;
-	output[idx++] = ARG(value >> ((i - 1) * 5));
+	output[idx++] = ARG(GET_5B_SECTION(value, i));
     }
     if (expected != R_ETCA_NONE && R_ETCA_MOV_TO_INSTRUCTION_COUNT(expected) != insn) {
 	etca_build_nop(current_cpuid,
