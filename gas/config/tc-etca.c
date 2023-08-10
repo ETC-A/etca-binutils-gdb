@@ -1478,7 +1478,7 @@ process_hlt_pseudo(
 ) {
     char *output = frag_more(2);
     output[0] = 0b10001110;
-    output[0] = 0;
+    output[1] = 0;
 }
 
 /* Process the mov pseudo instruction. The only thing that needs to be guaranteed
