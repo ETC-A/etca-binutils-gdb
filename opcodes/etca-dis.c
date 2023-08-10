@@ -372,6 +372,8 @@ bool beaut_store(struct disassemble_info *info) {
 static
 bool beaut_ret(struct disassemble_info *info) {
     struct decode_info *di = info->private_data;
+    // if this is a call, don't touch anything!
+    if (di->opcode & 0x10) return true;
     // we "fully handle" jumps that are not through %r7 by doing nothing.
     if (di->args[0].as.reg != 7) return true;
     // otherwise, delete the arg. It'll then match the 'ret' patterns.
@@ -542,7 +544,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
                 }
                 if (have_thing && disp < 0) fpr(stream, " - ");
                 else if (disp < 0)          fpr(stream, "-");
-                printf("%" PRIu64, pos_disp);
+                fpr(stream, "%" PRIu64, pos_disp);
             }
             fpr(stream, "]");
             if (di.args[i].kinds.nested_memory) fpr(stream, "]");
