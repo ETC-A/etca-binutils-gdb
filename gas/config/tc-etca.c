@@ -115,6 +115,7 @@ static void process_nop_pseudo(const struct etca_opc_info *, struct parse_info *
 
 static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
 static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
+static void assemble_saf_12_call(const struct etca_opc_info *, struct parse_info *);
 static void assemble_saf_jmp (const struct etca_opc_info *, struct parse_info *);
 static void assemble_saf_stk (const struct etca_opc_info *, struct parse_info *);
 
@@ -187,7 +188,7 @@ static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	assemble_base_abm, /* BASE_ABM */
 	0, /* EXOP_ABM */
 	assemble_base_jmp, /* BASE_JMP */
-	0, /* SAF_CALL */
+	assemble_saf_12_call, /* SAF_CALL */
 	assemble_saf_jmp, /* SAF_JMP  */
 	assemble_saf_stk, /* SAF_STK  */
 	0, /* EXOP_JMP */
@@ -1746,6 +1747,25 @@ void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi
     fixp->fx_signed = true;
     output[idx++] = (0b10000000 | opcode->opcode);
     output[idx++] = 0;
+}
+
+
+/* Assemble an SAF unconditional 12bit relative call instruction. */
+void assemble_saf_12_call(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct parse_info *pi) {
+    char *output;
+    size_t idx = 0;
+    gas_assert(pi->argc == 1 && pi->args[0].kind.immAny);
+
+    output = frag_more(2);
+    output[idx++] = 0b10110000;
+    output[idx++] = 0;
+    fixS *fixp = fix_new_exp(frag_now,
+			     (output - frag_now->fr_literal),
+			     2,
+			     &pi->args[0].imm_expr,
+			     true,
+			     BFD_RELOC_ETCA_SAF_CALL);
+    fixp->fx_signed = true;
 }
 
 /* Assemble an SAF conditional register jump/call instruction. */

@@ -9,7 +9,7 @@
 START_RELOC_NUMBERS (elf_etca_reloc_type)
   RELOC_NUMBER (R_ETCA_NONE, 0)
   RELOC_NUMBER (R_ETCA_BASE_JMP, 1) /* TODO: expand this to the EXOP JUMP opcodes */
-  RELOC_NUMBER (R_ETCA_SAF_CALL, 2) /* SAF absolute call */
+  RELOC_NUMBER (R_ETCA_SAF_CALL, 2) /* SAF relative call */
   RELOC_NUMBER (R_ETCA_ABM_RIS_5, 3)
   RELOC_NUMBER (R_ETCA_ABM_RIZ_5, 4)
   RELOC_NUMBER (R_ETCA_ABM_RIS_8, 5)

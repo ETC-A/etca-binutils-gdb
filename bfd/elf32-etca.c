@@ -71,7 +71,7 @@ static reloc_howto_type etca_elf_howto_table [] =
 	   false,			/* partial_inplace */
 	   0x00000000,		/* src_mask */
 	   0xFF10,		/* dst_mask */
-	   true),		/* pcrel_offset */
+	   false),		/* pcrel_offset */
     HOWTO (R_ETCA_SAF_CALL,	/* type */
 	   0,			/* rightshift */
 	   2,			/* size */
@@ -84,7 +84,7 @@ static reloc_howto_type etca_elf_howto_table [] =
 	   false,			/* partial_inplace */
 	   0x00000000,		/* src_mask */
 	   0xFF0F,		/* dst_mask */
-	   true),		/* pcrel_offset */
+	   false),		/* pcrel_offset */
 #define HOWTO_RIS(bytes, bits) HOWTO( \
 		R_ETCA_ABM_RIS_ ## bits,            \
 		0,                                  \
@@ -208,6 +208,10 @@ perform_relocation (const reloc_howto_type *howto,
     switch (ELF32_R_TYPE(rel->r_info)) {
 	case R_ETCA_BASE_JMP:
 	    contents[0] |= (value & 0x100) ? 0x10 : 0;
+	    contents[1] = value & 0xFF;
+	    return bfd_reloc_ok;
+	case R_ETCA_SAF_CALL:
+	    contents[0] |= (value & 0xF00) >> 8;
 	    contents[1] = value & 0xFF;
 	    return bfd_reloc_ok;
 	default:
@@ -350,6 +354,7 @@ etca_elf_relocate_section(bfd *output_bfd,
 	    case R_ETCA_NONE:
 		continue;
 	    case R_ETCA_BASE_JMP:
+	    case R_ETCA_SAF_CALL:
 		/* Nothing special to do*/
 		break;
 	    default:
