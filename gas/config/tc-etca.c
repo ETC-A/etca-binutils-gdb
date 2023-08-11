@@ -65,16 +65,31 @@ struct etca_arg {
     } memory;
 };
 
-/* State shared between md_assemble and the indivdual assembler functions */
-struct parse_info {
+/* The ETCa intra-line assembler state. Records information as we parse
+and update it. Cleared at the start of md_assemble. */
+struct _assemble_info {
+    /* The opcode info that we found in the table. After the opcode lookup,
+        you can be sure that this is non-null.
+        The pointer is const because assembly lines should not be modifying the table! */
+    const struct etca_opc_info *opcode;
     /* The size marker attached to the opcode, one of -1 (none),0 (h),1 (x),2 (d),3 (q).
         after compute_operand_size, this is the actual operand size attribute. */
     int8_t opcode_size; 
     union etca_opc_params_field params;
     size_t argc;
     struct etca_arg args[MAX_OPERANDS];
-    // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to hace the indvidual prefixes seperated?
+    // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to have the indvidual prefixes seperated?
 };
+
+typedef struct _assemble_info assemble_info;
+
+/* Info for the instruction we are currently assembling. */
+static assemble_info ai;
+#define CLEAR_AI \
+do {\
+    ai = (assemble_info){0};\
+    ai.opcode_size = -1;\
+} while (0)
 
 /* Tables of character mappings for various contexts. 0 indicates that the character is not lexically that thing.
 Initialized by md_begin. */
@@ -82,9 +97,10 @@ static char register_chars[256];
 static char mnemonic_chars[256];
 
 /* An opcode-assembler function.
-Takes the opc_info being assembled, and should confirm that it actually handles that opcode.
+Assembles a particular instruction family, using the information in `ai'.
+Should confirm (or assert) that it actually handles that opcode.
 Similarly, should confirm that the params_kind it got is expected. */
-typedef void(*assembler)(const struct etca_opc_info *, struct parse_info *);
+typedef void(*assembler)(void);
 
 static int parse_extension_list(const char *extensions, struct etca_cpuid *out);
 
@@ -95,30 +111,31 @@ static char *parse_register_name(char *str, struct etca_arg *result);
 
 static char *parse_immediate(char *str, struct etca_arg *result);
 
-static void
-check_adr_size(const struct etca_opc_info *, int8_t adr_size);
+static void  check_adr_size(int8_t adr_size);
 static char *parse_memory_inner(char *str, struct etca_arg *result);
 static char *parse_asp         (char *str, struct etca_arg *result);
 static char *parse_memory_outer(char *str, struct etca_arg *result);
 
 static char *parse_operand(char *str, struct etca_arg *result);
 
-/* Determine the operand size for the given opcode and parse_info. 
-    The computed size is placed in pi->opcode_size. If we are unable
+/* Determine the operand size for the parsed opcode and operands.
+    If the opcode was suffixed, place that size in ai.opcode_size.
+    The computed size is placed in ai.opcode_size. If we are unable
     to determine the operand size, as_bad is called and 1 is used. */
-static int8_t compute_operand_size(const struct etca_opc_info *, struct parse_info *);
+static int8_t compute_operand_size(void);
 
-static bool compute_params(struct parse_info *pi);
+/* Compute a value for ai.params from the parsed ai.argc and ai.args. */
+static bool compute_params(void);
 
-static void process_mov_pseudo(const struct etca_opc_info *, struct parse_info *);
-static void process_nop_pseudo(const struct etca_opc_info *, struct parse_info *);
-static void process_hlt_pseudo(const struct etca_opc_info *, struct parse_info *);
+static void process_mov_pseudo(void);
+static void process_nop_pseudo(void);
+static void process_hlt_pseudo(void);
 
-static void assemble_base_abm(const struct etca_opc_info *, struct parse_info *);
-static void assemble_base_jmp(const struct etca_opc_info *, struct parse_info *);
-static void assemble_saf_12_call(const struct etca_opc_info *, struct parse_info *);
-static void assemble_saf_jmp (const struct etca_opc_info *, struct parse_info *);
-static void assemble_saf_stk (const struct etca_opc_info *, struct parse_info *);
+static void assemble_base_abm(void);
+static void assemble_base_jmp(void);
+static void assemble_saf_12_call(void);
+static void assemble_saf_jmp (void);
+static void assemble_saf_stk (void);
 
 #define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
 
@@ -381,7 +398,7 @@ not_a_reg:
 
 /* Parse a register (ISA, ABI, or Control, REX included) name into its numeric value and puts it into result,
  * setting the kind to one of GPR or CTRL and storing the correct register index.
- * Sets the size attr of the result according to the register parsed
+ * Sets the size attr of the result according to the register parsed.
  * If it succeeds, the char* from which to continue parsing is returned.
  * If it fails to parse a register, but a '%' was present, as_bad is called.
  * Otherwise, NULL is returned, and you should try parsing a symbol instead.
@@ -471,16 +488,16 @@ static char *parse_ptr_register(char *str, struct etca_arg *result);
 // impl helpers for parsing memory_inner
 static char *parse_ptr_register(char *str, struct etca_arg *result) {
     str = parse_register_name(str, result);
+    // not a register; indicate as such (and probably try something else).
+    if (!str) return NULL;
     if (result->kind.reg_class == CTRL) {
         as_bad("invalid use of control register");
         result->reg.gpr_reg_num = 0;
         result->kind.reg_class = GPR;
         return str; // try to keep going as though we found a register.
     }
-    // not a register; indicate as such (and probably try something else).
-    if (!str) return NULL;
     // check address size is good
-    check_adr_size(NULL, result->reg_size);
+    check_adr_size(result->reg_size);
     return str;
 }
 
@@ -594,7 +611,7 @@ static char *parse_asp(char *str, struct etca_arg *result) {
 
     // if we did get a register, ensure the size agrees with address.
     if (got_register) {
-        check_adr_size(NULL, result->reg_size);
+        check_adr_size(result->reg_size);
         // we're later going to run this past an opr_opr check,
         // if it is indeed a mov pseudo, so don't let a ptr size
         // fail an opr check!
@@ -750,53 +767,53 @@ md_begin(void) {
     register_chars['_'] = '_';
 }
 
-/* Based on the list of parsed arguments, correctly set pi->params.
+/* Based on the list of parsed arguments, correctly set ai.params.
  */
-bool compute_params(struct parse_info *pi) {
+bool compute_params(void) {
 #define IS_REG(arg) ((arg).kind.reg_class == GPR)
 #define IS_IMM(arg) ((arg).kind.immAny) // this covers it unless parse_immediate screws up.
 #define IS_SPECIAL(arg) ((arg).kind.nested_memory || (arg).kind.predec || (arg.kind.postinc))
     /* This can probably be solved better... */
-    if (pi->argc == 0) {
-	pi->params.kinds.e = 1;
+    if (ai.argc == 0) {
+	ai.params.kinds.e = 1;
 	return true;
-    } else if (pi->argc == 1) {
-	if (IS_SPECIAL(pi->args[0])) {
+    } else if (ai.argc == 1) {
+	if (IS_SPECIAL(ai.args[0])) {
 	    as_bad("Illegal argument");
 	    return false;
 	}
-	if (IS_REG(pi->args[0])) {
-	    pi->params.kinds.r = 1;
+	if (IS_REG(ai.args[0])) {
+	    ai.params.kinds.r = 1;
 	    return true;
-	} else if (IS_IMM(pi->args[0])) {
-	    pi->params.kinds.i = 1;
+	} else if (IS_IMM(ai.args[0])) {
+	    ai.params.kinds.i = 1;
 	    return true;
 	} else {
 	    abort();
 	}
-    } else if (pi->argc == 2) {
-	if (IS_SPECIAL(pi->args[0])) {
+    } else if (ai.argc == 2) {
+	if (IS_SPECIAL(ai.args[0])) {
 	    as_bad("Illegal argument");
 	    return false;
 	}
-	if (IS_SPECIAL(pi->args[1])) {
+	if (IS_SPECIAL(ai.args[1])) {
 	    as_bad("Illegal argument");
 	    return false;
 	}
-	if (IS_REG(pi->args[0])) {
-	    if (IS_IMM(pi->args[1])) {
-		pi->params.kinds.ri = 1;
+	if (IS_REG(ai.args[0])) {
+	    if (IS_IMM(ai.args[1])) {
+		ai.params.kinds.ri = 1;
 		return true;
-	    } else if (IS_REG(pi->args[1])) {
-		pi->params.kinds.rr = 1;
+	    } else if (IS_REG(ai.args[1])) {
+		ai.params.kinds.rr = 1;
 		return true;
-            } else if (pi->args[1].kind.reg_class == CTRL) {
-                pi->params.kinds.rc = 1;
+            } else if (ai.args[1].kind.reg_class == CTRL) {
+                ai.params.kinds.rc = 1;
                 return true;
 	    } else {
 		abort();
 	    }
-	} else if (IS_IMM(pi->args[0])) {
+	} else if (IS_IMM(ai.args[0])) {
 	    abort();
 	} else {
 	    abort();
@@ -815,17 +832,12 @@ bool compute_params(struct parse_info *pi) {
 
 void
 md_assemble(char *str) {
-    const struct etca_opc_info *opcode;
-    struct parse_info pi = {
-	.opcode_size = -1,
-	.params = {.uint = 0},
-	.argc = 0,
-	.args = {}
-    };
-
     char *save_str = str; // for error messages
     char *opc_p; // for scanning
     char processed_opcode[MAX_MNEM_SIZE + 1]; // the scanned opcode
+
+    // First stop: reset ai. Any information from the last insn is now bad.
+    CLEAR_AI;
 
     /* Drop leading whitespace.  */
     while (ISSPACE(*str)) str++;
@@ -842,12 +854,10 @@ md_assemble(char *str) {
     // We could handle this by putting all opcodes with and without them into the table,
     // but this is actually for more trouble than it's worth as the table becomes quite
     // messy with exactly what has to be where since same-name opcodes must be adjacent.
-    // TODO: include if a size is allowed in the table so that we can exclude sized opcodes
-    // for things like jumps.
     
     // first: check assuming no size.
-    opcode = str_hash_find(opcode_hash_control, processed_opcode);
-    if (!opcode) {
+    ai.opcode = str_hash_find(opcode_hash_control, processed_opcode);
+    if (!ai.opcode) {
         char size;
         // we might have failed to find an entry because it actually ended with a size.
         // In that case, opc_p is pointing one past the NUL, so bring it back...
@@ -855,17 +865,17 @@ md_assemble(char *str) {
         size = *opc_p;
         *opc_p = '\0'; // delete the size from processed_opcode...
         // and try looking up that instead.
-        opcode = str_hash_find(opcode_hash_control, processed_opcode);
+        ai.opcode = str_hash_find(opcode_hash_control, processed_opcode);
         // restore the size to processed_opcode, in case of error.
         *opc_p = size;
         // if the second lookup succeeded, check if a size suffix was not allowed
         // or if the given suffix was bad (in general or in this context).
-        if ( opcode 
-            && (!opcode->size_info.suffix_allowed
-                || (pi.opcode_size = parse_size_attr(size)) < 0
-                || !etca_match_cpuid_pattern(&size_pats[pi.opcode_size], &settings.current_cpuid))) {
+        if ( ai.opcode 
+            && (!ai.opcode->size_info.suffix_allowed
+                || (ai.opcode_size = parse_size_attr(size)) < 0
+                || !etca_match_cpuid_pattern(&size_pats[ai.opcode_size], &settings.current_cpuid))) {
             // If that's the case, this isn't an opcode.
-            opcode = NULL;
+            ai.opcode = NULL;
         }
     }
 
@@ -874,7 +884,7 @@ md_assemble(char *str) {
 	as_bad(_("can't find opcode")); // this might happen if a line is just %, for example.
 	return;
     }
-    if (opcode == NULL) {
+    if (ai.opcode == NULL) {
 not_an_opcode:
         // str may not be advanced to the end of the opcode yet.
         while (mnemonic_chars[(unsigned char) *str] != 0) str++;
@@ -887,7 +897,7 @@ not_an_opcode:
     // If none are enabled, we have an unknown opcode (and need to jump back).
     {
         bool opcode_enabled = false;
-        const struct etca_opc_info *sweep = opcode;
+        const struct etca_opc_info *sweep = ai.opcode;
         do {
             if (etca_match_cpuid_pattern(&sweep->requirements, &settings.current_cpuid)) {
                 opcode_enabled = true;
@@ -897,31 +907,33 @@ not_an_opcode:
         if (!opcode_enabled) goto not_an_opcode;
     }
 
+    // beyond this point, we are guaranteed that ai.opcode is valid!
+
     // check for opcode suffix pedantically
-    if (settings.pedantic && opcode->size_info.suffix_allowed && pi.opcode_size == -1) {
-        as_bad("[-pedantic] no size suffix given for `%s'", opcode->name);
+    if (settings.pedantic && ai.opcode->size_info.suffix_allowed && ai.opcode_size == -1) {
+        as_bad("[-pedantic] no size suffix given for `%s'", ai.opcode->name);
     }
     // but if we don't have any size extensions, allow a default of word.
     // FIXME: this check happens on every line and should probably be cached in settings.
-    if (opcode->size_info.suffix_allowed &&
+    if (ai.opcode->size_info.suffix_allowed &&
         !etca_match_cpuid_pattern(&any_size_pat, &settings.current_cpuid)) {
-        pi.opcode_size = 1;
+        ai.opcode_size = 1;
     }
 
-    if (opcode->format == ETCA_IF_ILLEGAL) {
+    if (ai.opcode->format == ETCA_IF_ILLEGAL) {
 	as_bad("Illegal opcode %s", processed_opcode);
 	return;
     }
 
     while (ISSPACE(*str)) str++;
-    while (*str != '\0' && pi.argc < MAX_OPERANDS) {
-	char *arg_end = parse_operand(str, &pi.args[pi.argc]);
+    while (*str != '\0' && ai.argc < MAX_OPERANDS) {
+	char *arg_end = parse_operand(str, &ai.args[ai.argc]);
 	if (!arg_end) {
 	    as_bad("Expected an argument");
 	    return;
 	}
 	str = arg_end;
-	pi.argc++;
+	ai.argc++;
 	while (ISSPACE(*str)) str++;
 	if (*str != ',') break;
 	str++;
@@ -934,46 +946,46 @@ not_an_opcode:
     // we have the right _number_ of params. For special, we **must**
     // check this as a special case, or else we will hit gas assert
     // failures when we try to compute the operand size.
-    if (opcode->format != ETCA_IF_SPECIAL) {
-	if (!compute_params(&pi)) {
+    if (ai.opcode->format != ETCA_IF_SPECIAL) {
+	if (!compute_params()) {
 	    as_bad("Unknown argument pairing");
 	    return;
 	}
-	uint32_t bit_to_test = pi.params.uint;
+	uint32_t bit_to_test = ai.params.uint;
 	while (
-		((opcode->params.uint & bit_to_test) != bit_to_test
-		 || !etca_match_cpuid_pattern(&opcode->requirements, &settings.current_cpuid))
+		((ai.opcode->params.uint & bit_to_test) != bit_to_test
+		 || !etca_match_cpuid_pattern(&ai.opcode->requirements, &settings.current_cpuid))
 		&&
-		opcode->try_next_assembly) {
-	    opcode++;
+		ai.opcode->try_next_assembly) {
+	    ai.opcode++;
 	}
-	if ((opcode->params.uint & bit_to_test) != bit_to_test
-	    || !etca_match_cpuid_pattern(&opcode->requirements, &settings.current_cpuid)) {
-            as_bad("bad operands for `%s'", opcode->name);
+	if ((ai.opcode->params.uint & bit_to_test) != bit_to_test
+	    || !etca_match_cpuid_pattern(&ai.opcode->requirements, &settings.current_cpuid)) {
+            as_bad("bad operands for `%s'", ai.opcode->name);
 	    return;
 	}
     } else {
         // it is special.
-        if (opcode->opcode == ETCA_MOV && pi.argc != 2) {
+        if (ai.opcode->opcode == ETCA_MOV && ai.argc != 2) {
             as_bad("bad operands for `mov'");
             return;
         }
     }
 
-    // do this check even for IF_SPECIAL (something is wrong with the
+    // compute size attr even for IF_SPECIAL (something is wrong with the
     // syntax if the operands of a name are overloaded).
-    compute_operand_size(opcode, &pi);
+    compute_operand_size();
 
-    if (opcode->format == ETCA_IF_SPECIAL || opcode->format == ETCA_IF_PSEUDO) {
-	assembly_function = pseudo_functions[opcode->opcode];
+    if (ai.opcode->format == ETCA_IF_SPECIAL || ai.opcode->format == ETCA_IF_PSEUDO) {
+	assembly_function = pseudo_functions[ai.opcode->opcode];
     } else {
-	assembly_function = format_assemblers[opcode->format];
+	assembly_function = format_assemblers[ai.opcode->format];
     }
     if (!assembly_function) {
-	as_fatal("Missing for %s (%d)\n", opcode->name, opcode->format);
+	as_fatal("Missing for %s (%d)\n", ai.opcode->name, ai.opcode->format);
 	return;
     }
-    assembly_function(opcode, &pi);
+    assembly_function();
 
 
     while (ISSPACE(*str)) str++;
@@ -1273,8 +1285,8 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
 // 1 (word) is returned to continue seeking potential errors.
 
 static const char size_chars[4] = { 'h', 'x', 'd', 'q' };
-typedef int8_t(*size_checker)(const struct etca_opc_info *, const struct parse_info *);
-#define SIZE_CHK_HDR(name) static int8_t name(const struct etca_opc_info *opc, const struct parse_info *pi)
+typedef int8_t(*size_checker)(void);
+#define SIZE_CHK_HDR(name) static int8_t name(void)
 
 /* Typical computation operand size check: must have a size, all operands agree.
     Note: if some operand is a memory operand, it reports a size of -1 and
@@ -1294,14 +1306,14 @@ SIZE_CHK_HDR(compute_nullary_size);
 /* Operand size check for one register size and an opcode size.
     The register must agree with the opcode. Shared code for several checkers. */
 static int8_t
-check_opcode_matches_opr_size(const struct etca_opc_info *, int8_t opcode_size, int8_t reg_size);
+check_opcode_matches_opr_size(int8_t opcode_size, int8_t reg_size);
 
 // potential errors while computing operand sizes
-static void operand_size_mismatch(const struct etca_opc_info *);
-static void suffix_operand_disagree(const struct etca_opc_info *, int8_t suffix, int8_t opsize);
-static void indeterminate_operand_size(const struct etca_opc_info *);
-static void bad_address_reg_size(const struct etca_opc_info *, int8_t reg_size);
-static void must_be_a_label(const struct etca_opc_info *);
+static void operand_size_mismatch(void);
+static void suffix_operand_disagree(int8_t suffix, int8_t opsize);
+static void indeterminate_operand_size(void);
+static void bad_address_reg_size(int8_t reg_size);
+static void must_be_a_label(void);
 
 static const size_checker size_checkers[NUM_ARGS_SIZES] = {
     compute_nullary_size, compute_opr_size,
@@ -1310,105 +1322,105 @@ static const size_checker size_checkers[NUM_ARGS_SIZES] = {
     compute_opr_any_size
 };
 
-static int8_t compute_operand_size(const struct etca_opc_info *opcode, struct parse_info *pi) {
+static int8_t compute_operand_size() {
     // call the relevant size checker, that's all.
-    gas_assert(opcode->size_info.args_size < NUM_ARGS_SIZES);
-    pi->opcode_size = size_checkers[opcode->size_info.args_size](opcode, pi);
-    return pi->opcode_size;
+    gas_assert(ai.opcode->size_info.args_size < NUM_ARGS_SIZES);
+    ai.opcode_size = size_checkers[ai.opcode->size_info.args_size]();
+    return ai.opcode_size;
 }
 
 SIZE_CHK_HDR(compute_nullary_size) {
-    gas_assert(pi->argc == 0);
-    gas_assert(opc->size_info.args_size == 0);
+    gas_assert(ai.argc == 0);
+    gas_assert(ai.opcode->size_info.args_size == 0);
     // Mostly the opcodes don't have a size. The NOP pseudo instruction
     // deals with potentially absent size itself, so just pass over the existing value
-    return pi->opcode_size;
+    return ai.opcode_size;
 }
 
 SIZE_CHK_HDR(compute_opr_size) {
-    gas_assert(pi->argc == 1);
-    gas_assert(opc->size_info.args_size == OPR);
+    gas_assert(ai.argc == 1);
+    gas_assert(ai.opcode->size_info.args_size == OPR);
 
-    return check_opcode_matches_opr_size(opc, pi->opcode_size, pi->args[0].reg_size);
+    return check_opcode_matches_opr_size(ai.opcode_size, ai.args[0].reg_size);
 }
 
 SIZE_CHK_HDR(compute_adr_size) {
-    gas_assert(pi->argc == 1);
-    gas_assert(opc->size_info.args_size == ADR);
+    gas_assert(ai.argc == 1);
+    gas_assert(ai.opcode->size_info.args_size == ADR);
 
-    check_adr_size(opc, pi->args[0].reg_size);
+    check_adr_size(ai.args[0].reg_size);
     // we don't need an operand size for register jumps/calls
-    if (opc->format != ETCA_IF_SAF_JMP && pi->opcode_size < 0) {
-        indeterminate_operand_size(opc);
+    if (ai.opcode->format != ETCA_IF_SAF_JMP && ai.opcode_size < 0) {
+        indeterminate_operand_size();
         return 1;
     }
-    return pi->opcode_size;
+    return ai.opcode_size;
 }
 
 SIZE_CHK_HDR(check_arg_is_lbl) {
     const struct expressionS *expr;
-    gas_assert(pi->argc == 1);
-    gas_assert(opc->size_info.args_size == LBL);
+    gas_assert(ai.argc == 1);
+    gas_assert(ai.opcode->size_info.args_size == LBL);
     // compute_params has been called by now, and we must have an imm to get here.
-    gas_assert(pi->args[0].kind.immAny == 1);
+    gas_assert(ai.args[0].kind.immAny == 1);
 
-    expr = &pi->args[0].imm_expr;
+    expr = &ai.args[0].imm_expr;
 
-    if (expr->X_op != O_symbol || expr->X_add_number != 0) must_be_a_label(opc);
+    if (expr->X_op != O_symbol || expr->X_add_number != 0) must_be_a_label();
     return -1;
 }
 
 SIZE_CHK_HDR(compute_opr_opr_size) {
-    int8_t opcode_size = pi->opcode_size;
+    int8_t opcode_size = ai.opcode_size;
     int8_t arg1_size, arg2_size, arg_size;
-    gas_assert(pi->argc == 2);
+    gas_assert(ai.argc == 2);
 
-    arg1_size = pi->args[0].reg_size;
-    arg2_size = pi->args[1].reg_size;
+    arg1_size = ai.args[0].reg_size;
+    arg2_size = ai.args[1].reg_size;
 
     // do args disagree?
     if (arg1_size >= 0 && arg2_size >= 0 && arg1_size != arg2_size) {
-        operand_size_mismatch(opc);
+        operand_size_mismatch();
         return 1;
     }
     // if args agree, compute arg_size
     if (arg1_size >= 0) arg_size = arg1_size;
     else                arg_size = arg2_size;
 
-    return check_opcode_matches_opr_size(opc, opcode_size, arg_size);
+    return check_opcode_matches_opr_size(opcode_size, arg_size);
 }
 
 SIZE_CHK_HDR(compute_opr_adr_size) {
-    int8_t opcode_size = pi->opcode_size;
+    int8_t opcode_size = ai.opcode_size;
     int8_t arg1_size, // this one should work with opcode size
            arg2_size; // this one should work with address width
-    gas_assert(pi->argc == 2);
+    gas_assert(ai.argc == 2);
 
-    arg1_size = pi->args[0].reg_size;
-    arg2_size = pi->args[1].reg_size;
+    arg1_size = ai.args[0].reg_size;
+    arg2_size = ai.args[1].reg_size;
 
     // check that opcode size and arg1 size agree. Check first
     // for order of error messages.
-    arg1_size = check_opcode_matches_opr_size(opc, opcode_size, arg1_size);
+    arg1_size = check_opcode_matches_opr_size(opcode_size, arg1_size);
     // check that arg2 size is consistent with address mode...
-    check_adr_size(opc, arg2_size);
+    check_adr_size(arg2_size);
     return arg1_size;
 }
 
 SIZE_CHK_HDR(compute_opr_any_size) {
-    gas_assert(pi->argc == 2);
-    return check_opcode_matches_opr_size(opc, pi->opcode_size, pi->args[0].reg_size);
+    gas_assert(ai.argc == 2);
+    return check_opcode_matches_opr_size(ai.opcode_size, ai.args[0].reg_size);
 }
 
-static int8_t check_opcode_matches_opr_size(const struct etca_opc_info *opc, int8_t opcode_size, int8_t reg_size) {
+static int8_t check_opcode_matches_opr_size(int8_t opcode_size, int8_t reg_size) {
     // do args disagree with opcode?
     if (opcode_size >= 0 && reg_size >= 0 && opcode_size != reg_size) {
-        suffix_operand_disagree(opc, opcode_size, reg_size);
+        suffix_operand_disagree(opcode_size, reg_size);
         return 1;
     }
     // if args and opcode sizes are all -1, we can't determine the size
     else if (opcode_size == -1 && reg_size == -1) {
-        indeterminate_operand_size(opc);
+        indeterminate_operand_size();
         return 1;
     }
     // otherwise, one of opcode_size or arg_size is known, return that.
@@ -1416,129 +1428,119 @@ static int8_t check_opcode_matches_opr_size(const struct etca_opc_info *opc, int
     else                       return reg_size;
 }
 
-static void check_adr_size(const struct etca_opc_info *opc, int8_t adr_size) {
+static void check_adr_size(int8_t adr_size) {
     if (adr_size >= 0 && adr_size != settings.address_size_attr) {
-        bad_address_reg_size(opc, adr_size);
+        bad_address_reg_size(adr_size);
     }
 }
 
 #undef SIZE_CHK_HDR
 
-static void operand_size_mismatch(const struct etca_opc_info *opc) {
-    as_bad("operand size mismatch for `%s'", opc->name);
+static void operand_size_mismatch(void) {
+    as_bad("operand size mismatch for `%s'", ai.opcode->name);
 }
-static void suffix_operand_disagree(const struct etca_opc_info *opc, int8_t suffix, int8_t opsize) {
+static void suffix_operand_disagree(int8_t suffix, int8_t opsize) {
     as_bad("bad register size `%c' for `%s' used with suffix `%c'",
-        size_chars[opsize], opc->name, size_chars[suffix]);
+        size_chars[opsize], ai.opcode->name, size_chars[suffix]);
 }
-static void indeterminate_operand_size(const struct etca_opc_info *opc) {
-    as_bad("can't determine operand size for `%s'", opc->name);
+static void indeterminate_operand_size(void) {
+    as_bad("can't determine operand size for `%s'", ai.opcode->name);
 }
-static void bad_address_reg_size(const struct etca_opc_info *opc, int8_t reg_size) {
-    // while parsing memory operands we may call this without wanting
-    // to print the opcode name; support that here.
-    if (!opc) {
-        as_bad("bad ptr register size `%c'", size_chars[reg_size]);
-    } else {
-        as_bad("bad ptr register size `%c' for `%s'", size_chars[reg_size], opc->name);
-    }
+static void bad_address_reg_size(int8_t reg_size) {
+    // I think this message looks better without the opcode name usually.
+    // In any case, when parsing a memory operand, we don't want the opcode
+    // name repeatedly (in case of several errors). With this simple
+    // ad-hoc error reporting system, it's quite tricky to find an improvement.
+    // Previously, before `ai' was a global variable, we could pass NULL. Alas.
+    as_bad("bad ptr register size `%c'", size_chars[reg_size]);
+    // as_bad("bad ptr register size `%c' for `%s'", size_chars[reg_size], opc->name);
 }
-static void must_be_a_label(const struct etca_opc_info *opc) {
-    as_bad("the operand of `%s' must be a label", opc->name);
+static void must_be_a_label(void) {
+    as_bad("the operand of `%s' must be a label", ai.opcode->name);
 }
-
 
 /* Process the nop pseudo instruction. It was already verified that there are no arguments */
 static void
-process_nop_pseudo(
-	const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
-	struct parse_info *pi
-) {
+process_nop_pseudo(void) {
     size_t byte_count;
-    if (pi->opcode_size == -1) {
+    if (ai.opcode_size == -1) {
 	if (etca_match_cpuid_pattern(&any_vwi_pat, &settings.current_cpuid)) {
-	    pi->opcode_size = 0; /* We are going to use the 1byte NOP by default*/
+	    ai.opcode_size = 0; /* We are going to use the 1byte NOP by default*/
 	} else {
-	    pi->opcode_size = 1; /* We need to use the base-isa 2byte NOP*/
+	    ai.opcode_size = 1; /* We need to use the base-isa 2byte NOP*/
 	}
     }
-    if (((uint8_t)pi->opcode_size) > 3) {
-	as_fatal("internal error: Illegal opcode_size=%d", pi->opcode_size);
+    if (((uint8_t)ai.opcode_size) > 3) {
+	as_fatal("internal error: Illegal opcode_size=%d", ai.opcode_size);
     }
-    byte_count = 1 << pi->opcode_size;
+    byte_count = 1 << ai.opcode_size;
     char *output = frag_more(byte_count);
     etca_build_nop(&settings.current_cpuid, byte_count, output);
 }
 
 /* Process the hlt pseudo instruction. It was already verified that there are no arguments */
 static void
-process_hlt_pseudo(
-	const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
-	struct parse_info *pi ATTRIBUTE_UNUSED
-) {
+process_hlt_pseudo(void) {
     char *output = frag_more(2);
-    output[0] = 0b10001110;
-    output[1] = 0;
+    output[0] = 0b10001110; // j +
+    output[1] = 0;          //    0
 }
 
 /* Process the mov pseudo instruction. The only thing that needs to be guaranteed
     beforehand is that there are two params. */
 static void 
-process_mov_pseudo(
-    const struct etca_opc_info *opcode ATTRIBUTE_UNUSED,
-    struct parse_info *pi
-) {
-#define KIND(idx) (pi->args[idx].kind)
+process_mov_pseudo(void) {
+#define KIND(idx) (ai.args[idx].kind)
 // TODO: simple mem should include displacement but no register
-#define SIMPLE_MEM(idx) (KIND(idx).memory && pi->args[idx].imm_expr.X_op == O_absent && pi->args[idx].memory.index_reg == -1)
+#define SIMPLE_MEM(idx) (KIND(idx).memory && ai.args[idx].imm_expr.X_op == O_absent && ai.args[idx].memory.index_reg == -1)
     // simple MEM <- reg: store
     if (SIMPLE_MEM(0) && KIND(1).reg_class == GPR) {
-        struct etca_opc_info *store = str_hash_find(opcode_hash_control, "store");
-        struct etca_arg mem = pi->args[0];
-        pi->params.kinds.rr = 1;
-        pi->args[0] = pi->args[1]; // store #0 is store source, but we have that at #1
-        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
-        pi->args[1].reg.gpr_reg_num = mem.memory.base_reg; // specifically the base addr reg
-        // pi->args[1].reg_size = -1; // size is already computed so we can skip this
-        assemble_base_abm(store, pi);
+        ai.opcode = str_hash_find(opcode_hash_control, "store");
+        struct etca_arg mem = ai.args[0];
+        ai.params.kinds.rr = 1;
+        ai.args[0] = ai.args[1]; // store #0 is store source, but we have that at #1
+        ai.args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
+        ai.args[1].reg.gpr_reg_num = mem.memory.base_reg; // specifically the base addr reg
+        // ai.args[1].reg_size = -1; // size is already computed so we can skip this
+        assemble_base_abm();
         return;
     }
     // reg <- simple MEM: load
     if (KIND(0).reg_class == GPR && SIMPLE_MEM(1)) {
-        struct etca_opc_info *load = str_hash_find(opcode_hash_control, "load");
-        pi->params.kinds.rr = 1;
-        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
-        pi->args[1].reg.gpr_reg_num = pi->args[1].memory.base_reg; // the base addr reg
-        // pi->args[1].memory = (?){0}; // no need, assemble_base_abm won't look at this
-        // pi->args[1].reg_size = -1; // size is already computed so no need for this
-        assemble_base_abm(load, pi);
+        ai.opcode = str_hash_find(opcode_hash_control, "load");
+        ai.params.kinds.rr = 1;
+        ai.args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
+        ai.args[1].reg.gpr_reg_num = ai.args[1].memory.base_reg; // the base addr reg
+        // ai.args[1].memory = (?){0}; // no need, assemble_base_abm won't look at this
+        // ai.args[1].reg_size = -1; // size is already computed so no need for this
+        assemble_base_abm();
         return;
     }
     // two (GP) registers, or GPR and (any) MEM, or (any) MEM and GPR: it's just movs.
     if ((KIND(0).reg_class == GPR && KIND(1).reg_class == GPR)
         || (KIND(0).reg_class == GPR && KIND(1).memory)
         || (KIND(0).memory && KIND(1).reg_class == GPR)) {
-        struct etca_opc_info *movs = str_hash_find(opcode_hash_control, "movs");
-        pi->params.kinds.rr = 1;
-        assemble_base_abm(movs, pi);
+        ai.opcode = str_hash_find(opcode_hash_control, "movs");
+        ai.params.kinds.rr = 1;
+        assemble_base_abm();
         return;
     }
     // GP register <- CTRL register: readcr
     if (KIND(0).reg_class == GPR && KIND(1).reg_class == CTRL) {
-        struct etca_opc_info *readcr = str_hash_find(opcode_hash_control, "readcr");
-        pi->params.kinds.rc = 1;
-        assemble_base_abm(readcr, pi);
+        ai.opcode = str_hash_find(opcode_hash_control, "readcr");
+        ai.params.kinds.rc = 1;
+        assemble_base_abm();
         return;
     }
     // CTRL register <- GP register: writecr
     // remember writecr needs the ctrl reg on the right, so we have to swap them!
     if (KIND(0).reg_class == CTRL && KIND(1).reg_class == GPR) {
-        struct etca_opc_info *writecr = str_hash_find(opcode_hash_control, "writecr");
-        struct etca_arg tmp = pi->args[0];
-        pi->args[0] = pi->args[1];
-        pi->args[1] = tmp;
-        pi->params.kinds.rc = 1;
-        assemble_base_abm(writecr, pi);
+        ai.opcode = str_hash_find(opcode_hash_control, "writecr");
+        struct etca_arg tmp = ai.args[0];
+        ai.args[0] = ai.args[1];
+        ai.args[1] = tmp;
+        ai.params.kinds.rc = 1;
+        assemble_base_abm();
         return;
     }
     // GP register <- IMM
@@ -1549,23 +1551,23 @@ process_mov_pseudo(
 
 	enum elf_etca_reloc_type r_type = etca_calc_mov_ri(
 		&settings.current_cpuid,
-		pi->opcode_size,
-		pi->args[0].reg.gpr_reg_num,
-		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number ): NULL);
+		ai.opcode_size,
+		ai.args[0].reg.gpr_reg_num,
+		KIND(1).immConc ? (&ai.args[1].imm_expr.X_add_number) : NULL);
 	size_t byte_count = R_ETCA_MOV_TO_BYTECOUNT(r_type);
 	output = frag_more(byte_count);
 	enum elf_etca_reloc_type reloc_kind = etca_build_mov_ri(
 		&settings.current_cpuid,
-		pi->opcode_size,
-		pi->args[0].reg.gpr_reg_num,
-		KIND(1).immConc ? (&pi->args[1].imm_expr.X_add_number) : NULL,
+		ai.opcode_size,
+		ai.args[0].reg.gpr_reg_num,
+		KIND(1).immConc ? (&ai.args[1].imm_expr.X_add_number) : NULL,
 		r_type,
 		output);
 	if (!KIND(1).immConc) {
 	    fix_new_exp(frag_now,
 			(output - frag_now->fr_literal),
 			byte_count,
-			&pi->args[1].imm_expr,
+			&ai.args[1].imm_expr,
 			false,
 			(bfd_reloc_code_real_type)(BFD_RELOC_ETCA_BASE_JMP - 1 + reloc_kind));
 	    //TODO: Define a function in elf32-etca (I think?) that does the transformation r_type -> bfd_reloc_code correctly.
@@ -1580,13 +1582,13 @@ process_mov_pseudo(
             as_bad("ptr postinc can only be the second operand of `mov'");
             // but assemble as predec anyway for simplicity
         }
-        struct etca_opc_info *push = str_hash_find(opcode_hash_control, "push");
-        pi->params.kinds.rr = KIND(1).reg_class == GPR;
-        pi->params.kinds.ri = KIND(1).immAny;
+        ai.opcode = str_hash_find(opcode_hash_control, "push");
+        ai.params.kinds.rr = KIND(1).reg_class == GPR;
+        ai.params.kinds.ri = KIND(1).immAny;
         // replace the predec arg with just a GPR of the same regnum.
-        pi->args[0].kind = (struct etca_arg_kind){.reg_class = GPR};
-        // pi->args[0].reg.gpr_reg_num is already set correctly!
-        assemble_base_abm(push, pi);
+        ai.args[0].kind = (struct etca_arg_kind){.reg_class = GPR};
+        // ai.args[0].reg.gpr_reg_num is already set correctly!
+        assemble_base_abm();
         return;
     }
     // reg <- predec/postinc: ASP pop
@@ -1596,11 +1598,11 @@ process_mov_pseudo(
         if (KIND(1).predec) {
             as_bad("ptr predec can only be the first operand of `mov'");
         }
-        struct etca_opc_info *pop = str_hash_find(opcode_hash_control, "pop");
-        pi->params.kinds.rr = 1;
+        ai.opcode = str_hash_find(opcode_hash_control, "pop");
+        ai.params.kinds.rr = 1;
         // replace postinc arg with GPR of the same regnum.
-        pi->args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
-        assemble_base_abm(pop, pi);
+        ai.args[1].kind = (struct etca_arg_kind){.reg_class = GPR};
+        assemble_base_abm();
         return;
     }
 
@@ -1616,9 +1618,9 @@ enum abm_mode {
 };
 
 // Not declared above since it's a local implementation detail that depends on the above enum.
-static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct parse_info *pi);
+static enum abm_mode find_abm_mode(void);
 
-static void assemble_abm(const struct etca_opc_info *, struct parse_info *, enum abm_mode);
+static void assemble_abm(enum abm_mode);
 
 /* Analyze the parse_info and the opcode to determine what needs to be done to
  * emit the ABM byte before assemble_abm takes over
@@ -1632,10 +1634,10 @@ static void assemble_abm(const struct etca_opc_info *, struct parse_info *, enum
  *
  * Will modify *pi to make small adjustments as needed
  * */
-static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct parse_info *pi) {
-#define IS_VALID_REG(idx) (pi->args[idx].reg.gpr_reg_num >= 0 && pi->args[idx].reg.gpr_reg_num <= 15)
-#define IS_REX_REG(idx) (pi->args[idx].reg.gpr_reg_num > 7)
-    if (pi->params.kinds.rr) {
+static enum abm_mode find_abm_mode(void) {
+#define IS_VALID_REG(idx) (ai.args[idx].reg.gpr_reg_num >= 0 && ai.args[idx].reg.gpr_reg_num <= 15)
+#define IS_REX_REG(idx) (ai.args[idx].reg.gpr_reg_num > 7)
+    if (ai.params.kinds.rr) {
 	if (!IS_VALID_REG(0)) {
 	    as_bad("Invalid register number");
 	    return invalid;
@@ -1653,7 +1655,7 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct pa
 	    return invalid;
 	}
 	return abm_00;
-    } else if (pi->params.kinds.ri) {
+    } else if (ai.params.kinds.ri) {
         bool signed_imm = true;
 	if (!IS_VALID_REG(0)) {
 	    as_bad("Invalid register number");
@@ -1665,27 +1667,27 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct pa
 	}
 
         // is the immediate well-sized? We have no support for FI right now.
-        if (opcode->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(opcode->opcode)) {
+        if (ai.opcode->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode)) {
             signed_imm = false;
         }
 
         if (signed_imm) {
-            if (!pi->args[1].kind.imm5s)
-                as_bad("bad immediate for `%s'", opcode->name);
+            if (!ai.args[1].kind.imm5s)
+                as_bad("bad immediate for `%s'", ai.opcode->name);
         } else {
-            if (!pi->args[1].kind.imm5z)
-                as_bad("bad immediate for `%s'", opcode->name);
+            if (!ai.args[1].kind.imm5z)
+                as_bad("bad immediate for `%s'", ai.opcode->name);
         }
 
 	return ri_byte;
-    } else if (pi->params.kinds.rc) {
+    } else if (ai.params.kinds.rc) {
         // readcr or writecr
         // can't encode a control register number more than 31;
         // we don't have any such yet, but ensure we get an error
         // if or when that happens.
-        gas_assert(pi->args[1].reg.ctrl_reg_num < 32);
+        gas_assert(ai.args[1].reg.ctrl_reg_num < 32);
         // set the immediate value to the control reg number
-        pi->args[1].imm_expr.X_add_number = pi->args[1].reg.ctrl_reg_num;
+        ai.args[1].imm_expr.X_add_number = ai.args[1].reg.ctrl_reg_num;
         // and encode an ri_byte.
         return ri_byte;
     } else {
@@ -1700,7 +1702,7 @@ static enum abm_mode find_abm_mode(const struct etca_opc_info *opcode, struct pa
  * find_abm_mode needs to be called first and the mode passed in here. find_abm_mode
  * potentially does further setup that is required for this function to work.
  */
-void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct parse_info *pi, enum abm_mode mode) {
+void assemble_abm(enum abm_mode mode) {
     char *output;
     size_t idx = 0;
 
@@ -1709,11 +1711,11 @@ void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct pa
 	    abort();
 	case ri_byte: /* We trust that find_abm_mode verified everything and set known_imm correctly */
 	    output = frag_more(1);
-	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | ((pi->args[1].imm_expr.X_add_number) & 0x1F);
+	    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | ((ai.args[1].imm_expr.X_add_number) & 0x1F);
 	    return;
 	case abm_00:
 	    output = frag_more(1);
-	    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | (pi->args[1].reg.gpr_reg_num << 2) | 0b00;
+	    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | (ai.args[1].reg.gpr_reg_num << 2) | 0b00;
 	    return;
 	default:
 	    abort();
@@ -1722,33 +1724,33 @@ void assemble_abm(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct pa
 
 /* Assemble a base-isa style instruction with arbitrary RI/ABM (as long as the current extensions support it)
  */
-void assemble_base_abm(const struct etca_opc_info *opcode, struct parse_info *pi) {
+void assemble_base_abm(void) {
     char *output;
     size_t idx = 0;
     // this is not at all correct, obviously, but useful for testing for now.
-    int8_t size_attr = pi->opcode_size >= 0 ? pi->opcode_size : 0b01;
-    enum abm_mode mode = find_abm_mode(opcode, pi);
+    int8_t size_attr = ai.opcode_size >= 0 ? ai.opcode_size : 0b01;
+    enum abm_mode mode = find_abm_mode();
 
     if (mode == invalid) { return; }
 
     // FIXME: This should probably be handled in slo's size_info field.
-    if (opcode->name && !strcmp(opcode->name, "slo") && !pi->args[1].kind.imm5z) {
+    if (ai.opcode->name && !strcmp(ai.opcode->name, "slo") && !ai.args[1].kind.imm5z) {
         as_bad("slo operand 2 must be a concrete unsigned 5-bit value");
     }
 
     if (mode == ri_byte) {
 	output = frag_more(1);
-	output[idx++] = (0b01000000 | size_attr << 4 | opcode->opcode);
+	output[idx++] = (0b01000000 | size_attr << 4 | ai.opcode->opcode);
     } else {
 	output = frag_more(1);
-	output[idx++] = (0b00000000 | size_attr << 4 | opcode->opcode);
+	output[idx++] = (0b00000000 | size_attr << 4 | ai.opcode->opcode);
     }
-    assemble_abm(opcode, pi, mode);
+    assemble_abm(mode);
 }
 
 /* Assemble a base-isa style jump instruction.
  */
-void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
+void assemble_base_jmp(void) {
     char *output;
     size_t idx = 0;
 
@@ -1756,20 +1758,19 @@ void assemble_base_jmp(const struct etca_opc_info *opcode, struct parse_info *pi
     fixS *fixp = fix_new_exp(frag_now,
 			     (output - frag_now->fr_literal),
 			     2,
-			     &pi->args[0].imm_expr,
+			     &ai.args[0].imm_expr,
 			     true,
 			     BFD_RELOC_ETCA_BASE_JMP);
     fixp->fx_signed = true;
-    output[idx++] = (0b10000000 | opcode->opcode);
+    output[idx++] = (0b10000000 | ai.opcode->opcode);
     output[idx++] = 0;
 }
 
-
 /* Assemble an SAF unconditional 12bit relative call instruction. */
-void assemble_saf_12_call(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, struct parse_info *pi) {
+void assemble_saf_12_call(void) {
     char *output;
     size_t idx = 0;
-    gas_assert(pi->argc == 1 && pi->args[0].kind.immAny);
+    gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
 
     output = frag_more(2);
     output[idx++] = 0b10110000;
@@ -1777,57 +1778,57 @@ void assemble_saf_12_call(const struct etca_opc_info *opcode ATTRIBUTE_UNUSED, s
     fixS *fixp = fix_new_exp(frag_now,
 			     (output - frag_now->fr_literal),
 			     2,
-			     &pi->args[0].imm_expr,
+			     &ai.args[0].imm_expr,
 			     true,
 			     BFD_RELOC_ETCA_SAF_CALL);
     fixp->fx_signed = true;
 }
 
 /* Assemble an SAF conditional register jump/call instruction. */
-void assemble_saf_jmp(const struct etca_opc_info *opcode, struct parse_info *pi) {
+void assemble_saf_jmp(void) {
     char *output;
     size_t idx = 0;
     // nullary is a ret, if there's 1 arg it must be an explicit GPR.
-    gas_assert(pi->argc == 0 || (pi->argc == 1 && pi->args[0].kind.reg_class == GPR));
+    gas_assert(ai.argc == 0 || (ai.argc == 1 && ai.args[0].kind.reg_class == GPR));
 
-    if (pi->argc == 0) {
-        pi->argc = 1;
-        pi->args[0].reg.gpr_reg_num = 7; // %ln
+    if (ai.argc == 0) {
+        ai.argc = 1;
+        ai.args[0].reg.gpr_reg_num = 7; // %ln
     }
 
     output = frag_more(2);
     output[idx++] = 0b10101111;
     // we put the opcodes in the table including the "call" bit.
-    output[idx++] = (pi->args[0].reg.gpr_reg_num << 5) | opcode->opcode;
+    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | ai.opcode->opcode;
 }
 
 /* Assemble a SAF push or pop instruction. */
-void assemble_saf_stk(const struct etca_opc_info *opcode, struct parse_info *pi) {
+void assemble_saf_stk(void) {
     // 12 => pop;  stack pointer belongs in the B operand
     // 13 => push; stack pointer belongs in the A operand
-    gas_assert(opcode->opcode == 12 || opcode->opcode == 13);
-    gas_assert(pi->argc == 1);
+    gas_assert(ai.opcode->opcode == 12 || ai.opcode->opcode == 13);
+    gas_assert(ai.argc == 1);
 
     // Kind r => rr. Kind i => ri. Kind m needs depends on which opcode we have.
-    pi->params.kinds.rr = pi->params.kinds.r;
-    pi->params.kinds.ri = pi->params.kinds.i;
-    pi->params.kinds.r  = pi->params.kinds.i = 0;
-    gas_assert(pi->params.kinds.rr || pi->params.kinds.ri || pi->params.kinds.m);
+    ai.params.kinds.rr = ai.params.kinds.r;
+    ai.params.kinds.ri = ai.params.kinds.i;
+    ai.params.kinds.r  = ai.params.kinds.i = 0;
+    gas_assert(ai.params.kinds.rr || ai.params.kinds.ri || ai.params.kinds.m);
 
-    if (opcode->opcode == 12) {
+    if (ai.opcode->opcode == 12) {
         // parsed operand is already in the A operand. Just pull in stack pointer...
-        pi->argc = 2;
-        pi->args[1].kind.reg_class = GPR;
-        pi->args[1].reg.gpr_reg_num = 6; // #define this somewhere? or maybe an enum?
-        assemble_base_abm(opcode, pi);
+        ai.argc = 2;
+        ai.args[1].kind.reg_class = GPR;
+        ai.args[1].reg.gpr_reg_num = 6; // #define this somewhere? or maybe an enum?
+        assemble_base_abm();
         return;
-    } else if (opcode->opcode == 13) {
+    } else if (ai.opcode->opcode == 13) {
         // parsed operand is in the A operand, but must be moved to B.
-        pi->argc = 2;
-        pi->args[1] = pi->args[0];
-        pi->args[0].kind.reg_class = GPR;
-        pi->args[0].reg.gpr_reg_num = 6;
-        assemble_base_abm(opcode, pi);
+        ai.argc = 2;
+        ai.args[1] = ai.args[0];
+        ai.args[0].kind.reg_class = GPR;
+        ai.args[0].reg.gpr_reg_num = 6;
+        assemble_base_abm();
         return;
     }
 }
