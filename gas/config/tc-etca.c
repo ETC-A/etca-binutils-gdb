@@ -52,7 +52,7 @@ struct etca_arg {
      */
     struct expressionS imm_expr;
 
-    struct {
+    struct etca_mem_arg {
 	/* -1 if we don't have a base register. */
 	reg_num base_reg;
 	/* -1 if we don't have an index register. */
@@ -64,6 +64,15 @@ struct etca_arg {
 	unsigned char have_ip;
     } memory;
 };
+
+struct _rex_fields {
+    uint8_t X:1;
+    uint8_t B:1;
+    uint8_t A:1;
+    uint8_t Q:1;
+};
+
+typedef struct _rex_fields rex_fields;
 
 /* The ETCa intra-line assembler state. Records information as we parse
 and update it. Cleared at the start of md_assemble. */
@@ -78,6 +87,9 @@ struct _assemble_info {
     union etca_opc_params_field params;
     size_t argc;
     struct etca_arg args[MAX_OPERANDS];
+
+    rex_fields rex;
+    bool rex_initialized; // a canary bit to catch mistakes in tricky pseudos.
     // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to have the indvidual prefixes seperated?
 };
 
@@ -90,6 +102,42 @@ do {\
     ai = (assemble_info){0};\
     ai.opcode_size = -1;\
 } while (0)
+
+// any half-decent compiler will optimize this the same as if we had used a union, so why bother?
+#define NEED_REX() (ai.rex.Q || ai.rex.A || ai.rex.B || ai.rex.X)
+/* Generically initialize the fields of `ai.rex' based on `ai.params.kinds' and `ai.args'.
+ * REX.Q is always cleared by this function - an ABM assembler which decides to promote the immediate
+ * size (which might not be a simple decision - unclear?) must check that REX is enabled itself.
+ * Since this function can only activate the register fields, you can be sure the result is
+ * consistent with whether or not REX is enabled without otherwise checking.
+ *  - rr: Assume index 0 is A and index 1 is B
+ *  - ri: Assume index 0 is A. 
+ *  - rc: Assume index 0 is A.
+ *  - r: Assume A (which will be wrong for `push')
+ *  - m: Assume memory.base_reg is B and memory.index_reg is X
+ *  - mi: Ditto.
+ *  - rm/mr: Ditto; then the register is assumed A.
+ *  - if none of those (e.g. i, or params not computed for IF_SPECIAL), all fields are cleared.
+ */
+static void generic_rex_init(void);
+/* Assemble the REX info in `ai.rex' to the next frag byte, if a REX byte is needed. 
+    otherwise, do nothing. Returns whether a REX byte was assembled. */
+static bool assemble_rex_byte(void);
+
+// shortcuts for assembling register numbers into the A, B, SIBB, or SIBX fields
+// of a byte.
+
+// The offset of an 'A' register field in an ABM or SAF register jump format.
+#define ETCA_A_OFS 5
+// The offset of a 'B' register field in an ABM byte.
+#define ETCA_B_OFS 2
+// The offset of a 'B'[ase] register field in an SIB byte.
+#define ETCA_SIBB_OFS 3
+// The offset of an [inde]'X' register field in an SIB byte.
+#define ETCA_SIBX_OFS 0
+// Place the (bottom 3 bits of the) given register number into a byte
+// at the given field.
+#define DEPOSIT_REG(regnum, field) ((regnum & 7) << ETCA_ ## field ## _OFS)
 
 /* Tables of character mappings for various contexts. 0 indicates that the character is not lexically that thing.
 Initialized by md_begin. */
@@ -975,6 +1023,8 @@ not_an_opcode:
     // compute size attr even for IF_SPECIAL (something is wrong with the
     // syntax if the operands of a name are overloaded).
     compute_operand_size();
+    // I tried putting this here but it turned out to be simpler to just let the format_assemblers do it.
+    // generic_rex_init();
 
     if (ai.opcode->format == ETCA_IF_SPECIAL || ai.opcode->format == ETCA_IF_PSEUDO) {
 	assembly_function = pseudo_functions[ai.opcode->opcode];
@@ -1276,6 +1326,60 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
     }
 
     return rel;
+}
+
+static void generic_rex_init(void) {
+// critical that this says "no" for -1, so can't just test some bits
+#define IS_REX_REG(regnum) (8 <= (regnum) && (regnum) < 16)
+    // indicate initialized since every good case wants that;
+    // clear it again at the end if we missed every case.
+    ai.rex_initialized = true;
+    ai.rex.Q = 0;
+    // It'd be nice to use a switch for this, but we can't rely on bitfield order.
+    // Even if we could, it'd break if there were ever two kinds set. So, try
+    // to check in order of commonality.
+    // optimization note: I imagine branch prediction is quite good here anyway.
+    if (ai.params.kinds.rr) { /* A, B */
+        ai.rex.A = IS_REX_REG(ai.args[0].reg.gpr_reg_num);
+        ai.rex.B = IS_REX_REG(ai.args[1].reg.gpr_reg_num);
+        return;
+    }
+    if (ai.params.kinds.ri || ai.params.kinds.rc || ai.params.kinds.r) { /* A,- */
+        ai.rex.A = IS_REX_REG(ai.args[0].reg.gpr_reg_num);
+        return;
+    }
+    // if (ai.params.kinds.i) {} // don't initialize in this case; right now
+    // only push could even cause this, and it should've already adjusted `kinds'.
+    // Rather make sure we get an error.
+    if (ai.params.kinds.rm || ai.params.kinds.mr) { /* r is A */
+        size_t idx = ai.params.kinds.mr; // register is at 1 iff mr
+        ai.rex.A = IS_REX_REG(ai.args[idx].reg.gpr_reg_num);
+    }
+    if (ai.params.kinds.rm || ai.params.kinds.mr
+        || ai.params.kinds.mi || ai.params.kinds.m) { /* base:B, index:X */
+        size_t idx = ai.params.kinds.rm; // mem is at 0 unless rm
+        ai.rex.B = IS_REX_REG(ai.args[idx].memory.base_reg);
+        ai.rex.X = IS_REX_REG(ai.args[idx].memory.index_reg);
+        return;
+    }
+
+    ai.rex = (rex_fields){0};
+    ai.rex_initialized = false;
+#undef IS_REX_REG
+}
+
+static bool assemble_rex_byte(void) {
+    gas_assert(ai.rex_initialized);
+    if (!NEED_REX()) return false;
+
+    uint8_t rex = 0xC0;
+    rex |= ai.rex.Q << 3;
+    rex |= ai.rex.A << 2;
+    rex |= ai.rex.B << 1;
+    rex |= ai.rex.X << 0;
+
+    *frag_more(1) = rex;
+    return true;
 }
 
 // Various checks to compute the operand size of various classes of instructions.
@@ -1622,48 +1726,37 @@ static enum abm_mode find_abm_mode(void);
 
 static void assemble_abm(enum abm_mode);
 
-/* Analyze the parse_info and the opcode to determine what needs to be done to
+/* Analyze the assemble_info to determine what needs to be done to
  * emit the ABM byte before assemble_abm takes over
  * (i.e. what assemble_base_abm and assemble_exop_abm need to do)
  * This includes:
  * - Correctly indicate format between RI and ABM (when return value == ri_byte)
- * - Emit an REX prefix (not implemented)
+ * - Setting the bits of `ai.rex' (rex.Q not implemented yet, though)
+ * - Emit a REX prefix
  * The returned int is to be passed to assemble_abm which uses it to shortcut
  * instead of reanalyzing everything. If the return value is 'invalid', `as_bad`
  * has been called and we should stop assembling.
  *
- * Will modify *pi to make small adjustments as needed
+ * Will modify ai to make small adjustments as needed, of course.
  * */
 static enum abm_mode find_abm_mode(void) {
 #define IS_VALID_REG(idx) (ai.args[idx].reg.gpr_reg_num >= 0 && ai.args[idx].reg.gpr_reg_num <= 15)
-#define IS_REX_REG(idx) (ai.args[idx].reg.gpr_reg_num > 7)
+
+    enum abm_mode mode = invalid;
+
     if (ai.params.kinds.rr) {
 	if (!IS_VALID_REG(0)) {
 	    as_bad("Invalid register number");
-	    return invalid;
 	}
-	if (!IS_VALID_REG(1)) {
+        // only report this error message once (honestly it should be fatal)
+	else if (!IS_VALID_REG(1)) {
 	    as_bad("Invalid register number");
-	    return invalid;
 	}
-	if (IS_REX_REG(0)) {
-	    as_bad("REX extension not implemented");
-	    return invalid;
-	}
-	if (IS_REX_REG(1)) {
-	    as_bad("REX extension not implemented");
-	    return invalid;
-	}
-	return abm_00;
+	mode = abm_00;
     } else if (ai.params.kinds.ri) {
         bool signed_imm = true;
 	if (!IS_VALID_REG(0)) {
 	    as_bad("Invalid register number");
-	    return invalid;
-	}
-	if (IS_REX_REG(0)) {
-	    as_bad("REX extension not implemented");
-	    return invalid;
 	}
 
         // is the immediate well-sized? We have no support for FI right now.
@@ -1679,7 +1772,7 @@ static enum abm_mode find_abm_mode(void) {
                 as_bad("bad immediate for `%s'", ai.opcode->name);
         }
 
-	return ri_byte;
+	mode = ri_byte;
     } else if (ai.params.kinds.rc) {
         // readcr or writecr
         // can't encode a control register number more than 31;
@@ -1689,13 +1782,16 @@ static enum abm_mode find_abm_mode(void) {
         // set the immediate value to the control reg number
         ai.args[1].imm_expr.X_add_number = ai.args[1].reg.ctrl_reg_num;
         // and encode an ri_byte.
-        return ri_byte;
+        mode = ri_byte;
     } else {
 	as_bad("Unknown params kind for assemble_abm");
 	return invalid;
     }
 #undef IS_VALID_REG
-#undef IS_REX_REG
+
+    generic_rex_init();
+    assemble_rex_byte();
+    return mode;
 }
 
 /* Assembles just an abm or ri byte, for use by assemble_base_abm and assemble_exop_abm
@@ -1711,11 +1807,14 @@ void assemble_abm(enum abm_mode mode) {
 	    abort();
 	case ri_byte: /* We trust that find_abm_mode verified everything and set known_imm correctly */
 	    output = frag_more(1);
-	    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | ((ai.args[1].imm_expr.X_add_number) & 0x1F);
+	    output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
+                          | ((ai.args[1].imm_expr.X_add_number) & 0x1F);
 	    return;
 	case abm_00:
 	    output = frag_more(1);
-	    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | (ai.args[1].reg.gpr_reg_num << 2) | 0b00;
+	    output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
+                          | DEPOSIT_REG(ai.args[1].reg.gpr_reg_num, B)
+                          | 0b00;
 	    return;
 	default:
 	    abort();
@@ -1729,7 +1828,7 @@ void assemble_base_abm(void) {
     size_t idx = 0;
     // this is not at all correct, obviously, but useful for testing for now.
     int8_t size_attr = ai.opcode_size >= 0 ? ai.opcode_size : 0b01;
-    enum abm_mode mode = find_abm_mode();
+    enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
 
     if (mode == invalid) { return; }
 
@@ -1794,12 +1893,16 @@ void assemble_saf_jmp(void) {
     if (ai.argc == 0) {
         ai.argc = 1;
         ai.args[0].reg.gpr_reg_num = 7; // %ln
+        ai.rex = (rex_fields){0};
+        ai.rex_initialized = true;
     }
 
+    generic_rex_init();
+    assemble_rex_byte();
     output = frag_more(2);
     output[idx++] = 0b10101111;
     // we put the opcodes in the table including the "call" bit.
-    output[idx++] = (ai.args[0].reg.gpr_reg_num << 5) | ai.opcode->opcode;
+    output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A) | ai.opcode->opcode;
 }
 
 /* Assemble a SAF push or pop instruction. */
@@ -1815,19 +1918,21 @@ void assemble_saf_stk(void) {
     ai.params.kinds.r  = ai.params.kinds.i = 0;
     gas_assert(ai.params.kinds.rr || ai.params.kinds.ri || ai.params.kinds.m);
 
-    if (ai.opcode->opcode == 12) {
+    if (ai.opcode->opcode == 12) { /* pop */
         // parsed operand is already in the A operand. Just pull in stack pointer...
         ai.argc = 2;
         ai.args[1].kind.reg_class = GPR;
         ai.args[1].reg.gpr_reg_num = 6; // #define this somewhere? or maybe an enum?
         assemble_base_abm();
         return;
-    } else if (ai.opcode->opcode == 13) {
+    } else if (ai.opcode->opcode == 13) { /* push */
         // parsed operand is in the A operand, but must be moved to B.
         ai.argc = 2;
         ai.args[1] = ai.args[0];
         ai.args[0].kind.reg_class = GPR;
         ai.args[0].reg.gpr_reg_num = 6;
+        ai.params.kinds.rr = 1;
+        ai.params.kinds.r = 0;
         assemble_base_abm();
         return;
     }

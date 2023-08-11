@@ -179,7 +179,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->opcode = insn[1] & 0x1F;
                 di->argc = 1;
                 di->args[0].kinds.reg_class = GPR;
-                di->args[0].as.reg = (reg_num) ((insn[1] & 0xE0) >> 5);
+                di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
                 return 0;
             }
             if ((insn[0] & 0xF0) == 0xB0) { /* SAF 12-bit call */
