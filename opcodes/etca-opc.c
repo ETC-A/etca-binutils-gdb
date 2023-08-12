@@ -161,8 +161,7 @@ struct etca_opc_info etca_opcodes[] = {
         /* name, iformat, opcode, params, requirements, try_next*/
 
 #define BASE_COMPUTE(name, c) \
-        { name, ETCA_IF_BASE_ABM, c, ANY_ABM, \
-          SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0}
+        { name, ETCA_IF_BASE_ABM, c, ANY_ABM, SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0}
         BASE_COMPUTE("add",  0),
         BASE_COMPUTE("sub",  1),
         BASE_COMPUTE("rsub", 2),
@@ -196,6 +195,40 @@ struct etca_opc_info etca_opcodes[] = {
         {"pop",     ETCA_IF_SAF_STK, 12, PARAMS1(m), SUFFIX(OPR), ETCA_PAT_AND2(SAF,MMAI), 0},
         {"push",    ETCA_IF_SAF_STK, 13, PARAMS2(r, i), SUFFIX(OPR), ETCA_PAT(SAF), 0},
         {"push",    ETCA_IF_SAF_STK, 13, PARAMS1(m), SUFFIX(OPR), ETCA_PAT_AND2(SAF,MMAI), 0},
+
+#define EXOP_ABM_FMT(name, c, ext) \
+        { name, ETCA_IF_EXOP_ABM, c, ANY_ABM, SUFFIX(OPR_OPR), ETCA_PAT(ext), 0 }
+#define EXOP_COMPUTE(name, c) EXOP_ABM_FMT(name, c, EXOP)
+        EXOP_COMPUTE("adc", 0),
+        EXOP_COMPUTE("sbb", 1),
+        EXOP_COMPUTE("rsbb", 2),
+        EXOP_COMPUTE("asr", 3),
+        EXOP_COMPUTE("rol", 4),
+        EXOP_COMPUTE("ror", 5),
+        EXOP_COMPUTE("rcl", 6),
+        EXOP_COMPUTE("rcr", 7),
+        EXOP_COMPUTE("shl", 8),
+        EXOP_COMPUTE("shr", 9),
+#undef EXOP_COMPUTE
+#define MULDIV(name, c) EXOP_ABM_FMT(name, c, MD)
+        MULDIV("udiv", 16),
+        MULDIV("sdiv", 17),
+        MULDIV("urem", 18),
+        MULDIV("srem", 19),
+        MULDIV("umul", 20),
+        MULDIV("smul", 21),
+        MULDIV("uhmul", 22),
+        MULDIV("shmul", 23),
+#undef MULDIV
+
+#undef EXOP_ABM_FMT // add others above here
+
+#define MISC_FMT(name, c, arg, size, ext) \
+        { name, ETCA_IF_MTCR_MISC, c, PARAMS1(arg), NOSUFFIX(size), ETCA_PAT(ext), 0 }
+        MISC_FMT("iret", ETCA_IRET, e, NULLARY, INT),
+        MISC_FMT("int",  ETCA_INT,  i, UNCHECKED, INT),
+        MISC_FMT("wait", ETCA_WAIT, e, NULLARY, PM),
+#undef MISC_FMT
 
 #define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
                                {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(r), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}

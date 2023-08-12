@@ -180,6 +180,8 @@ static void process_nop_pseudo(void);
 static void process_hlt_pseudo(void);
 
 static void assemble_base_abm(void);
+static void assemble_exop_abm(void);
+static void assemble_mtcr_misc(void);
 static void assemble_base_jmp(void);
 static void assemble_saf_12_call(void);
 static void assemble_saf_jmp (void);
@@ -253,7 +255,8 @@ static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	0, /* SPECIAL (handled via pseudo_functions) */
 	0, /* PSEUDO (handled via pseudo_functions) */
 	assemble_base_abm, /* BASE_ABM */
-	0, /* EXOP_ABM */
+	assemble_exop_abm, /* EXOP_ABM */
+        assemble_mtcr_misc, /* MISC (writecr RR) */
 	assemble_base_jmp, /* BASE_JMP */
 	assemble_saf_12_call, /* SAF_CALL */
 	assemble_saf_jmp, /* SAF_JMP  */
@@ -1405,6 +1408,7 @@ SIZE_CHK_HDR(compute_opr_size);
 SIZE_CHK_HDR(compute_adr_size);
 SIZE_CHK_HDR(check_arg_is_lbl);
 SIZE_CHK_HDR(compute_nullary_size);
+SIZE_CHK_HDR(do_nothing);
 
 
 /* Operand size check for one register size and an opcode size.
@@ -1420,10 +1424,10 @@ static void bad_address_reg_size(int8_t reg_size);
 static void must_be_a_label(void);
 
 static const size_checker size_checkers[NUM_ARGS_SIZES] = {
-    compute_nullary_size, compute_opr_size,
-    compute_adr_size, check_arg_is_lbl,
-    compute_opr_opr_size, compute_opr_adr_size,
-    compute_opr_any_size
+    compute_nullary_size, do_nothing,
+    compute_opr_size, compute_adr_size,
+    check_arg_is_lbl, compute_opr_opr_size,
+    compute_opr_adr_size, compute_opr_any_size
 };
 
 static int8_t compute_operand_size() {
@@ -1439,6 +1443,10 @@ SIZE_CHK_HDR(compute_nullary_size) {
     // Mostly the opcodes don't have a size. The NOP pseudo instruction
     // deals with potentially absent size itself, so just pass over the existing value
     return ai.opcode_size;
+}
+
+SIZE_CHK_HDR(do_nothing) {
+    return 0;
 }
 
 SIZE_CHK_HDR(compute_opr_size) {
@@ -1826,9 +1834,9 @@ void assemble_abm(enum abm_mode mode) {
 void assemble_base_abm(void) {
     char *output;
     size_t idx = 0;
-    // this is not at all correct, obviously, but useful for testing for now.
-    int8_t size_attr = ai.opcode_size >= 0 ? ai.opcode_size : 0b01;
     enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
+    uint8_t size_attr = ai.opcode_size;
+    gas_assert(size_attr <= 3); // otherwise we should've errored at compute_size
 
     if (mode == invalid) { return; }
 
@@ -1845,6 +1853,54 @@ void assemble_base_abm(void) {
 	output[idx++] = (0b00000000 | size_attr << 4 | ai.opcode->opcode);
     }
     assemble_abm(mode);
+}
+
+/* Assemble an EXOP instruction with arbitrary RI/ABM operands. */
+void assemble_exop_abm(void) {
+    char *output;
+    size_t idx = 0;
+    enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
+    uint8_t size_attr = ai.opcode_size;
+    uint8_t high_opcode = (ai.opcode->opcode & 0x1E0) >> 5;
+    uint8_t mid_opcode  = (ai.opcode->opcode & 0x010) >> 4;
+    uint8_t low_opcode  = (ai.opcode->opcode & 0x00F)     ;
+    uint8_t fmt_spec    = mode == ri_byte;
+
+    gas_assert(size_attr <= 3);
+
+    if (mode == invalid) { return; }
+
+    output = frag_more(2);
+    output[idx++] = 0xE0 | high_opcode;
+    output[idx++] = (mid_opcode << 7) | (fmt_spec << 6) 
+                  | (size_attr  << 4) | low_opcode;
+    assemble_abm(mode);
+}
+
+/* Assemble an mtcr-misc format instruction. IRET, INT, WAIT.
+    Quite ad-hoc... but it's the misc format. */
+void assemble_mtcr_misc(void) {
+    char *output = frag_more(2);
+    size_t idx = 0;
+
+    switch (ai.opcode->opcode) {
+    case ETCA_IRET:
+    case ETCA_WAIT:
+        gas_assert(ai.argc == 0);
+        output[idx++] = 0x0F;
+        output[idx++] = ai.opcode->opcode;
+        break;
+    case ETCA_INT:
+        offsetT imm = ai.args[0].imm_expr.X_add_number;
+        gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
+        if (!ai.args[0].kind.immConc || imm < 0 || imm > 255)
+            as_bad("operand for `int' must be a concrete unsigned 8-bit value");
+        output[idx++] = 0x0F | ((imm & 0x80) >> 3);
+        output[idx++] = ((imm & 0x7E) << 1) | 0x02 | (imm & 1);
+        break;
+    default:
+        abort();
+    }
 }
 
 /* Assemble a base-isa style jump instruction.
