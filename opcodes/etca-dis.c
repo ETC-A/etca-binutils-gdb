@@ -233,7 +233,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->params.kinds.ri = !di->params.kinds.r;
                 di->size   = (insn[1] & 0x30) >> 4;
                 di->opcode = ((insn[0] & 0x0F) << 5)
-                           | ((insn[1] & 0x80) << 4)
+                           | ((insn[1] & 0x80) >> 3)
                            | ((insn[1] & 0x0F)     );
                 info->insn_type = dis_nonbranch;
                 di->argc = 2;
