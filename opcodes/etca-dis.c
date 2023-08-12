@@ -177,7 +177,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    }
 	    return 0;
 	case 0b10:
-	    if (insn[0] == 0xAE) { /* One byte nop*/
+	    if (insn[0] == 0xAE) { /* One byte nop */
 		di->format = ETCA_IF_PSEUDO;
 		di->opcode = ETCA_NOP;
 		di->argc = 0;
@@ -226,7 +226,29 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    info->target = di->args[0].as.imm;
 	    return 0;
 	case 0b11:
-	    if ((insn[0] & 0b00110000) == 0) {
+            if ((insn[0] & 0xF0) == 0xE0) { /* EXOP computation */
+                if (byte_count < 3) { return 3 - byte_count; }
+                di->format = ETCA_IF_EXOP_ABM;
+                di->params.kinds.rr = !(insn[1] & 0x40);
+                di->params.kinds.ri = !di->params.kinds.r;
+                di->size   = (insn[1] & 0x30) >> 4;
+                di->opcode = ((insn[0] & 0x0F) << 5)
+                           | ((insn[1] & 0x80) << 4)
+                           | ((insn[1] & 0x0F)     );
+                info->insn_type = dis_nonbranch;
+                di->argc = 2;
+                di->args[0].kinds.reg_class = GPR;
+                di->args[0].as.reg = REX(a, (insn[2] & 0xE0) >> 5);
+                if (di->params.kinds.rr) {
+                    di->args[1].kinds.reg_class = GPR;
+                    di->args[1].as.reg = REX(b, (insn[2] & 0x1C) >> 2);
+                } else {
+                    di->args[1].kinds.immAny = 1;
+                    di->args[1].as.imm = SIGN_EXTEND(insn[2], 5);
+                }
+                return 0;
+            }
+	    if ((insn[0] & 0b00110000) == 0) { /* REX prefix */
 		if (di->rex.full) return -1;
 		di->rex.full = insn[0];
 		di->rex.x = (insn[0] & 0x1) != 0;
