@@ -29,7 +29,7 @@
 #include "../include/opcode/etca.h"
 #include "disassemble.h"
 
-static fprintf_ftype fpr;
+static fprintf_styled_ftype fprs;
 static void *stream;
 
 static bool no_pseudo = false;
@@ -132,9 +132,15 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
     switch ((insn[0] & 0xC0) >> 6) {
 	case 0b00:
 	    if (byte_count < 2) { return 1; }
+	    info->insn_info_valid = 1;
+	    info->insn_type = dis_nonbranch;
 	    di->format = ETCA_IF_BASE_ABM;
 	    di->size =  (int8_t) ((insn[0] & 0x30) >> 4);
 	    di->opcode = insn[0] & 0x0F;
+	    if (di->opcode == 10 || di->opcode == 11) { /* LOAD or STORE */
+		info->data_size = (1 << di->size);
+		info->insn_type = dis_dref;
+	    }
 	    di->argc = 2;
 	    if ((insn[1] & 3) == 0) {
 		di->params.kinds.rr = 1;
@@ -148,6 +154,8 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    return 0;
 	case 0b01:
 	    if (byte_count < 2) { return 1; }
+	    info->insn_info_valid = 1;
+	    info->insn_type = dis_nonbranch;
 	    di->format = ETCA_IF_BASE_ABM;
 	    di->size =  (int8_t) ((insn[0] & 0x30) >> 4);
 	    di->opcode = insn[0] & 0x0F;
@@ -161,6 +169,11 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    di->args[1].as.imm  = insn[1] & 0x1F;
 	    if (di->args[1].kinds.imm5s) {
 		di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, 5);
+	    }
+	    if (di->opcode == 10 || di->opcode == 11) { /* LOAD or STORE */
+		info->insn_type = dis_dref;
+		info->data_size = (1 << di->size);
+		info->target = di->args[1].as.imm;
 	    }
 	    return 0;
 	case 0b10:
@@ -180,6 +193,10 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->argc = 1;
                 di->args[0].kinds.reg_class = GPR;
                 di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
+		info->insn_info_valid = 1;
+		info->insn_type = (insn[1] & 0x10) ? dis_branch : dis_jsr;
+		info->insn_type += (insn[1] & 0xF) != 0xE; // relies on the order of the enum
+		info->target = 0;
                 return 0;
             }
             if ((insn[0] & 0xF0) == 0xB0) { /* SAF 12-bit call */
@@ -191,6 +208,9 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->args[0].kinds.disp12 = di->args[0].kinds.dispAny = 1;
                 di->args[0].as.imm = (((insn[0] & 0xF) << 8) | insn[1]);
                 di->args[0].as.imm = di->addr + SIGN_EXTEND(di->args[0].as.imm, 12);
+		info->insn_info_valid = 1;
+		info->insn_type = dis_jsr;
+		info->target = di->args[0].as.imm;
                 return 0;
             }
 	    if ((insn[0] & 0x20) != 0) { return -1; }
@@ -201,6 +221,9 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    di->argc = 1;
 	    di->args[0].kinds.disp9 = di->args[0].kinds.dispAny = 1;
 	    di->args[0].as.imm = di->addr + (((insn[0] & 0x10) ? (((uint64_t)(-1)) << 8) : 0) | insn[1]);
+	    info->insn_info_valid = 1;
+	    info->insn_type = (di->opcode == 0xE) ? dis_branch : dis_condbranch;
+	    info->target = di->args[0].as.imm;
 	    return 0;
 	case 0b11:
 	    if ((insn[0] & 0b00110000) == 0) {
@@ -423,7 +446,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
     int action;
     stream = info->stream;
     char buffer[128];
-    fpr = info->fprintf_func;
+    fprs = info->fprintf_styled_func;
     if (info->disassembler_options) {
 	parse_etca_dis_options(info->disassembler_options);
 	info->disassembler_options = NULL;
@@ -459,7 +482,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    break;
 	} else if (action > 0) { /* We need this many more bytes*/
 	    if (di.idx + action > MAX_INSTRUCTION_LENGTH) {
-		fpr(stream, "<illegal instruction, too long>");
+		fprs(stream, dis_style_text, "<illegal instruction, too long>");
 		return di.idx + action;
 	    }
 	    if (di.addr + di.idx + action)
@@ -472,7 +495,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	} else if (action == -3) { /* Memory error */
 	    goto memory_error;
 	} else if (action == -1) { /* Illegal instruction (or unrecognizable) */
-	    fpr(stream, "<unknown instruction>");
+	    fprs(stream, dis_style_text, "<unknown instruction>");
 	    info->private_data = NULL;
 	    return di.idx;
 	}
@@ -511,27 +534,33 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
     } else {
 	snprintf(buffer, sizeof(buffer), "%s", di.opc_info->name);
     }
-    fpr(stream, "%-7s ", buffer);
+    fprs(stream, dis_style_mnemonic, "%-7s ", buffer);
 
     for (size_t i = 0; i < di.argc; i++) {
-	if (i != 0) { fpr(stream, ", "); };
+	if (i != 0) { fprs(stream, dis_style_text, ", "); };
         if (di.args[i].kinds.predec || di.args[i].kinds.postinc) {
-            fpr(stream, "[%s%%%s%s]", 
-                di.args[i].kinds.predec ? "--" : "",
-                get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, get_ptr_size()),
+            fprs(stream, dis_style_text, "[%s",
+                di.args[i].kinds.predec ? "--" : ""
+            );
+            fprs(stream, dis_style_register, "%%%s",
+                get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, get_ptr_size())
+            );
+            fprs(stream, dis_style_text, "%s]",
                 di.args[i].kinds.postinc ? "++" : ""
             );
         } else if (di.args[i].kinds.nested_memory || di.args[i].kinds.memory) {
             bool have_thing = false; // should we print a + before the next term?
-            if (di.args[i].kinds.nested_memory) fpr(stream, "[");
-            fpr(stream, "[");
+            if (di.args[i].kinds.nested_memory) fprs(stream, dis_style_text, "[");
+            fprs(stream, dis_style_text, "[");
             if (di.args[i].as.memory.base_reg >= 0) {
-                fpr(stream, "%%%s", get_reg_name(GPR, di.args[i].as.memory.base_reg, get_ptr_size()));
+                fprs(stream, dis_style_register, "%%%s", get_reg_name(GPR, di.args[i].as.memory.base_reg, get_ptr_size()));
                 have_thing = true;
             }
             if (di.args[i].as.memory.index_reg >= 0) {
-                if (have_thing) fpr(stream, " + ");
-                fpr(stream, "%" PRIu8 "*%%%s", di.args[i].as.memory.scale,
+                if (have_thing) fprs(stream, dis_style_text, " + ");
+                fprs(stream, dis_style_text, "%" PRIu8 "*",
+		     di.args[i].as.memory.scale);
+                fprs(stream, dis_style_register, "%%%s",
                     get_reg_name(GPR, di.args[i].as.memory.index_reg, get_ptr_size()));
                 have_thing = true;
             }
@@ -539,25 +568,25 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
                 int64_t disp = di.args[i].as.memory.disp;
                 uint64_t pos_disp = (uint64_t)(-disp); // this way INT_MIN properly becomes INT_MAX+1
                 if (have_thing && disp > 0) {
-                    fpr(stream, " + ");
+                    fprs(stream, dis_style_text, " + ");
                     pos_disp = disp;
                 }
-                if (have_thing && disp < 0) fpr(stream, " - ");
-                else if (disp < 0)          fpr(stream, "-");
-                fpr(stream, "%" PRIu64, pos_disp);
+                if (have_thing && disp < 0) fprs(stream, dis_style_text, " - ");
+                else if (disp < 0)          fprs(stream, dis_style_text, "-");
+                fprs(stream, dis_style_address_offset, "%" PRIu64, pos_disp);
             }
-            fpr(stream, "]");
-            if (di.args[i].kinds.nested_memory) fpr(stream, "]");
+            fprs(stream, dis_style_text, "]");
+            if (di.args[i].kinds.nested_memory) fprs(stream, dis_style_text, "]");
         } else if (di.args[i].kinds.reg_class != RegClassNone) {
-	    fpr(stream, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
+	    fprs(stream, dis_style_register, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
 	} else if (di.args[i].kinds.dispAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
 	    info->print_address_func(di.args[i].as.imm, info);
 	} else if (di.args[i].kinds.imm5z || di.args[i].kinds.imm8z) {
-	    fpr(stream, "%" PRIu64, di.args[i].as.imm);
+	    fprs(stream, dis_style_immediate, "%" PRIu64, di.args[i].as.imm);
 	} else if (di.args[i].kinds.immAny) {
-	    fpr(stream, "%" PRId64, (int64_t) di.args[i].as.imm);
+	    fprs(stream, dis_style_immediate, "%" PRId64, (int64_t) di.args[i].as.imm);
 	} else {
-	    fpr(stream, "<unknown operand>");
+	    fprs(stream, dis_style_text, "<unknown operand>");
 	}
     }
 
