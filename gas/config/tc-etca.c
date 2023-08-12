@@ -819,9 +819,12 @@ md_begin(void) {
 }
 
 /* Based on the list of parsed arguments, correctly set ai.params.
+ * If the list of parsed arguments doesn't match a known params kind,
+ * no fields are set, as_bad is **not** called, and false is returned.
  */
 bool compute_params(void) {
 #define IS_REG(arg) ((arg).kind.reg_class == GPR)
+#define IS_CTRL_REG(arg) ((arg).kind.reg_class == CTRL)
 #define IS_IMM(arg) ((arg).kind.immAny) // this covers it unless parse_immediate screws up.
 #define IS_SPECIAL(arg) ((arg).kind.nested_memory || (arg).kind.predec || (arg.kind.postinc))
     /* This can probably be solved better... */
@@ -829,8 +832,7 @@ bool compute_params(void) {
 	ai.params.kinds.e = 1;
 	return true;
     } else if (ai.argc == 1) {
-	if (IS_SPECIAL(ai.args[0])) {
-	    as_bad("Illegal argument");
+	if (IS_SPECIAL(ai.args[0]) || IS_CTRL_REG(ai.args[0])) {
 	    return false;
 	}
 	if (IS_REG(ai.args[0])) {
@@ -840,15 +842,10 @@ bool compute_params(void) {
 	    ai.params.kinds.i = 1;
 	    return true;
 	} else {
-	    abort();
+	    abort(); // incomplete matching
 	}
     } else if (ai.argc == 2) {
-	if (IS_SPECIAL(ai.args[0])) {
-	    as_bad("Illegal argument");
-	    return false;
-	}
-	if (IS_SPECIAL(ai.args[1])) {
-	    as_bad("Illegal argument");
+	if (IS_SPECIAL(ai.args[0]) || IS_SPECIAL(ai.args[1])) {
 	    return false;
 	}
 	if (IS_REG(ai.args[0])) {
@@ -858,19 +855,19 @@ bool compute_params(void) {
 	    } else if (IS_REG(ai.args[1])) {
 		ai.params.kinds.rr = 1;
 		return true;
-            } else if (ai.args[1].kind.reg_class == CTRL) {
+            } else if (IS_CTRL_REG(ai.args[1])) {
                 ai.params.kinds.rc = 1;
                 return true;
 	    } else {
-		abort();
+		abort(); // incomplete matching
 	    }
-	} else if (IS_IMM(ai.args[0])) {
-	    abort();
+	} else if (IS_IMM(ai.args[0]) || IS_CTRL_REG(ai.args[0])) {
+            return false; // not feasible
 	} else {
-	    abort();
+            abort(); // incomplete matching
 	}
     } else {
-	abort();
+	abort(); // argc not in [0,1,2]?
     }
 #undef IS_REG
 #undef IS_IMM
@@ -986,9 +983,14 @@ not_an_opcode:
 	str = arg_end;
 	ai.argc++;
 	while (ISSPACE(*str)) str++;
-	if (*str != ',') break;
+        // when we hit MAX_OPERANDS, don't consume the comma. We can use
+        // it to get a better error message in a moment.
+	if (*str != ',' || ai.argc == MAX_OPERANDS) break;
 	str++;
 	while (ISSPACE(*str)) str++;
+    }
+    if (*str == ',') {
+        as_bad("too many operands (maximum is 2)");
     }
 
     assembler assembly_function;
@@ -998,13 +1000,15 @@ not_an_opcode:
     // check this as a special case, or else we will hit gas assert
     // failures when we try to compute the operand size.
     if (ai.opcode->format != ETCA_IF_SPECIAL) {
-	if (!compute_params()) {
-	    as_bad("Unknown argument pairing");
-	    return;
-	}
+        // if we don't have a feasible list of params, this simply
+        // doesn't set any fields of `ai.params.kinds'. Then the
+        // operand/param matching loop below will tell us to say
+        // "bad operands."
+	compute_params();
+
 	uint32_t bit_to_test = ai.params.uint;
 	while (
-		((ai.opcode->params.uint & bit_to_test) != bit_to_test
+		((ai.opcode->params.uint & bit_to_test) == 0
 		 || !etca_match_cpuid_pattern(&ai.opcode->requirements, &settings.current_cpuid))
 		&&
 		ai.opcode->try_next_assembly) {
