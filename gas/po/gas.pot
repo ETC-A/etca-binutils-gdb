@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-08-10 21:39+0200\n"
+"POT-Creation-Date: 2023-08-12 18:05+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -7420,22 +7420,22 @@ msgstr ""
 msgid "Addend to unresolved symbol not on word boundary."
 msgstr ""
 
-#: config/tc-etca.c:874 config/tc-msp430.c:4355
+#: config/tc-etca.c:935 config/tc-msp430.c:4355
 msgid "can't find opcode"
 msgstr ""
 
-#: config/tc-etca.c:882 config/tc-ft32.c:239 config/tc-moxie.c:186
+#: config/tc-etca.c:943 config/tc-ft32.c:239 config/tc-moxie.c:186
 #: config/tc-pj.c:260
 #, c-format
 msgid "unknown opcode %s"
 msgstr ""
 
-#: config/tc-etca.c:1010 config/tc-ft32.c:472 config/tc-lm32.c:236
+#: config/tc-etca.c:1075 config/tc-ft32.c:472 config/tc-lm32.c:236
 #: config/tc-moxie.c:585 config/tc-nios2.c:284
 msgid "bad call to md_atof"
 msgstr ""
 
-#: config/tc-etca.c:1259
+#: config/tc-etca.c:1324
 #, c-format
 msgid "Cannot represent relocation type %s (%d)"
 msgstr ""

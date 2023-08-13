@@ -1952,9 +1952,9 @@ void assemble_saf_jmp(void) {
 
     if (ai.argc == 0) {
         ai.argc = 1;
+	ai.params.kinds.e = 0;
+	ai.params.kinds.r = 1;
         ai.args[0].reg.gpr_reg_num = 7; // %ln
-        ai.rex = (rex_fields){0};
-        ai.rex_initialized = true;
     }
 
     generic_rex_init();
