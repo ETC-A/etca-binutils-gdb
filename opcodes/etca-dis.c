@@ -141,8 +141,29 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 		info->data_size = (1 << di->size);
 		info->insn_type = dis_dref;
 	    }
+            if (di->opcode == 15) { /* mtcr misc format */
+                di->format = ETCA_IF_MTCR_MISC;
+                info->insn_type = dis_nonbranch;
+                if ((insn[0] & 0xE0) == 0 && (insn[1] & 0x02) == 0x02) { /* int n */
+                    di->params.kinds.i = 1;
+                    di->args[0].kinds.imm8z = di->args[0].kinds.immAny =
+                        ((insn[0] & 0x10) << 3) // top 1 bit
+                      | ((insn[1] & 0xFC) >> 1) // next 6 bits
+                      | ((insn[1] & 0x01)     ); // last bit
+                    di->opcode = ETCA_INT;
+                }
+                if (insn[0] == 0x0F && insn[1] == 0x00) { /* iret */
+                    di->params.kinds.e = 1;
+                    di->opcode = ETCA_IRET;
+                }
+                if (insn[0] == 0x0F && insn[1] == 0x04) { /* wait */
+                    di->params.kinds.e = 1;
+                    di->opcode = ETCA_WAIT;
+                }
+                return 0;
+            }
 	    di->argc = 2;
-	    if ((insn[1] & 3) == 0) {
+	    if ((insn[1] & 3) == 0) { /* RR ABM mode */
 		di->params.kinds.rr = 1;
 		di->args[0].kinds.reg_class = GPR;
 		di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
@@ -243,7 +264,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                     di->args[1].kinds.reg_class = GPR;
                     di->args[1].as.reg = REX(b, (insn[2] & 0x1C) >> 2);
                 } else {
-                    di->args[1].kinds.immAny = 1;
+                    di->args[1].kinds.immAny = di->args[1].kinds.imm5s = 1;
                     di->args[1].as.imm = SIGN_EXTEND(insn[2], 5);
                 }
                 return 0;
