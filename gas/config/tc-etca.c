@@ -106,7 +106,8 @@ do {\
 // any half-decent compiler will optimize this the same as if we had used a union, so why bother?
 #define NEED_REX() (ai.rex.Q || ai.rex.A || ai.rex.B || ai.rex.X)
 /* Generically initialize the fields of `ai.rex' based on `ai.params.kinds' and `ai.args'.
- * REX.Q is always cleared by this function - an ABM assembler which decides to promote the immediate
+ * REX.Q is untouched by this function - it used to be cleared, but this function is now
+ * usually called much later and preserving REX.Q is valuable.
  * size (which might not be a simple decision - unclear?) must check that REX is enabled itself.
  * Since this function can only activate the register fields, you can be sure the result is
  * consistent with whether or not REX is enabled without otherwise checking.
@@ -117,7 +118,8 @@ do {\
  *  - m: Assume memory.base_reg is B and memory.index_reg is X
  *  - mi: Ditto.
  *  - rm/mr: Ditto; then the register is assumed A.
- *  - if none of those (e.g. i, or params not computed for IF_SPECIAL), all fields are cleared.
+ *  - if none of those (e.g. i, or params not computed for IF_SPECIAL), all (register)
+ *    fields are cleared.
  */
 static void generic_rex_init(void);
 /* Assemble the REX info in `ai.rex' to the next frag byte, if a REX byte is needed. 
@@ -171,6 +173,17 @@ static char *parse_operand(char *str, struct etca_arg *result);
     The computed size is placed in ai.opcode_size. If we are unable
     to determine the operand size, as_bad is called and 1 is used. */
 static int8_t compute_operand_size(void);
+/* Validate the size of a (concrete) immediate operand. Before this
+    is called, you should have already set imm{5/8}{s/z} appropriately,
+    presumably in parse_immediate. You should also have already set
+    `ai.opcode_size', presumably in compute_operand_size.
+    It is checked that if there is an immediate which is _not_ imm8
+    of the appropriate signedness, that it is within the bounds
+    for a full-sized immediate of the given operation width.
+    If the width is quad, and the immediate does not fit in 32 bits,
+    and REX is available, then REX.Q is set. Otherwise,
+    as_bad is called.  */
+static void validate_conc_imm_size(void);
 
 /* Compute a value for ai.params from the parsed ai.argc and ai.args. */
 static bool compute_params(void);
@@ -243,6 +256,8 @@ struct etca_settings {
         .require_prefix = 1,
         .pedantic = 0,
 };
+// todo: use this more
+#define CHECK_PAT(pat) etca_match_cpuid_pattern(&(pat), &settings.current_cpuid)
 
 
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
@@ -1030,6 +1045,8 @@ not_an_opcode:
     // compute size attr even for IF_SPECIAL (something is wrong with the
     // syntax if the operands of a name are overloaded).
     compute_operand_size();
+    // note that this does not do _anything at all_ for `mov'!
+    validate_conc_imm_size();
     // I tried putting this here but it turned out to be simpler to just let the format_assemblers do it.
     // generic_rex_init();
 
@@ -1341,7 +1358,6 @@ static void generic_rex_init(void) {
     // indicate initialized since every good case wants that;
     // clear it again at the end if we missed every case.
     ai.rex_initialized = true;
-    ai.rex.Q = 0;
     // It'd be nice to use a switch for this, but we can't rely on bitfield order.
     // Even if we could, it'd break if there were ever two kinds set. So, try
     // to check in order of commonality.
@@ -1370,7 +1386,7 @@ static void generic_rex_init(void) {
         return;
     }
 
-    ai.rex = (rex_fields){0};
+    ai.rex.A = ai.rex.B = ai.rex.X = 0;
     ai.rex_initialized = false;
 #undef IS_REX_REG
 }
@@ -1414,6 +1430,86 @@ SIZE_CHK_HDR(check_arg_is_lbl);
 SIZE_CHK_HDR(compute_nullary_size);
 SIZE_CHK_HDR(do_nothing);
 
+static void validate_conc_imm_size(void) {
+    static struct etca_cpuid_pattern
+        fi_pat  = ETCA_PAT(FI),
+        mo2_pat = ETCA_PAT(MO2);
+    struct etca_arg *the_imm;
+    bool have_fi_fmt; // do we have the _correct_ FI format for this?
+    bool have_rex;    // are we allowed to set REX.Q?
+    if (!(ai.params.kinds.i || ai.params.kinds.mi || ai.params.kinds.ri))
+        return; // no immediate to check!
+    
+    if (ai.params.kinds.i) {
+        the_imm = &ai.args[0];
+        have_fi_fmt = CHECK_PAT(fi_pat);
+    }
+    else if (ai.params.kinds.ri) {
+        the_imm = &ai.args[1];
+        have_fi_fmt = CHECK_PAT(fi_pat);
+    } else {
+        the_imm = &ai.args[1];
+        have_fi_fmt = CHECK_PAT(mo2_pat);
+    }
+    have_rex = CHECK_PAT(rex_pat);
+
+    if (!the_imm->kind.immConc) {
+        // have to assume biggest size.
+        if (ai.opcode_size == 3 && have_rex) {
+            ai.rex.Q = 1;
+        }
+        return; // no (concrete) immediate to check.
+    }
+
+    // if we don't have the correct FI format, then we can only have 5 bits.
+
+    int64_t  imm_val = the_imm->imm_expr.X_add_number;
+    int64_t lower_bound, upper_bound;
+    if (ai.opcode->format == ETCA_IF_BASE_ABM
+        && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode)) {
+
+        if (!have_fi_fmt && !the_imm->kind.imm5z) {
+        bad_5bit:
+            as_bad("bad immediate for `%s'", ai.opcode->name);
+            return;
+        }
+
+        if (the_imm->kind.imm8z) return; // definitely fine, fits in 8 (or 5) bits.
+        lower_bound = 0;
+        upper_bound = ai.opcode_size;
+        // we don't need to check qword because we know that the value fits in 64 bits
+        // already (otherwise gas's expression parser fails). But if attr is qword, we
+        // still want to check if it fits in dword so that we can avoid setting REX.Q
+        // if we aren't going to need it.
+        if (upper_bound == 3) upper_bound = 2;
+        upper_bound = 8 << upper_bound; // how many bits do we get? 8/16/32
+        upper_bound = 1 << upper_bound; // now create 2 to that power, 256/65536/4B
+    }
+    else {
+        // otherwise, signed.
+        if (!have_fi_fmt && !the_imm->kind.imm5s) {
+            goto bad_5bit;
+        }
+        if (the_imm->kind.imm8s) return;
+        lower_bound = ai.opcode_size;
+        if (lower_bound == 3) upper_bound = 2; // see unsigned case above
+        lower_bound =  8 << lower_bound; // how many bits B?
+        lower_bound = (int64_t)
+            (((uint64_t)-1) << (lower_bound - 1)); // -2^(B-1), e.g. -2^7 if B is 8
+        upper_bound = -lower_bound;
+    }
+
+    if (imm_val < lower_bound || imm_val >= upper_bound) {
+        if (ai.opcode_size == 3 && have_rex) {
+            ai.rex.Q = 1;
+            return;
+        }
+        // but otherwise it's bad...
+        as_bad("bad immediate for `%s' with operand size attr `%c'",
+            ai.opcode->name, size_chars[ai.opcode_size]);
+    }
+    return;
+}
 
 /* Operand size check for one register size and an opcode size.
     The register must agree with the opcode. Shared code for several checkers. */
@@ -1731,19 +1827,18 @@ enum abm_mode {
     invalid,
     ri_byte,
     abm_00,
+    abm_fi_8,
+    abm_fi_big, // decision to set REX.Q should be made already
+        // by validate_conc_imm_size. So we don't distinguish further here.
 };
 
 // Not declared above since it's a local implementation detail that depends on the above enum.
-static enum abm_mode find_abm_mode(void);
-
-static void assemble_abm(enum abm_mode);
-
 /* Analyze the assemble_info to determine what needs to be done to
  * emit the ABM byte before assemble_abm takes over
- * (i.e. what assemble_base_abm and assemble_exop_abm need to do)
+ * (i.e. what assemble_base_abm and assemble_exop_abm need to do).
  * This includes:
  * - Correctly indicate format between RI and ABM (when return value == ri_byte)
- * - Setting the bits of `ai.rex' (rex.Q not implemented yet, though)
+ * - Setting the A, B, and X bits of `ai.rex' (but Q must be set already)
  * - Emit a REX prefix
  * The returned int is to be passed to assemble_abm which uses it to shortcut
  * instead of reanalyzing everything. If the return value is 'invalid', `as_bad`
@@ -1751,43 +1846,35 @@ static void assemble_abm(enum abm_mode);
  *
  * Will modify ai to make small adjustments as needed, of course.
  * */
-static enum abm_mode find_abm_mode(void) {
-#define IS_VALID_REG(idx) (ai.args[idx].reg.gpr_reg_num >= 0 && ai.args[idx].reg.gpr_reg_num <= 15)
+static enum abm_mode find_abm_mode(void);
 
+static void assemble_abm(enum abm_mode);
+
+static enum abm_mode find_abm_mode(void) {
     enum abm_mode mode = invalid;
 
     if (ai.params.kinds.rr) {
-	if (!IS_VALID_REG(0)) {
-	    as_bad("Invalid register number");
-	}
-        // only report this error message once (honestly it should be fatal)
-	else if (!IS_VALID_REG(1)) {
-	    as_bad("Invalid register number");
-	}
 	mode = abm_00;
     } else if (ai.params.kinds.ri) {
-        bool signed_imm = true;
-	if (!IS_VALID_REG(0)) {
-	    as_bad("Invalid register number");
-	}
-
-        // is the immediate well-sized? We have no support for FI right now.
-        if (ai.opcode->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode)) {
-            signed_imm = false;
+        // only base ABM instructions can zext.
+        bool zext = ai.opcode->format == ETCA_IF_BASE_ABM
+            && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode);
+        struct etca_arg_kind kind = ai.args[1].kind;
+        // immediate sizes are already validated, so we can assume that
+        // they are OK. For now, we're only supporting concrete ones.
+        if (!ai.args[1].kind.immConc) {
+            as_bad("label operands outisde of `mov' not yet supported");
         }
-
-        if (signed_imm) {
-            if (!ai.args[1].kind.imm5s)
-                as_bad("bad immediate for `%s'", ai.opcode->name);
+        if ((kind.imm5s && !zext) || (kind.imm5z && zext)) {
+            mode = ri_byte;
+        } else if ((kind.imm8s && !zext) || (kind.imm8z && zext)) {
+            mode = abm_fi_8;
         } else {
-            if (!ai.args[1].kind.imm5z)
-                as_bad("bad immediate for `%s'", ai.opcode->name);
+            mode = abm_fi_big;
         }
-
-	mode = ri_byte;
     } else if (ai.params.kinds.rc) {
         // readcr or writecr
-        // can't encode a control register number more than 31;
+        // can't encode a control register number more than 31 (without FI);
         // we don't have any such yet, but ensure we get an error
         // if or when that happens.
         gas_assert(ai.args[1].reg.ctrl_reg_num < 32);
@@ -1828,6 +1915,23 @@ void assemble_abm(enum abm_mode mode) {
                           | DEPOSIT_REG(ai.args[1].reg.gpr_reg_num, B)
                           | 0b00;
 	    return;
+        case abm_fi_8:
+            output = frag_more(2);
+            output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A) // AAA
+                          | 0b00001001; // A x i8
+            output[idx++] = ai.args[1].imm_expr.X_add_number;
+            break;
+        case abm_fi_big:
+            uint8_t bytes_needed = 1; // ABM byte
+            uint8_t imm_size = ai.opcode_size;
+            if (ai.opcode_size == 3 && !ai.rex.Q) imm_size = 2; // qword clamping
+            imm_size = 1 << imm_size; // 1,2,4, rex.Q ? 8 : 4.
+            bytes_needed += imm_size;
+            output = frag_more(bytes_needed);
+            output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
+                          | 0b00001101; // A x iS
+            number_to_chars_littleendian(output+idx, ai.args[1].imm_expr.X_add_number, imm_size);
+            break;
 	default:
 	    abort();
     }
