@@ -88,6 +88,8 @@ struct _assemble_info {
     size_t argc;
     struct etca_arg args[MAX_OPERANDS];
 
+    bool imm_signed; // is an immediate to this instruction signed? don't-care if imm is not allowed.
+
     rex_fields rex;
     bool rex_initialized; // a canary bit to catch mistakes in tricky pseudos.
     // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to have the indvidual prefixes seperated?
@@ -325,6 +327,9 @@ static int8_t parse_size_attr(char value) {
 }
 
 static struct etca_cpuid_pattern rex_pat = ETCA_PAT(REX);
+static struct etca_cpuid_pattern fi_pat  = ETCA_PAT(FI);
+// static struct etca_cpuid_pattern mo1_pat = ETCA_PAT(MO1);
+static struct etca_cpuid_pattern mo2_pat = ETCA_PAT(MO2);
 static struct etca_cpuid_pattern int_pat = ETCA_PAT(INT);
 static struct etca_cpuid_pattern pm_pat  = ETCA_PAT(PM);
 static struct etca_cpuid_pattern ci_pat  = ETCA_PAT(CI);
@@ -1034,6 +1039,9 @@ not_an_opcode:
             as_bad("bad operands for `%s'", ai.opcode->name);
 	    return;
 	}
+
+        // not special and is valid: are immediates signed?
+        ai.imm_signed = ai.opcode->format != ETCA_IF_BASE_ABM || ETCA_BASE_ABM_IMM_SIGNED(ai.opcode->opcode);
     } else {
         // it is special.
         if (ai.opcode->opcode == ETCA_MOV && ai.argc != 2) {
@@ -1431,9 +1439,6 @@ SIZE_CHK_HDR(compute_nullary_size);
 SIZE_CHK_HDR(do_nothing);
 
 static void validate_conc_imm_size(void) {
-    static struct etca_cpuid_pattern
-        fi_pat  = ETCA_PAT(FI),
-        mo2_pat = ETCA_PAT(MO2);
     struct etca_arg *the_imm;
     bool have_fi_fmt; // do we have the _correct_ FI format for this?
     bool have_rex;    // are we allowed to set REX.Q?
@@ -1454,7 +1459,8 @@ static void validate_conc_imm_size(void) {
     have_rex = CHECK_PAT(rex_pat);
 
     if (!the_imm->kind.immConc) {
-        // have to assume biggest size.
+        // have to assume biggest pointer size
+        // TODO: Depends on code model!
         if (ai.opcode_size == 3 && have_rex) {
             ai.rex.Q = 1;
         }
@@ -1464,10 +1470,23 @@ static void validate_conc_imm_size(void) {
     // if we don't have the correct FI format, then we can only have 5 bits.
 
     int64_t  imm_val = the_imm->imm_expr.X_add_number;
-    int64_t lower_bound, upper_bound;
-    if (ai.opcode->format == ETCA_IF_BASE_ABM
-        && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode)) {
+    int64_t lower_bound, upper_bound; // [lower_bound, upper_bound)
 
+    // If the opcode is mov, then we're doing a validation before a demotion.
+    // `mov''s arg has no signage, so needs a special case here.
+    if (ai.opcode->format == ETCA_IF_SPECIAL && ai.opcode->opcode == ETCA_MOV) {
+        // we don't call this if we're doing slo expansion, so no need
+        // to do a 5 bit check. In fact, let's make sure we have FI...
+        gas_assert(have_fi_fmt);
+        lower_bound = ai.opcode_size;
+        if (lower_bound == 3) lower_bound = 2; // see explanation in signed case
+        lower_bound = 8 << lower_bound;
+        lower_bound = (int64_t)
+            (((uint64_t)-1) << (lower_bound - 1)); // -2^(B-1), e.g. -2^7 if B is 8
+        upper_bound = -lower_bound; // +2^(B-1)
+        upper_bound <<= 1; // +2^B
+    }
+    else if (!ai.imm_signed) {
         if (!have_fi_fmt && !the_imm->kind.imm5z) {
         bad_5bit:
             as_bad("bad immediate for `%s'", ai.opcode->name);
@@ -1761,6 +1780,27 @@ process_mov_pseudo(void) {
     if (KIND(0).reg_class == GPR && KIND(1).immAny) {
 	char *output;
 
+        // if FI is available, demote to movs as needed to make the
+        // concrete value fit in the smallest possible encoding. If it's not
+        // concrete, prefer movs as addresses are sign-extended.
+        // If it is concrete, a selection of movz can sometimes allow
+        // us to pick an 8-bit FI format instead of a large one.
+        if (CHECK_PAT(fi_pat)) {
+            const char *selected_opcode;
+            ai.params.kinds.ri = 1;
+            validate_conc_imm_size();
+            if (KIND(1).imm8z && !KIND(1).imm8s) {
+                selected_opcode = "movz";
+                ai.imm_signed = false;
+            } else {
+                selected_opcode = "movs";
+                ai.imm_signed = true;
+            }
+            ai.opcode = str_hash_find(opcode_hash_control, selected_opcode);
+            assemble_base_abm();
+            return;
+        }
+
 	enum elf_etca_reloc_type r_type = etca_calc_mov_ri(
 		&settings.current_cpuid,
 		ai.opcode_size,
@@ -1823,6 +1863,10 @@ process_mov_pseudo(void) {
 #undef KIND
 }
 
+static bfd_reloc_code_real_type bfd_reloc_for_size[4] = {
+    BFD_RELOC_8, BFD_RELOC_16, BFD_RELOC_32, BFD_RELOC_64,
+};
+
 enum abm_mode {
     invalid,
     ri_byte,
@@ -1857,14 +1901,10 @@ static enum abm_mode find_abm_mode(void) {
 	mode = abm_00;
     } else if (ai.params.kinds.ri) {
         // only base ABM instructions can zext.
-        bool zext = ai.opcode->format == ETCA_IF_BASE_ABM
-            && ETCA_BASE_ABM_IMM_UNSIGNED(ai.opcode->opcode);
+        bool zext = !ai.imm_signed;
         struct etca_arg_kind kind = ai.args[1].kind;
         // immediate sizes are already validated, so we can assume that
-        // they are OK. For now, we're only supporting concrete ones.
-        if (!ai.args[1].kind.immConc) {
-            as_bad("label operands outisde of `mov' not yet supported");
-        }
+        // they are OK.
         if ((kind.imm5s && !zext) || (kind.imm5z && zext)) {
             mode = ri_byte;
         } else if ((kind.imm8s && !zext) || (kind.imm8z && zext)) {
@@ -1920,17 +1960,31 @@ void assemble_abm(enum abm_mode mode) {
             output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A) // AAA
                           | 0b00001001; // A x i8
             output[idx++] = ai.args[1].imm_expr.X_add_number;
+            // if that value was not concrete, we should never select this mode.
+            gas_assert(ai.args[1].kind.immConc);
             break;
         case abm_fi_big:
+            fixS *fixp;
             uint8_t bytes_needed = 1; // ABM byte
-            uint8_t imm_size = ai.opcode_size;
-            if (ai.opcode_size == 3 && !ai.rex.Q) imm_size = 2; // qword clamping
-            imm_size = 1 << imm_size; // 1,2,4, rex.Q ? 8 : 4.
+            uint8_t imm_bytes = ai.opcode_size;
+            uint8_t imm_size;
+            if (ai.opcode_size == 3 && !ai.rex.Q) imm_bytes = 2; // qword clamping
+            imm_size = 1 << imm_bytes; // 1,2,4, rex.Q ? 8 : 4.
             bytes_needed += imm_size;
             output = frag_more(bytes_needed);
             output[idx++] = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
                           | 0b00001101; // A x iS
-            number_to_chars_littleendian(output+idx, ai.args[1].imm_expr.X_add_number, imm_size);
+            md_number_to_chars(output+idx, ai.args[1].imm_expr.X_add_number, imm_size);
+            // if that value was not concrete, emit a fixup...
+            fixp = fix_new_exp(
+                frag_now,
+                output + idx - frag_now->fr_literal,
+                imm_size,
+                &ai.args[1].imm_expr,
+                false, /* not pcrel */
+                bfd_reloc_for_size[imm_bytes]
+            );
+            fixp->fx_signed = ai.imm_signed;
             break;
 	default:
 	    abort();
