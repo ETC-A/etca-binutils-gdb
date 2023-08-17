@@ -424,13 +424,21 @@ enum etca_iformat {
     ETCA_IF_BASE_ABM,  /* A base instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_EXOP_ABM,  /* A exop instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_MTCR_MISC, /* The MISC format using writecr's RR encoding. Includes IRET, WAIT, and INT. */
-    ETCA_IF_BASE_JMP,  /* A base cond jump with a 9bit displacement */
-    ETCA_IF_SAF_CALL,  /* A saf call with a 12-bit displacement */
+    ETCA_IF_BASE_JMP,  /* A base cond jump with a 9bit displacement. Can promote to a (COND)+EXOP format. */
+    ETCA_IF_SAF_CALL,  /* A saf call with a 12-bit displacement. Usually promotes to an EXOP format. */
     ETCA_IF_SAF_JMP,   /* A saf cond jump or call, with a register */
     ETCA_IF_SAF_STK,   /* A saf push/pop. Recovers %sp, then defers to BASE_ABM. */
-    ETCA_IF_EXOP_JMP,  /* A exop jump (or SaF-EXOP call) with a 8/16/32/64 bit displacement */
+
+    ETCA_IF_EXOP_JMP,  /* An exop jump/call format. This is mostly used for explicit uses
+                            of ljmp/lcall and the disassembler. EXOP-format jump instructions
+                            will always be selected (pre-relaxation) for other "formats" of
+                            jumps and calls if available. */
     ETCA_IFORMAT_COUNT
 };
+
+typedef uint8_t condition_code;
+#define ETCA_COND_ALWAYS 14
+#define ETCA_COND_NEVER  15
 
 // declare this separately or some linters get mad
 union etca_opc_params_field {
