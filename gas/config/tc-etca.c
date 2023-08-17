@@ -90,8 +90,12 @@ struct _assemble_info {
 
     bool imm_signed; // is an immediate to this instruction signed? don't-care if imm is not allowed.
 
+    condition_code cond_prefix_code;
+    bool cond_prefix_emitted;
+
     rex_fields rex;
     bool rex_initialized; // a canary bit to catch mistakes in tricky pseudos.
+    bool rex_emitted; // a canary bit to catch critical mistakes emitting REX twice.
     // struct etca_prefix prefixes[MAX_PREFIXES]; // (or would it be better to have the indvidual prefixes seperated?
 };
 
@@ -126,7 +130,11 @@ do {\
 static void generic_rex_init(void);
 /* Assemble the REX info in `ai.rex' to the next frag byte, if a REX byte is needed. 
     otherwise, do nothing. Returns whether a REX byte was assembled. */
-static bool assemble_rex_byte(void);
+static bool assemble_rex_prefix(void);
+/* Assemble the COND condition code in `ai.cond_prefix_code' to the next frag byte,
+    if it's not ETCA_COND_ALWAYS. Otherwise, do nothing.
+    Return whether a COND prefix was emitted. */
+static bool assemble_cond_prefix(void);
 
 // shortcuts for assembling register numbers into the A, B, SIBB, or SIBX fields
 // of a byte.
@@ -170,6 +178,92 @@ static char *parse_memory_outer(char *str, struct etca_arg *result);
 
 static char *parse_operand(char *str, struct etca_arg *result);
 
+enum etca_code_model {
+    /* The 'small' code model. All pointers can be represented by
+        sign-extended 16-bit values, and any of those pointers can
+        be used. There is no explicit support for position-independent
+        code, and no guarantee that any value is accessible by a
+        16-bit displacement from ipx from everywhere. However as long
+        as the image size remainds under 32KB, this should just be true. */
+    etca_model_small,
+    /* The 'medany' code model. All pointers can be represented by
+        sign-extended 32-bit values. The actual pointer values may
+        be anywhere given that restriction, but every symbol is accessible
+        by a 32-bit displacement from ipd, from anywhere in the code.
+        If the image is too large to have this property (about 2GB),
+        the linker will fail. */
+    etca_model_medany,
+
+    ETCA_NUM_CODE_MODELS,
+    etca_model_invalid
+};
+
+typedef enum etca_code_model etca_code_model_type;
+
+// as always, 1=x, 2=d, 3=q
+// Remember, pointers may be wider than specified here on the actual
+// architecture, but the promise is just that they can be represented
+// by the sign extension of a value of this width.
+uint8_t code_model_pointer_width[ETCA_NUM_CODE_MODELS] = {
+    [etca_model_small] = 1,
+    [etca_model_medany] = 2,
+};
+
+/* The known predefined archs. Needs to be kept in sync with gcc manually */
+static struct etca_known_arch {
+    const char *name;
+    struct etca_cpuid cpuid;
+    char is_concrete;
+    etca_code_model_type default_code_model;
+} known_archs[] = {
+	/* unknown, the default. Also used when only -mextensions is used. */
+	{"unknown", ETCA_CPI_BASE,              0, etca_model_small},
+	/* base-isa with no predefined instructions */
+	{"base",    ETCA_CPI_BASE,              1, etca_model_small},
+	/* The core extension set: FI, SAF, INT, BYTE, EXOP, VON  */
+	{"core",    MK_ETCA_CPI(0xF, 0x1, 0x1), 0, etca_model_small},
+	{0, {0, 0, 0},                          0, etca_model_invalid}
+};
+
+
+#define MARCH_LEN 32
+/*
+ * The global settings for this backend. Set by the commandline options and modified
+ * by the pseudos.
+ */
+struct etca_settings {
+    /* The currently active cpuid. Can be modified by pseduo instructions */
+    struct etca_cpuid current_cpuid;
+    /* The name of the architecture given in the commandline or an empty string
+     * Since the user might provide a custom name, we make a copy of it. */
+    char march[MARCH_LEN];
+    /* The original cpuid that corresponds to the march (without any additional -mextensions)*/
+    struct etca_cpuid march_cpuid;
+    /* The addition extensions specified via a `ARCH+ABBR...` or via `-mextensions` */
+    struct etca_cpuid mextensions;
+
+    etca_code_model_type code_model;
+    /* Various fields*/
+    uint32_t arch_name: 1; /* We got an explicit ARCH name */
+    uint32_t custom_name: 1; /* We got a custom ARCH name */
+    uint32_t manual_cpuid: 1; /* We got a -mcpuid. When not custom_name, this needs to exactly match the predefined one */
+    uint32_t require_prefix: 1; /* Are % register prefixes required? (default yes) */
+    uint32_t pedantic: 1; /* At the moment, just: Are sizes required on registers/opcodes? (default no) */
+} settings = {
+	.current_cpuid = ETCA_CPI_BASE,
+	.march = "",
+	.march_cpuid = ETCA_CPI_BASE,
+	.mextensions = ETCA_CPI_BASE,
+	.arch_name = 0,
+	.custom_name = 0,
+	.manual_cpuid = 0,
+        .code_model = etca_model_invalid,
+        .require_prefix = 1,
+        .pedantic = 0,
+};
+// todo: use this more
+#define CHECK_PAT(pat) etca_match_cpuid_pattern(&(pat), &settings.current_cpuid)
+
 /* Determine the operand size for the parsed opcode and operands.
     If the opcode was suffixed, place that size in ai.opcode_size.
     The computed size is placed in ai.opcode_size. If we are unable
@@ -198,87 +292,26 @@ static void assemble_base_abm(void);
 static void assemble_exop_abm(void);
 static void assemble_mtcr_misc(void);
 static void assemble_base_jmp(void);
-static void assemble_saf_12_call(void);
+static void assemble_saf_call(void);
 static void assemble_saf_jmp (void);
 static void assemble_saf_stk (void);
 
-#define TRY_PARSE_SIZE_ATTR(lval, c) (((lval) = parse_size_attr(c)) >= 0)
-
-/* The known predefined archs. Needs to be kept in sync with gcc manually */
-static struct etca_known_arch {
-    const char *name;
-    struct etca_cpuid cpuid;
-    char is_concrete;
-} known_archs[] = {
-	/* unknown, the default. Also used when only -mextensions is used. */
-	{"unknown", ETCA_CPI_BASE,              0},
-	/* base-isa with no predefined instructions */
-	{"base",    ETCA_CPI_BASE,              1},
-	/* The core extension set: FI, SAF, INT, BYTE, EXOP, VON  */
-	{"core",    MK_ETCA_CPI(0xF, 0x1, 0x1), 0},
-	{0, {0, 0, 0},                          0}
-};
-
-
-#define MARCH_LEN 32
-/*
- * The global settings for this backend. Set by the commandline options and modified
- * by the pseudos.
- */
-struct etca_settings {
-    /* The currently active cpuid. Can be modified by pseduo instructions */
-    struct etca_cpuid current_cpuid;
-    /* The name of the architecture given in the commandline or an empty string
-     * Since the user might provide a custom name, we make a copy of it. */
-    char march[MARCH_LEN];
-    /* The original cpuid that corresponds to the march (without any additional -mextensions)*/
-    struct etca_cpuid march_cpuid;
-    /* The addition extensions specified via a `ARCH+ABBR...` or via `-mextensions` */
-    struct etca_cpuid mextensions;
-
-    /* Various fields*/
-    uint32_t arch_name: 1; /* We got an explicit ARCH name */
-    uint32_t custom_name: 1; /* We got a custom ARCH name */
-    uint32_t manual_cpuid: 1; /* We got a -mcpuid. When not custom_name, this needs to exactly match the predefined one */
-
-    // I'm not actually sure how we will set this one yet, but we do need it.
-    uint32_t address_size_attr: 2; /* 1: word, 2: dword, 3: qword. */
-
-    uint32_t require_prefix: 1; /* Are % register prefixes required? (default yes) */
-    uint32_t pedantic: 1; /* At the moment, just: Are sizes required on registers? (default no) */
-} settings = {
-	.current_cpuid = ETCA_CPI_BASE,
-	.march = "",
-	.march_cpuid = ETCA_CPI_BASE,
-	.mextensions = ETCA_CPI_BASE,
-	.arch_name = 0,
-	.custom_name = 0,
-	.manual_cpuid = 0,
-        .address_size_attr = 1, // word
-        .require_prefix = 1,
-        .pedantic = 0,
-};
-// todo: use this more
-#define CHECK_PAT(pat) etca_match_cpuid_pattern(&(pat), &settings.current_cpuid)
-
-
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
-	process_mov_pseudo, /* mov */
-	process_nop_pseudo, /* nop */
-	process_hlt_pseudo, /* hlt */
+	[ETCA_MOV] = process_mov_pseudo, /* mov */
+	[ETCA_NOP] = process_nop_pseudo, /* nop */
+	[ETCA_HLT] = process_hlt_pseudo, /* hlt */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
-	0, /* ILLEGAL */
-	0, /* SPECIAL (handled via pseudo_functions) */
-	0, /* PSEUDO (handled via pseudo_functions) */
-	assemble_base_abm, /* BASE_ABM */
-	assemble_exop_abm, /* EXOP_ABM */
-        assemble_mtcr_misc, /* MISC (writecr RR) */
-	assemble_base_jmp, /* BASE_JMP */
-	assemble_saf_12_call, /* SAF_CALL */
-	assemble_saf_jmp, /* SAF_JMP  */
-	assemble_saf_stk, /* SAF_STK  */
-	0, /* EXOP_JMP */
+	[ETCA_IF_ILLEGAL] = 0, /* ILLEGAL */
+	[ETCA_IF_SPECIAL] = 0, /* SPECIAL (handled via pseudo_functions) */
+	[ETCA_IF_PSEUDO] = 0, /* PSEUDO (handled via pseudo_functions) */
+	[ETCA_IF_BASE_ABM] = assemble_base_abm, /* BASE_ABM */
+	[ETCA_IF_EXOP_ABM] = assemble_exop_abm, /* EXOP_ABM */
+        [ETCA_IF_MTCR_MISC] = assemble_mtcr_misc, /* MISC (writecr RR) */
+	[ETCA_IF_BASE_JMP] = assemble_base_jmp, /* BASE_JMP */
+	[ETCA_IF_SAF_CALL] = assemble_saf_call, /* SAF_CALL */
+	[ETCA_IF_SAF_JMP] = assemble_saf_jmp, /* SAF_JMP  */
+	[ETCA_IF_SAF_STK] = assemble_saf_stk, /* SAF_STK  */
 };
 
 const char comment_chars[] = ";";
@@ -327,9 +360,11 @@ static int8_t parse_size_attr(char value) {
 }
 
 static struct etca_cpuid_pattern rex_pat = ETCA_PAT(REX);
+static struct etca_cpuid_pattern cond_pat= ETCA_PAT(COND);
 static struct etca_cpuid_pattern fi_pat  = ETCA_PAT(FI);
 // static struct etca_cpuid_pattern mo1_pat = ETCA_PAT(MO1);
 static struct etca_cpuid_pattern mo2_pat = ETCA_PAT(MO2);
+static struct etca_cpuid_pattern exop_pat= ETCA_PAT(EXOP);
 static struct etca_cpuid_pattern int_pat = ETCA_PAT(INT);
 static struct etca_cpuid_pattern pm_pat  = ETCA_PAT(PM);
 static struct etca_cpuid_pattern ci_pat  = ETCA_PAT(CI);
@@ -1144,6 +1179,8 @@ enum options {
     // OPTION_MTUNE, // Not supported yet
     OPTION_MEXTENSIONS,
     OPTION_MCPUID,
+    OPTION_MCMODEL,
+    // OPTION_MPTR, // do we want this? what's the syntax?
     OPTION_NOPREFIX,
     OPTION_PEDANTIC,
 };
@@ -1153,6 +1190,7 @@ struct option md_longopts[] =
 		{"march",       required_argument, NULL, OPTION_MARCH},
 		{"mextensions", required_argument, NULL, OPTION_MEXTENSIONS},
 		{"mcpuid",      required_argument, NULL, OPTION_MCPUID},
+                {"mcmodel",     required_argument, NULL, OPTION_MCMODEL},
                 {"pedantic",    no_argument,       NULL, OPTION_PEDANTIC},
                 {"noprefix",    no_argument,       NULL, OPTION_NOPREFIX},
 		{NULL,          no_argument,       NULL, 0},
@@ -1225,6 +1263,20 @@ static int parse_hex_cpuid(const char *hex_cpuid, struct etca_cpuid *out) {
     return 1;
 }
 
+static int parse_code_model(const char *cmodel, etca_code_model_type *out) {
+    if (strcmp(cmodel, "small") == 0) {
+        *out = etca_model_small;
+        return 1;
+    }
+    else if (strcmp(cmodel, "medany") == 0) {
+        as_warn("selected code model `medany' is unstable and untested");
+        *out = etca_model_medany;
+        return 1;
+    }
+    as_bad("Unknown code model `%s'", cmodel);
+    return 0;
+}
+
 int
 md_parse_option(int c, const char *arg) {
     switch (c) {
@@ -1265,6 +1317,11 @@ md_parse_option(int c, const char *arg) {
 	case OPTION_MCPUID:
 	    strncpy(settings.march, arg, MARCH_LEN - 1);
 	    return parse_hex_cpuid((char *) arg, &settings.march_cpuid);
+        case OPTION_MCMODEL:
+            if (settings.code_model != etca_model_invalid) {
+                as_warn("Multiple code models specified; choosing the last one");
+            }
+            return parse_code_model(arg, &settings.code_model);
         case OPTION_NOPREFIX:
             settings.require_prefix = 0;
             return 1;
@@ -1280,9 +1337,14 @@ void
 md_show_usage(FILE *stream) {
     // match the format of usage output for default options
     fprintf (stream, "ETCa-specific assembler options:\n");
-    fprintf (stream, "\t-march=name[+ABBR...]\n");
+    fprintf (stream, "  -march=name[+ABBR...]\n");
     fprintf (stream, "\t\t\t  Specify an architecture name as well as optionally\n");
     fprintf (stream, "\t\t\t  a list of extensions implemented on top of it\n");
+    fprintf (stream, "  -mextensions=ABBR[,ABBR...]\n");
+    fprintf (stream, "\t\t\t  Specify an architecture via a list of extensions\n");
+    fprintf (stream, "  -mcpuid=CP1.CP2.FT\t  Specify an architecture via a CPUID triplet\n");
+    fprintf (stream, "  -mcmodel={small|medany} Specify a code model. Overrides any arch default.\n");
+    fprintf (stream, "\t\t\t  `medany' is only available with DW and DWAS. Recommend MO2.\n");
     fprintf (stream, "  -noprefix\t\t  Allow register names without the '%%' prefix\n");
     fprintf (stream, "  -pedantic\t\t  Enable various forms of pedantry; at the moment,\n");
     fprintf (stream, "\t\t\t  only checks that opcodes and registers have size markers\n");
@@ -1304,6 +1366,10 @@ void etca_after_parse_args(void) {
 		if (strcmp(arch->name, settings.march) == 0) {
 		    is_concrete = arch->is_concrete;
 		    temp_cpuid = arch->cpuid;
+                    // if the code model is already set, it overrides us; otherwise apply default.
+                    if (settings.code_model == etca_model_invalid) {
+                        settings.code_model = arch->default_code_model;
+                    }
 		    break;
 		}
 	    }
@@ -1323,6 +1389,23 @@ void etca_after_parse_args(void) {
     settings.current_cpuid.cpuid1 |= settings.mextensions.cpuid1 | settings.march_cpuid.cpuid1;
     settings.current_cpuid.cpuid2 |= settings.mextensions.cpuid2 | settings.march_cpuid.cpuid2;
     settings.current_cpuid.feat |= settings.mextensions.feat | settings.march_cpuid.feat;
+
+    // Checks on code model. Warn if one is not specified. Ensure it is consistent with extensions.
+    if (settings.code_model == etca_model_invalid) {
+        // warn the user that this is happening, because it is likely to break code expecting
+        // to have a reasonable amount of memory.
+        as_tsktsk("No code model default available and none specified. Choosing `small'.");
+        settings.code_model = etca_model_small;
+    }
+    if (settings.code_model == etca_model_medany) {
+        static const struct etca_cpuid_pattern medany_pat = ETCA_PAT_AND2(DW, DWAS);
+        if (!CHECK_PAT(medany_pat)) {
+            as_fatal("Selected code model `medany' is only available with DW and DWAS.");
+        } 
+        if (!CHECK_PAT(mo2_pat)) {
+            as_warn("Selected code model `medany' may be unlinkable without IP-relative addressing.");
+        }
+    }
 }
 
 /* Apply a fixup to the object file.  */
@@ -1399,8 +1482,19 @@ static void generic_rex_init(void) {
 #undef IS_REX_REG
 }
 
-static bool assemble_rex_byte(void) {
-    gas_assert(ai.rex_initialized);
+static bool assemble_cond_prefix(void) {
+    gas_assert(!ai.cond_prefix_emitted);
+    gas_assert(!ai.rex_emitted); // enforce order
+    if (ai.cond_prefix_code == ETCA_COND_ALWAYS) return false;
+
+    gas_assert((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code);
+    *frag_more(1) = 0xA0 | ai.cond_prefix_code;
+    ai.cond_prefix_emitted = true;
+    return true;
+}
+
+static bool assemble_rex_prefix(void) {
+    gas_assert(ai.rex_initialized && !ai.rex_emitted);
     if (!NEED_REX()) return false;
 
     uint8_t rex = 0xC0;
@@ -1410,6 +1504,7 @@ static bool assemble_rex_byte(void) {
     rex |= ai.rex.X << 0;
 
     *frag_more(1) = rex;
+    ai.rex_emitted = true;
     return true;
 }
 
@@ -1438,10 +1533,42 @@ SIZE_CHK_HDR(check_arg_is_lbl);
 SIZE_CHK_HDR(compute_nullary_size);
 SIZE_CHK_HDR(do_nothing);
 
+static int64_t sign_extend(int64_t val, uint8_t bit) {
+    // v = 0x00008000, bit = 16
+    uint64_t m = 1ULL << (bit - 1);
+    // m = 0x00008000
+    val = val & ((m << 1) - 1);
+    // val = 0x00008000 & 0x0000FFFF = 0x00008000
+    return (val ^ m) - m;
+    // val ^ m = 0
+    // 0 - 0x00008000 = 0xFFFF8000
+}
+static uint64_t zero_extend(int64_t val, uint8_t bit) {
+    uint64_t m = (1ULL << bit) - 1;
+    return val & m;
+}
+static bool fits_in_bytes_signed(int64_t val, uint8_t nbytes) {
+    return val == sign_extend(val, nbytes * 8);
+}
+static bool fits_in_bytes_unsigned(int64_t val, uint8_t nbytes) {
+    return val == (int64_t)zero_extend(val, nbytes * 8);
+}
+static bool fits_in_bytes(int64_t val, uint8_t nbytes) {
+    if (nbytes == 8) return true; // immediate parser handles this already.
+    return fits_in_bytes_signed(val, nbytes) || fits_in_bytes_unsigned(val, nbytes);
+}
+
 static void validate_conc_imm_size(void) {
     struct etca_arg *the_imm;
     bool have_fi_fmt; // do we have the _correct_ FI format for this?
     bool have_rex;    // are we allowed to set REX.Q?
+    // we should only be inspecting ABM formats.
+    // If this turns oout to be inconvenient, we can add more.
+    // Beware that `int' is a special case.
+    if (ai.opcode->format != ETCA_IF_BASE_ABM
+        && ai.opcode->format != ETCA_IF_EXOP_ABM) {
+        return; // not ABM. Might be an immediate, but we don't care here.
+    }
     if (!(ai.params.kinds.i || ai.params.kinds.mi || ai.params.kinds.ri))
         return; // no immediate to check!
     
@@ -1460,8 +1587,7 @@ static void validate_conc_imm_size(void) {
 
     if (!the_imm->kind.immConc) {
         // have to assume biggest pointer size
-        // TODO: Depends on code model!
-        if (ai.opcode_size == 3 && have_rex) {
+        if (code_model_pointer_width[settings.code_model] == 3 && have_rex) {
             ai.rex.Q = 1;
         }
         return; // no (concrete) immediate to check.
@@ -1469,8 +1595,10 @@ static void validate_conc_imm_size(void) {
 
     // if we don't have the correct FI format, then we can only have 5 bits.
 
-    int64_t  imm_val = the_imm->imm_expr.X_add_number;
-    int64_t lower_bound, upper_bound; // [lower_bound, upper_bound)
+    int64_t imm_val = the_imm->imm_expr.X_add_number;
+    int64_t nbytes  = 1ULL << ai.opcode_size;
+    // one of the fits_in_bytesX functions
+    bool(*fits_with_signage)(int64_t,uint8_t);
 
     // If the opcode is mov, then we're doing a validation before a demotion.
     // `mov''s arg has no signage, so needs a special case here.
@@ -1478,13 +1606,8 @@ static void validate_conc_imm_size(void) {
         // we don't call this if we're doing slo expansion, so no need
         // to do a 5 bit check. In fact, let's make sure we have FI...
         gas_assert(have_fi_fmt);
-        lower_bound = ai.opcode_size;
-        if (lower_bound == 3) lower_bound = 2; // see explanation in signed case
-        lower_bound = 8 << lower_bound;
-        lower_bound = (int64_t)
-            (((uint64_t)-1) << (lower_bound - 1)); // -2^(B-1), e.g. -2^7 if B is 8
-        upper_bound = -lower_bound; // +2^(B-1)
-        upper_bound <<= 1; // +2^B
+        if (the_imm->kind.imm8s || the_imm->kind.imm8z) return;
+        fits_with_signage = fits_in_bytes;
     }
     else if (!ai.imm_signed) {
         if (!have_fi_fmt && !the_imm->kind.imm5z) {
@@ -1492,17 +1615,8 @@ static void validate_conc_imm_size(void) {
             as_bad("bad immediate for `%s'", ai.opcode->name);
             return;
         }
-
         if (the_imm->kind.imm8z) return; // definitely fine, fits in 8 (or 5) bits.
-        lower_bound = 0;
-        upper_bound = ai.opcode_size;
-        // we don't need to check qword because we know that the value fits in 64 bits
-        // already (otherwise gas's expression parser fails). But if attr is qword, we
-        // still want to check if it fits in dword so that we can avoid setting REX.Q
-        // if we aren't going to need it.
-        if (upper_bound == 3) upper_bound = 2;
-        upper_bound = 8 << upper_bound; // how many bits do we get? 8/16/32
-        upper_bound = 1 << upper_bound; // now create 2 to that power, 256/65536/4B
+        fits_with_signage = fits_in_bytes_unsigned;
     }
     else {
         // otherwise, signed.
@@ -1510,24 +1624,27 @@ static void validate_conc_imm_size(void) {
             goto bad_5bit;
         }
         if (the_imm->kind.imm8s) return;
-        lower_bound = ai.opcode_size;
-        if (lower_bound == 3) upper_bound = 2; // see unsigned case above
-        lower_bound =  8 << lower_bound; // how many bits B?
-        lower_bound = (int64_t)
-            (((uint64_t)-1) << (lower_bound - 1)); // -2^(B-1), e.g. -2^7 if B is 8
-        upper_bound = -lower_bound;
+        fits_with_signage = fits_in_bytes_signed;
     }
 
-    if (imm_val < lower_bound || imm_val >= upper_bound) {
-        if (ai.opcode_size == 3 && have_rex) {
-            ai.rex.Q = 1;
-            return;
-        }
-        // but otherwise it's bad...
+    // check with no consideration for signage first. We've already
+    // knocked out correctness for 8 and 5 bit formats matching the sign.
+    // By checking without signage here, we ensure that we still allow
+    // a value like 255 for addh with FI (but not without) even though it
+    // has to be encoded as -1.
+    if (!fits_in_bytes(imm_val, nbytes)) {
+    bad_imm:
         as_bad("bad immediate for `%s' with operand size attr `%c'",
             ai.opcode->name, size_chars[ai.opcode_size]);
     }
-    return;
+
+    // Now to determine if we need REX, we must consider with signage.
+    // If the value fits correctly in 4 bytes, there's no need for REX.
+    if (nbytes == 8 && !fits_with_signage(imm_val, 4)) {
+        if (have_rex) ai.rex.Q = 1;
+        // otherwise we can't represent it, so we must error.
+        else goto bad_imm;
+    }
 }
 
 /* Operand size check for one register size and an opcode size.
@@ -1660,7 +1777,7 @@ static int8_t check_opcode_matches_opr_size(int8_t opcode_size, int8_t reg_size)
 }
 
 static void check_adr_size(int8_t adr_size) {
-    if (adr_size >= 0 && adr_size != settings.address_size_attr) {
+    if (adr_size >= 0 && adr_size != code_model_pointer_width[settings.code_model]) {
         bad_address_reg_size(adr_size);
     }
 }
@@ -1784,12 +1901,15 @@ process_mov_pseudo(void) {
         // concrete value fit in the smallest possible encoding. If it's not
         // concrete, prefer movs as addresses are sign-extended.
         // If it is concrete, a selection of movz can sometimes allow
-        // us to pick an 8-bit FI format instead of a large one.
+        // us to pick an 8-bit (or 32-bit) FI format instead of a larger one.
         if (CHECK_PAT(fi_pat)) {
             const char *selected_opcode;
             ai.params.kinds.ri = 1;
             validate_conc_imm_size();
-            if (KIND(1).imm8z && !KIND(1).imm8s) {
+            if ((KIND(1).imm8z && !KIND(1).imm8s)
+                || (ai.opcode_size == 3
+                    && fits_in_bytes_unsigned(ai.args[1].imm_expr.X_add_number, 4)
+                    && !fits_in_bytes_signed (ai.args[1].imm_expr.X_add_number, 4))) {
                 selected_opcode = "movz";
                 ai.imm_signed = false;
             } else {
@@ -1929,7 +2049,7 @@ static enum abm_mode find_abm_mode(void) {
 #undef IS_VALID_REG
 
     generic_rex_init();
-    assemble_rex_byte();
+    assemble_rex_prefix();
     return mode;
 }
 
@@ -1976,15 +2096,17 @@ void assemble_abm(enum abm_mode mode) {
                           | 0b00001101; // A x iS
             md_number_to_chars(output+idx, ai.args[1].imm_expr.X_add_number, imm_size);
             // if that value was not concrete, emit a fixup...
-            fixp = fix_new_exp(
-                frag_now,
-                output + idx - frag_now->fr_literal,
-                imm_size,
-                &ai.args[1].imm_expr,
-                false, /* not pcrel */
-                bfd_reloc_for_size[imm_bytes]
-            );
-            fixp->fx_signed = ai.imm_signed;
+            if (!ai.args[1].kind.immConc) {
+                fixp = fix_new_exp(
+                    frag_now,
+                    output + idx - frag_now->fr_literal,
+                    imm_size,
+                    &ai.args[1].imm_expr,
+                    false, /* not pcrel */
+                    bfd_reloc_for_size[imm_bytes]
+                );
+                fixp->fx_signed = ai.imm_signed;
+            }
             break;
 	default:
 	    abort();
@@ -2065,11 +2187,77 @@ void assemble_mtcr_misc(void) {
     }
 }
 
+/* Assemble a jump or call which has been promoted to an EXOP-format
+    long jump/call. The condition code must be ETCA_COND_ALWAYS
+    if COND is not available.
+*/
+static void assemble_promoted_exop_jump(
+    bool call, bool absolute, uint8_t size_attr
+) {
+    // MAJOR FIXME:
+    // These really need to be relaxed to base jump formats,
+    // at the very least at assembly-time if we learn that the target is
+    // actually close (and in the same section). This is nontrivial
+    // and inspection of other backends should be done. Apparently important:
+    // - md_apply_fix: seems like this should be critical
+    // - md_estimate_size_before_relax: I'm not actually 100% sure what this does.
+    //      i386 seems to be doing actual relaxation here.
+    // - md_convert_frag: I think this is a frag finalizer, and we must be done
+    //      with assembly-time relaxation when... actually, I'm not sure.
+    //      Look into how this is expected to work.
+
+    char *output;
+    fixS *fixp;
+    uint8_t nbytes = 1 << size_attr;
+
+    assemble_cond_prefix();
+    output = frag_more(1 + nbytes);
+
+    output[0] = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | size_attr;
+    md_number_to_chars(output+1, 0, nbytes);
+    fixp = fix_new_exp(
+        frag_now,
+        output + 1 - frag_now->fr_literal,
+        nbytes,
+        &ai.args[0].imm_expr,
+        !absolute, /* pcrel? */
+        bfd_reloc_for_size[size_attr]
+    );
+    fixp->fx_signed = true; // not convinced this is correct for absolute
+}
+
 /* Assemble a base-isa style jump instruction.
- */
+    If EXOP is available, we will initially select an exop format
+    using frag_var. We will try to relax that back to the base
+    format if we can (since it's shorter) during assembly-time
+    relaxation, but if we can't, it'll have to wait until
+    (potential) LTO. */
 void assemble_base_jmp(void) {
     char *output;
     size_t idx = 0;
+
+    if (CHECK_PAT(exop_pat)
+        && (ai.opcode->opcode == ETCA_COND_ALWAYS || CHECK_PAT(cond_pat))
+    ) {
+        // select the exop jump format matching the configured code model
+        // FIXME [mtune]: in the future, when mtune is supported for various
+        // known architectures, the choice between an absolute and relative
+        // jump can be influenced by performance characteristics.
+
+        // small => absolute, medany => relative by definition.
+        // We could make better mtune-guided decisions if we could be sure
+        // that a relative/absolute jump in the code model will not
+        // overflow the actual pointer size. Actually, absolute jumps
+        // are _always_ sound (unless `medany' code overflows out of its
+        // 2GB range, violating its promise), but we assume here that
+        // a typical device will handle relative displacements better,
+        // since the base format also uses them.
+        bool absolute = settings.code_model == etca_model_small;
+        uint8_t ptr_attr = code_model_pointer_width[settings.code_model];
+        ai.cond_prefix_code = ai.opcode->opcode;
+        assemble_promoted_exop_jump(false, absolute, ptr_attr);
+        return;
+    }
 
     output = frag_more(2);
     fixS *fixp = fix_new_exp(frag_now,
@@ -2083,11 +2271,30 @@ void assemble_base_jmp(void) {
     output[idx++] = 0;
 }
 
-/* Assemble an SAF unconditional 12bit relative call instruction. */
-void assemble_saf_12_call(void) {
+/* Assemble a call <label> instruction, as added by SAF.
+    If EXOP is available, we will initially select an exop format
+    using frag_var. We will try to relax that back to the SAF
+    format if we can (since it's shorter) during assembly-time
+    relaxation, but if we can't, it'll have to wait until
+    (potential) LTO. */
+void assemble_saf_call(void) {
     char *output;
     size_t idx = 0;
     gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
+
+    if (CHECK_PAT(exop_pat)) {
+        // select the exop call format matching the configured code model
+        // FIXME [mtune]: in the future, when mtune is supported for various
+        // known architectures, the choice between an absolute and relative
+        // jump can be influenced by performance characteristics.
+
+        // see the description in assemble_base_jmp
+        bool absolute = settings.code_model == etca_model_small;
+        uint8_t ptr_attr = code_model_pointer_width[settings.code_model];
+        ai.cond_prefix_code = ETCA_COND_ALWAYS;
+        assemble_promoted_exop_jump(true, absolute, ptr_attr);
+        return;
+    }
 
     output = frag_more(2);
     output[idx++] = 0b10110000;
@@ -2116,7 +2323,7 @@ void assemble_saf_jmp(void) {
     }
 
     generic_rex_init();
-    assemble_rex_byte();
+    assemble_rex_prefix();
     output = frag_more(2);
     output[idx++] = 0b10101111;
     // we put the opcodes in the table including the "call" bit.
