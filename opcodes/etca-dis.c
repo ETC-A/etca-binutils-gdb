@@ -105,6 +105,10 @@ struct decode_info {
     size_t argc;
     struct decoded_arg args[2];
     struct {
+        condition_code ccode;
+        bfd_byte full;
+    } cond;
+    struct {
 	uint8_t x: 1;
 	uint8_t b: 1;
 	uint8_t a: 1;
@@ -113,7 +117,7 @@ struct decode_info {
     } rex;
 };
 
-#define SIGN_EXTEND(value, bit) (((value & ((1 << bit) -1)) ^ (1 << (bit - 1))) - (1 << (bit - 1)))
+#define SIGN_EXTEND(value, bit) ((((value) & ((1ULL << (bit)) -1)) ^ (1ULL << ((bit) - 1))) - (1ULL << ((bit) - 1)))
 
 /* decode the instruction or prefix at the current location in the buffer
  * This is potentially called multiple times to decode prefixes or situations where more bytes are needed
@@ -145,9 +149,10 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->format = ETCA_IF_MTCR_MISC;
                 info->insn_type = dis_nonbranch;
                 if ((insn[0] & 0xE0) == 0 && (insn[1] & 0x02) == 0x02) { /* int n */
-                    di->params.kinds.i = 1;
-                    di->args[0].kinds.imm8z = di->args[0].kinds.immAny =
-                        ((insn[0] & 0x10) << 3) // top 1 bit
+                    di->argc = di->params.kinds.i = 1;
+                    di->args[0].kinds.imm8z = di->args[0].kinds.immAny = 1;
+                    di->args[0].as.imm
+                      = ((insn[0] & 0x10) << 3) // top 1 bit
                       | ((insn[1] & 0xFC) >> 1) // next 6 bits
                       | ((insn[1] & 0x01)     ); // last bit
                     di->opcode = ETCA_INT;
@@ -169,6 +174,33 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 		di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
 		di->args[1].kinds.reg_class = GPR;
 		di->args[1].as.reg = REX(b, (insn[1] & 0x1C) >> 2);
+            } else if ((insn[1] & 3) == 1 && (insn[1] & 0x18) == 0x08) { /* FI */
+                size_t num_fi_bytes;
+                bool is_signed = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
+                if ( !(insn[1] & 0x04) ) { /* 8-bit format */
+                    num_fi_bytes = 1;
+                    di->args[1].kinds.imm8s = is_signed;
+                    di->args[1].kinds.imm8z = !is_signed;
+                } else { /* SS attr -bit format */
+                    num_fi_bytes = di->size;
+                    // clamp if we didn't see rex.Q
+                    if (num_fi_bytes == 3 && !di->rex.q) num_fi_bytes = 2;
+                    num_fi_bytes = 1 << num_fi_bytes;
+                }
+                if (byte_count < 2 + num_fi_bytes) { return 2 + num_fi_bytes - byte_count; }
+                di->params.kinds.ri = 1;
+                di->args[0].kinds.reg_class = GPR;
+                di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
+                di->args[1].kinds.immAny = 1;
+                di->args[1].as.imm = 0;
+                memcpy(&di->args[1].as.imm, insn + 2, num_fi_bytes);
+                if (is_signed) {
+                    size_t num_bits = num_fi_bytes * 8;
+                    if (num_bits < 64) {
+                        di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, num_bits);
+                    }
+                }
+                return 0;
 	    } else {
 		return -1;
 	    }
@@ -206,6 +238,12 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 		di->params.kinds.e = 1;
 		return 0;
 	    }
+            // must check for ! 0xAF, as that is the register jump header byte
+            if ((insn[0] & 0xF0) == 0xA0 && insn[0] != 0xAF) { /* COND prefix */
+                di->cond.ccode = insn[0] & 0x0F;
+                di->cond.full = insn[0];
+                return -2;
+            }
 	    if (byte_count < 2) { return 1; }
             if (insn[0] == 0xAF) {
                 di->format = ETCA_IF_SAF_JMP;
@@ -269,7 +307,38 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 }
                 return 0;
             }
-	    if ((insn[0] & 0b00110000) == 0) { /* REX prefix */
+            else if ((insn[0] & 0xF0) == 0xF0) { /* EXOP jump/call */
+                uint8_t size_attr = insn[0] & 0x03;
+                size_t nptr_bytes = 1ULL << size_attr;
+                bool absolute;
+                if (byte_count < 1 + nptr_bytes) {
+                    return 1 + nptr_bytes - byte_count;
+                }
+                di->format = ETCA_IF_EXOP_JMP;
+                di->opcode = insn[0] & 0x08;
+                absolute = !!(insn[0] & 0x04);
+                info->insn_type = di->cond.full ? dis_condbranch : dis_branch;
+                info->insn_info_valid = true;
+                di->argc = di->params.kinds.i = 1;
+                di->args[0].kinds.dispAny = 1;
+                di->args[0].kinds.disp8 = size_attr == 0; // set this accurately
+                memcpy(&di->args[0].as.imm, insn + 1, nptr_bytes);
+                if (absolute) {
+                    bfd_vma mask = 1ULL << (8 * nptr_bytes);
+                    mask = ~(mask-1);
+                    di->args[0].as.imm = (di->addr & mask) | di->args[0].as.imm;
+                } else {
+                    // sign extend the immediate; but not if it's 8 bytes as the macro
+                    // doesn't seem to work in that case (still not sure why).
+                    if (nptr_bytes != 8) {
+                        di->args[0].as.imm = SIGN_EXTEND(di->args[0].as.imm, 8 * nptr_bytes);
+                    }
+                    di->args[0].as.imm = di->addr + di->args[0].as.imm;
+                }
+                info->target = di->args[0].as.imm;
+                return 0;
+            }
+	    else if ((insn[0] & 0b00110000) == 0) { /* REX prefix */
 		if (di->rex.full) return -1;
 		di->rex.full = insn[0];
 		di->rex.x = (insn[0] & 0x1) != 0;
@@ -360,6 +429,29 @@ bool transform_never_jump(struct disassemble_info * info) {
 	    di->argc = 1;
 	    return false;
     }
+}
+
+static
+bool beaut_exop_jmp(struct disassemble_info * info) {
+    struct decode_info *di = info->private_data;
+    if (di->opcode != 0) {
+        // we have an exop `lcall'
+        // change it to an saf `call' but we can't do anything
+        // about the possibility of a COND prefix.
+        di->opcode = 0;
+        di->format = ETCA_IF_SAF_CALL;
+    } else {
+        // we have an exop `ljmp'
+        // Change it to a base `jmp', and move the COND info to the opcode.
+        if (di->cond.full) {
+            di->opcode = di->cond.ccode;
+            di->cond.ccode = di->cond.full = 0;
+        } else {
+            di->opcode = ETCA_COND_ALWAYS;
+        }
+        di->format = ETCA_IF_BASE_JMP;
+    }
+    return true;
 }
 
 static
@@ -466,6 +558,7 @@ static struct beautifier {
 	{transform_pop, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .mr=1}}, 12, 1},
 	{transform_push, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .ri=1, .rm=1}}, 13, 1},
 	{transform_never_jump, ETCA_IF_BASE_JMP, {.kinds={.i=1}}, 15, 1},
+        {beaut_exop_jmp, ETCA_IF_EXOP_JMP, {.kinds={.i=1}}, -1, 0},
 	{beaut_readcr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 14, 0},
 	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},
@@ -506,6 +599,8 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    .args = {},
 	    .size = -1,
 	    .opcode = 0,
+            .cond = {},
+            .rex = {},
     };
     info->private_data = &di;
 
@@ -624,7 +719,10 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    fprs(stream, dis_style_register, "%%%s", get_reg_name(di.args[i].kinds.reg_class, di.args[i].as.reg, di.size));
 	} else if (di.args[i].kinds.dispAny && di.opc_info && di.opc_info->size_info.args_size == LBL) {
 	    info->print_address_func(di.args[i].as.imm, info);
-	} else if (di.args[i].kinds.imm5z || di.args[i].kinds.imm8z) {
+	} else if (di.args[i].kinds.imm5z || di.args[i].kinds.imm8z
+                    || (di.args[i].kinds.immAny
+                        && di.opc_info->format == ETCA_IF_BASE_ABM
+                        && ETCA_BASE_ABM_IMM_UNSIGNED(di.opcode))) {
 	    fprs(stream, dis_style_immediate, "%" PRIu64, di.args[i].as.imm);
 	} else if (di.args[i].kinds.immAny) {
 	    fprs(stream, dis_style_immediate, "%" PRId64, (int64_t) di.args[i].as.imm);

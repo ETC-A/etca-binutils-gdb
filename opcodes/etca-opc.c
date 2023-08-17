@@ -272,6 +272,10 @@ struct etca_opc_info etca_opcodes[] = {
         {"call", ETCA_IF_SAF_CALL, 0, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(SAF), 0},
 #undef SAF_COND_CALL
 
+        {"ljmp",  ETCA_IF_EXOP_JMP, 0, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(EXOP), 0},
+        // opcode 8 here is the 'call' bit in the format.
+        {"lcall", ETCA_IF_EXOP_JMP, 8, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT_AND2(EXOP, SAF), 0},
+
         {0, 0, 0, ((union etca_opc_params_field) {.uint = 0}), NOSUFFIX(0), ETCA_PAT(BASE), 0}
 };
 
