@@ -107,6 +107,7 @@ static assemble_info ai;
 do {\
     ai = (assemble_info){0};\
     ai.opcode_size = -1;\
+    ai.cond_prefix_code = ETCA_COND_ALWAYS;\
 } while (0)
 
 // any half-decent compiler will optimize this the same as if we had used a union, so why bother?
@@ -295,6 +296,7 @@ static void assemble_base_jmp(void);
 static void assemble_saf_call(void);
 static void assemble_saf_jmp (void);
 static void assemble_saf_stk (void);
+static void assemble_exop_jmp(void);
 
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
 	[ETCA_MOV] = process_mov_pseudo, /* mov */
@@ -312,6 +314,7 @@ static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	[ETCA_IF_SAF_CALL] = assemble_saf_call, /* SAF_CALL */
 	[ETCA_IF_SAF_JMP] = assemble_saf_jmp, /* SAF_JMP  */
 	[ETCA_IF_SAF_STK] = assemble_saf_stk, /* SAF_STK  */
+        [ETCA_IF_EXOP_JMP] = assemble_exop_jmp,
 };
 
 const char comment_chars[] = ";";
@@ -831,6 +834,10 @@ md_begin(void) {
     struct etca_opc_info *prev = NULL;
     const struct etca_reg_info *reg;
     int c;
+
+    // FIXME: make gcc shut up about some patterns whose users are temporarily disabled
+    (void)exop_pat;
+    (void)cond_pat;
 
     opcode_hash_control = str_htab_create();
 
@@ -1487,7 +1494,9 @@ static bool assemble_cond_prefix(void) {
     gas_assert(!ai.rex_emitted); // enforce order
     if (ai.cond_prefix_code == ETCA_COND_ALWAYS) return false;
 
-    gas_assert((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code);
+    gas_assert((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code
+                && ai.cond_prefix_code != ETCA_COND_ALWAYS /* would be register jmp header */
+                && ai.cond_prefix_code != ETCA_COND_NEVER); /* would be 1-byte nop */
     *frag_more(1) = 0xA0 | ai.cond_prefix_code;
     ai.cond_prefix_emitted = true;
     return true;
@@ -1638,8 +1647,8 @@ static void validate_conc_imm_size(void) {
             ai.opcode->name, size_chars[ai.opcode_size]);
     }
 
-    // Now to determine if we need REX, we must consider with signage.
-    // If the value fits correctly in 4 bytes, there's no need for REX.
+    // Now to determine if we need REX.Q, we must consider with signage.
+    // If the value fits correctly in 4 bytes, there's no need for REX.Q.
     if (nbytes == 8 && !fits_with_signage(imm_val, 4)) {
         if (have_rex) ai.rex.Q = 1;
         // otherwise we can't represent it, so we must error.
@@ -2220,8 +2229,8 @@ static void assemble_promoted_exop_jump(
         output + 1 - frag_now->fr_literal,
         nbytes,
         &ai.args[0].imm_expr,
-        !absolute, /* pcrel? */
-        bfd_reloc_for_size[size_attr]
+        true, /* pcrel? Yes, even absolute jumps use PC bits. */
+        BFD_RELOC_ETCA_BASE_JMP // bfd_reloc_for_size[size_attr]
     );
     fixp->fx_signed = true; // not convinced this is correct for absolute
 }
@@ -2236,6 +2245,7 @@ void assemble_base_jmp(void) {
     char *output;
     size_t idx = 0;
 
+    /* Automatic promotion temporarily disabled until fixup relaxation is implemented.
     if (CHECK_PAT(exop_pat)
         && (ai.opcode->opcode == ETCA_COND_ALWAYS || CHECK_PAT(cond_pat))
     ) {
@@ -2258,6 +2268,7 @@ void assemble_base_jmp(void) {
         assemble_promoted_exop_jump(false, absolute, ptr_attr);
         return;
     }
+    */
 
     output = frag_more(2);
     fixS *fixp = fix_new_exp(frag_now,
@@ -2282,6 +2293,7 @@ void assemble_saf_call(void) {
     size_t idx = 0;
     gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
 
+    /* Promotion disabled until fixup relaxation is actually implemented.
     if (CHECK_PAT(exop_pat)) {
         // select the exop call format matching the configured code model
         // FIXME [mtune]: in the future, when mtune is supported for various
@@ -2295,6 +2307,7 @@ void assemble_saf_call(void) {
         assemble_promoted_exop_jump(true, absolute, ptr_attr);
         return;
     }
+    */
 
     output = frag_more(2);
     output[idx++] = 0b10110000;
@@ -2361,4 +2374,14 @@ void assemble_saf_stk(void) {
         assemble_base_abm();
         return;
     }
+}
+
+void assemble_exop_jmp(void) {
+    // some parts of this should probably be pulled out into a function
+    // as this pattern appears anywhere we can call assemble_promo
+    // (here, saf_call, and base_jmp).
+    bool call = !!(ai.opcode->opcode & 0x08);
+    bool absolute = settings.code_model == etca_model_small;
+    uint8_t ptr_attr = code_model_pointer_width[settings.code_model];
+    assemble_promoted_exop_jump(call, absolute, ptr_attr);
 }
