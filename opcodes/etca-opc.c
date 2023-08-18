@@ -236,9 +236,10 @@ struct etca_opc_info etca_opcodes[] = {
 #define SAF_RET(name, opcode)  {name, ETCA_IF_SAF_JMP,  opcode, PARAMS1(e), NOSUFFIX(NULLARY), ETCA_PAT(SAF), 0}
 /* the 1 bit set in the opcode is used to indicate that we have a register call, not a jump. */
 #define SAF_COND_CALL(name, opcode) {name, ETCA_IF_SAF_JMP, (0b00010000|opcode), PARAMS1(r), NOSUFFIX(ADR), ETCA_PAT(SAF), 0}
+#define COND_PREFIX(name, opcode) {name, ETCA_IF_COND_PRE, opcode, {0}, NOSUFFIX(NULLARY), ETCA_PAT(COND), 0}
 // doing things this way simplifies adding aliases and the c<code> prefix in the future.
-#define CONDITIONAL(ccode, value) BASE_JMP("j" ccode, value), \
-                SAF_RET("ret" ccode, value), SAF_COND_CALL("call" ccode, value)
+#define CONDITIONAL(ccode, value) BASE_JMP("j" ccode, value), SAF_RET("ret" ccode, value), \
+                SAF_COND_CALL("call" ccode, value), COND_PREFIX("c" ccode, value)
         CONDITIONAL("z",   0), CONDITIONAL("e", 0),
         CONDITIONAL("nz",  1), CONDITIONAL("ne", 1),
         CONDITIONAL("n",   2),

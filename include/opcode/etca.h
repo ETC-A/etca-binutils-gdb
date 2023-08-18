@@ -433,6 +433,10 @@ enum etca_iformat {
                             of ljmp/lcall and the disassembler. EXOP-format jump instructions
                             will always be selected (pre-relaxation) for other "formats" of
                             jumps and calls if available. */
+    ETCA_IF_COND_PRE,  /* The conditional prefix gets its own format so we can search for it
+                            during assembly and disassembly. Of course, it actually belongs
+                            to some instruction in another format, and if we ever try to
+                            invoke it via a format_assembler, gas should crash. */
     ETCA_IFORMAT_COUNT
 };
 

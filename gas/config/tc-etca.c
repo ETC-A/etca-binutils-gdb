@@ -842,7 +842,6 @@ md_begin(void) {
 
     // FIXME: make gcc shut up about some patterns whose users are temporarily disabled
     (void)exop_pat;
-    (void)cond_pat;
 
     opcode_hash_control = str_htab_create();
 
@@ -951,27 +950,37 @@ md_assemble(char *str) {
     char *opc_p; // for scanning
     char processed_opcode[MAX_MNEM_SIZE + 1]; // the scanned opcode
 
+    size_t opcode_loop_iters = 0;
+
     // First stop: reset ai. Any information from the last insn is now bad.
     CLEAR_AI();
 
-    /* Drop leading whitespace.  */
-    while (ISSPACE(*str)) str++;
+    do { // start seeking an opcode. Use do-while to include search for cond prefix.
+         // This loop should run exactly one or two times.
+        opcode_loop_iters++;
+        /* Drop leading whitespace.  */
+        while (ISSPACE(*str)) str++;
 
-    /* Scan an opcode. */
-    opc_p = processed_opcode;
-    while ((*opc_p++ = mnemonic_chars[(unsigned char) *str]) != 0) {
-        if (opc_p > processed_opcode + MAX_MNEM_SIZE) goto not_an_opcode;
-        str++;
-    }
-    // note after the loop, processed_str is nul terminated
+        /* Scan an opcode. */
+        opc_p = processed_opcode;
+        while ((*opc_p++ = mnemonic_chars[(unsigned char) *str]) != 0) {
+            if (opc_p > processed_opcode + MAX_MNEM_SIZE) goto not_an_opcode;
+            str++;
+        }
+        // note after the loop, processed_str is nul terminated
 
-    // There might be a size indicator on the opcode, or there might not.
-    // We could handle this by putting all opcodes with and without them into the table,
-    // but this is actually for more trouble than it's worth as the table becomes quite
-    // messy with exactly what has to be where since same-name opcodes must be adjacent.
+        // There might be a size indicator on the opcode, or there might not.
+        // We could handle this by putting all opcodes with and without them into the table,
+        // but this is actually for more trouble than it's worth as the table becomes quite
+        // messy with exactly what has to be where since same-name opcodes must be adjacent.
     
-    // first: check assuming no size.
-    ai.opcode = str_hash_find(opcode_hash_control, processed_opcode);
+        // first: check assuming no size. This is also the right time to check for cond opcode.
+        ai.opcode = str_hash_find(opcode_hash_control, processed_opcode);
+        if (ai.opcode && ai.opcode->format == ETCA_IF_COND_PRE && CHECK_PAT(cond_pat)) {
+            ai.cond_prefix_code = ai.opcode->opcode;
+        }
+    } while (opcode_loop_iters == 1 && ai.cond_prefix_code != ETCA_COND_ALWAYS);
+
     if (!ai.opcode) {
         char size;
         // we might have failed to find an entry because it actually ended with a size.
@@ -1020,6 +1029,12 @@ not_an_opcode:
             }
         } while ((sweep++)->try_next_assembly);
         if (!opcode_enabled) goto not_an_opcode;
+    }
+    if (ai.opcode->format == ETCA_IF_COND_PRE) {
+        // this can only happen if we found duplicate cond prefixes;
+        // if COND isn't available, then we've reported an unknown opcode.
+        as_bad(_("duplicate predicate"));
+        return;
     }
 
     // beyond this point, we are guaranteed that ai.opcode is valid!
@@ -1103,7 +1118,11 @@ not_an_opcode:
     // note that this does not do _anything at all_ for `mov'!
     validate_conc_imm_size();
     // I tried putting this here but it turned out to be simpler to just let the format_assemblers do it.
-    // generic_rex_init();
+    //   generic_rex_init();
+    // However this one fits very well here. We just have to be sure to call this again if we later
+    // promote a base jump to an exop jump. Note that if a base jump is used with a conditional prefix,
+    // this call to assemble_cond_prefix will call as_bad and will not assemble the prefix.
+    assemble_cond_prefix();
 
     if (ai.opcode->format == ETCA_IF_SPECIAL || ai.opcode->format == ETCA_IF_PSEUDO) {
 	assembly_function = pseudo_functions[ai.opcode->opcode];
@@ -1450,7 +1469,7 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp) {
 
     if (rel->howto == NULL) {
 	as_bad_where(fixp->fx_file, fixp->fx_line,
-		     _("Cannot represent relocation type %s (%d)"),
+		     _("cannot represent relocation type %s (%d)"),
 		     bfd_get_reloc_code_name(r_type), r_type);
 	/* Set howto to a garbage value so that we can keep going.  */
 	rel->howto = bfd_reloc_type_lookup(stdoutput, BFD_RELOC_32);
@@ -1499,10 +1518,20 @@ static void generic_rex_init(void) {
 #undef IS_REX_REG
 }
 
+static bool format_includes_ccode(enum etca_iformat fmt) {
+    return fmt == ETCA_IF_BASE_JMP || fmt == ETCA_IF_SAF_JMP;
+}
+
 static bool assemble_cond_prefix(void) {
     gas_assert(!ai.cond_prefix_emitted);
     gas_assert(!ai.rex_emitted); // enforce order
     if (ai.cond_prefix_code == ETCA_COND_ALWAYS) return false;
+    // Can't use conditional prefix if format includes a ccode already.
+    // This is a programmer error.
+    if (format_includes_ccode(ai.opcode->format)) {
+        as_bad(_("cannot predicate conditional instruction `%s'"), ai.opcode->name);
+        return false;
+    }
 
     gas_assert((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code
                 && ai.cond_prefix_code != ETCA_COND_ALWAYS /* would be register jmp header */
@@ -2229,7 +2258,6 @@ static void assemble_promoted_exop_jump(
     fixS *fixp;
     uint8_t nbytes = 1 << size_attr;
 
-    assemble_cond_prefix();
     output = frag_more(1 + nbytes);
 
     *output++ = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | size_attr;

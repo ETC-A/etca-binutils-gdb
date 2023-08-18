@@ -655,6 +655,20 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	    }
 	}
     }
+
+    // if we found a conditional prefix and it wasn't beautified away; seek it and print it.
+    if (di.cond.full) {
+        bool found = false;
+        for (struct etca_opc_info *opc_info = etca_opcodes; opc_info->name != NULL; opc_info++) {
+            if (opc_info->format == ETCA_IF_COND_PRE && opc_info->opcode == di.cond.ccode) {
+                fprs(stream, dis_style_sub_mnemonic, "%s ", opc_info->name);
+                found = true;
+                break;
+            }
+        }
+        if (!found) abort();
+    }
+
     for (struct etca_opc_info *opc_info = etca_opcodes; opc_info->name != NULL; opc_info++) {
 	if (MATCH(*opc_info, di)) {
 	    /* We have a match */
