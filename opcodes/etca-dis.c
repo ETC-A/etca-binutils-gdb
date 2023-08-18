@@ -434,6 +434,10 @@ bool transform_never_jump(struct disassemble_info * info) {
 static
 bool beaut_exop_jmp(struct disassemble_info * info) {
     struct decode_info *di = info->private_data;
+
+    // FIXME: temporarily disabled along with automatic exop promotion in gas
+    return true;
+
     if (di->opcode != 0) {
         // we have an exop `lcall'
         // change it to an saf `call' but we can't do anything
@@ -557,14 +561,15 @@ static struct beautifier {
 	 * all entries with the same format should be consecutive */
 	{transform_pop, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .mr=1}}, 12, 1},
 	{transform_push, ETCA_IF_BASE_ABM, {.kinds={.rr=1, .ri=1, .rm=1}}, 13, 1},
-	{transform_never_jump, ETCA_IF_BASE_JMP, {.kinds={.i=1}}, 15, 1},
-        {beaut_exop_jmp, ETCA_IF_EXOP_JMP, {.kinds={.i=1}}, -1, 0},
 	{beaut_readcr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 14, 0},
 	{beaut_writecr, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 15, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 8, 0},
 	{beaut_mov_slo, ETCA_IF_BASE_ABM, {.kinds={.ri=1}}, 9, 0},
         {beaut_load,    ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 10, 0},
         {beaut_store,   ETCA_IF_BASE_ABM, {.kinds={.rr=1}}, 11, 0},
+	{transform_never_jump, ETCA_IF_BASE_JMP, {.kinds={.i=1}}, 15, 1},
+        // temporarily disabled along with automatic exop promotion; fix in the function
+        {beaut_exop_jmp, ETCA_IF_EXOP_JMP, {.kinds={.i=1}}, -1, 0},
         {beaut_ret,     ETCA_IF_SAF_JMP,  {.kinds={.r=1}}, -1, 0},
 	{ NULL, ETCA_IF_ILLEGAL, {.uint=0}, 0, 0 }
 };
