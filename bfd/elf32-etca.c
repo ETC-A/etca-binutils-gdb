@@ -279,18 +279,18 @@ perform_relocation (const reloc_howto_type *howto,
 	case R_ETCA_32:
 	    contents[0] = (value >> 0) & 0xFF;
 	    contents[1] = (value >> 8) & 0xFF;
-	    contents[3] = (value >> 16) & 0xFF;
-	    contents[4] = (value >> 24) & 0xFF;
+	    contents[2] = (value >> 16) & 0xFF;
+	    contents[3] = (value >> 24) & 0xFF;
 	    return bfd_reloc_ok;
 	case R_ETCA_64:
 	    contents[0] = (value >> 0) & 0xFF;
 	    contents[1] = (value >> 8) & 0xFF;
-	    contents[3] = (value >> 16) & 0xFF;
-	    contents[4] = (value >> 24) & 0xFF;
-	    contents[5] = (value >> 32) & 0xFF;
-	    contents[6] = (value >> 40) & 0xFF;
-	    contents[7] = (value >> 48) & 0xFF;
-	    contents[8] = (value >> 56) & 0xFF;
+	    contents[2] = (value >> 16) & 0xFF;
+	    contents[3] = (value >> 24) & 0xFF;
+	    contents[4] = (value >> 32) & 0xFF;
+	    contents[5] = (value >> 40) & 0xFF;
+	    contents[6] = (value >> 48) & 0xFF;
+	    contents[7] = (value >> 56) & 0xFF;
 	    return bfd_reloc_ok;
 	default:
 	    if (R_ETCA_IS_MOV(ELF32_R_TYPE(rel->r_info))) {
