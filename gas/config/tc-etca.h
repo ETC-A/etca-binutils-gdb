@@ -42,6 +42,21 @@ extern void etca_after_parse_args (void);
 // for alignment based on what extensions are available. TODO
 // #define md_do_align
 
+// FIXUP=>RELOC configuration
+
+#define GAS_SORT_RELOCS 1 // risc-v does this, not 100% sure what it does
+/* Since we're not applying fixups at all right now, we have to suppress GAS's
+    burning desire to eliminate symbols from expressions (and hence maybe eliminate relocations)
+    if it thinks that we'll be able to write them into the object file and forget about them.
+    In fact, relaxation being able to move jumps further or closer from each other makes
+    correct relaxation very difficult if we're able to delete the relocations associated
+    with local short jump instructions. So if full relaxation is expected, we should
+    probably be forcing _all_ fixups into relocations. */
+#define TC_FORCE_RELOCATION_LOCAL(FIX) 1
+/* As long as we might be doing linker relaxation, we can't allow GAS to replace
+    symbol references with section offsets. */
+#define tc_fix_adjustable(fixp) 0
+
 /* These macros must be defined, but is will be a fatal assembler
    error if we ever hit them.  */
 #define md_estimate_size_before_relax(A, B) (as_fatal (_("estimate size\n")),0)
