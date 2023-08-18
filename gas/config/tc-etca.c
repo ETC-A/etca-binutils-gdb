@@ -1415,10 +1415,21 @@ void etca_after_parse_args(void) {
     }
 }
 
+/* Since we're not applying fixups at all right now, we have to suppress GAS's
+    burning desire to eliminate symbols from expressions (and hence maybe eliminate relocations)
+    if it thinks that we'll be able to write them into the object file and forget about them.
+    In fact, relaxation being able to move jumps further or closer from each other makes
+    correct relaxation very difficult if we're able to delete the relocations associated
+    with local short jump instructions. So if full relaxation is expected, we should
+    probably be forcing _all_ fixups into relocations. */
+
+#define TC_FORCE_RELOCATION_LOCAL(fixP) 1
+
 /* Apply a fixup to the object file.  */
 
 void
 md_apply_fix(fixS *fixP ATTRIBUTE_UNUSED, valueT *valP ATTRIBUTE_UNUSED, segT seg ATTRIBUTE_UNUSED) {
+    // don't ever apply a fixup, for now.
 }
 
 /* Translate internal representation of relocation info to BFD target
@@ -2229,8 +2240,9 @@ static void assemble_promoted_exop_jump(
         output + 1 - frag_now->fr_literal,
         nbytes,
         &ai.args[0].imm_expr,
-        true, /* pcrel? Yes, even absolute jumps use PC bits. */
-        BFD_RELOC_ETCA_BASE_JMP // bfd_reloc_for_size[size_attr]
+        !absolute, /* pcrel? Basically, if absolute, we want a relocation against .text,
+                        If relative, we want it against *ABS*. */
+        bfd_reloc_for_size[size_attr]
     );
     fixp->fx_signed = true; // not convinced this is correct for absolute
 }
