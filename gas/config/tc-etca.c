@@ -77,6 +77,10 @@ typedef struct _rex_fields rex_fields;
 /* The ETCa intra-line assembler state. Records information as we parse
 and update it. Cleared at the start of md_assemble. */
 struct _assemble_info {
+    /* As we assemble prefixes, we may lose track of where we started assembling
+        the instruction, but we need to know that to emit PC-relative offsets.
+        You can find it here! */
+    char *start_of_instruction;
     /* The opcode info that we found in the table. After the opcode lookup,
         you can be sure that this is non-null.
         The pointer is const because assembly lines should not be modifying the table! */
@@ -103,9 +107,10 @@ typedef struct _assemble_info assemble_info;
 
 /* Info for the instruction we are currently assembling. */
 static assemble_info ai;
-#define CLEAR_AI \
+#define CLEAR_AI() \
 do {\
     ai = (assemble_info){0};\
+    ai.start_of_instruction = frag_more(0);\
     ai.opcode_size = -1;\
     ai.cond_prefix_code = ETCA_COND_ALWAYS;\
 } while (0)
@@ -947,7 +952,7 @@ md_assemble(char *str) {
     char processed_opcode[MAX_MNEM_SIZE + 1]; // the scanned opcode
 
     // First stop: reset ai. Any information from the last insn is now bad.
-    CLEAR_AI;
+    CLEAR_AI();
 
     /* Drop leading whitespace.  */
     while (ISSPACE(*str)) str++;
@@ -2227,17 +2232,27 @@ static void assemble_promoted_exop_jump(
     assemble_cond_prefix();
     output = frag_more(1 + nbytes);
 
-    output[0] = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | size_attr;
-    md_number_to_chars(output+1, 0, nbytes);
+    *output++ = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | size_attr;
+    md_number_to_chars(output, 0, nbytes);
     fixp = fix_new_exp(
         frag_now,
-        output + 1 - frag_now->fr_literal,
+        output - frag_now->fr_literal,
         nbytes,
         &ai.args[0].imm_expr,
         !absolute, /* pcrel? yes for relative. */
-        bfd_reloc_for_size[size_attr]
+        bfd_reloc_for_size[size_attr] // this is only correct for absolute jumps at the moment.
     );
     fixp->fx_signed = true; // not convinced this is correct for absolute
+
+    // if this is a relative jump, we must adjust the addend of the fixup
+    // to account for the difference between where we put the relocation
+    // and where we started assembling the instruction (because PC is
+    // against the start of the instruction).
+    if (!absolute) {
+        // current computation is target - <output>.
+        // We want that to be target - <ai.start_of_instruction>.
+        fixp->fx_offset += output - ai.start_of_instruction;
+    }
 }
 
 /* Assemble a base-isa style jump instruction.
