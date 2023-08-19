@@ -65,7 +65,7 @@ struct etca_arg {
     } memory;
 };
 
-#define DEBUG_ARG_PAIRS 1
+//#define DEBUG_ARG_PAIRS 1
 #ifdef DEBUG_ARG_PAIRS
 // debug print an etca_arg.
 static void print_etca_arg(struct etca_arg *arg) {
@@ -97,7 +97,7 @@ static void print_etca_arg(struct etca_arg *arg) {
         }
         *p = '\0';
         printf("[%s]", buffer);
-    } else if (arg->kind.memory) {
+    } else if (arg->kind.immAny) {
         printf("imm:%s", arg->kind.immConc ? "conc" : "abstr");
     }
 }
@@ -992,8 +992,9 @@ char *parse_operand(char *str, struct etca_arg *result) {
 }
 
 void
-md_operand(expressionS *op __attribute__((unused))) {
-    /* Empty for now. */
+md_operand(expressionS *op) {
+    // Give up.
+    op->X_op = O_illegal;
 }
 
 
@@ -1030,10 +1031,8 @@ md_begin(void) {
     /* Insert registers into hash table. */
     reg_hash_tbl = str_htab_create();
     for (reg = etca_registers; reg->name != 0; reg++) {
-        // check if we have duplicated a register by mistake in the table
-        struct etca_reg_info *old_reg = str_hash_find(reg_hash_tbl, reg->name);
-        if (old_reg) as_fatal("duplicate (%s)", reg->name);
-        str_hash_insert(reg_hash_tbl, reg->name, reg, 1);
+        // check if we have duplicated a register by mistake in the table as we insert
+        if (str_hash_insert(reg_hash_tbl, reg->name, reg, 1)) as_fatal("duplicate (%s)", reg->name);
     }
 
     /* Fill in lexical tables. */
@@ -1119,7 +1118,7 @@ md_assemble(char *str) {
 
     size_t opcode_loop_iters = 0;
 
-    printf("Processed line: %s\n", str);
+    // printf("Processed line: %s\n", str);
 
     // First stop: reset ai. Any information from the last insn is now bad.
     CLEAR_AI();
