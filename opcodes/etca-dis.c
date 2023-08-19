@@ -77,7 +77,9 @@ parse_etca_dis_options (const char *opts_in)
     free (opts);
 }
 
-const char size_names[4] = {'h', 'x', 'd', 'q'};
+// Locally rename enum etca_size_attr to something easier.
+typedef enum etca_size_attr size_attr;
+
 struct decoded_arg {
     struct etca_arg_kind kinds;
     union {
@@ -98,7 +100,7 @@ struct decode_info {
     bfd_size_type idx;
     bfd_size_type offset;
     const struct etca_opc_info *opc_info;
-    int8_t size;
+    size_attr size;
     uint16_t opcode;
     enum etca_iformat format;
     union etca_opc_params_field params;
@@ -184,7 +186,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 } else { /* SS attr -bit format */
                     num_fi_bytes = di->size;
                     // clamp if we didn't see rex.Q
-                    if (num_fi_bytes == 3 && !di->rex.q) num_fi_bytes = 2;
+                    if (num_fi_bytes == SA_QWORD && !di->rex.q) num_fi_bytes = SA_DWORD;
                     num_fi_bytes = 1 << num_fi_bytes;
                 }
                 if (byte_count < 2 + num_fi_bytes) { return 2 + num_fi_bytes - byte_count; }
@@ -308,8 +310,8 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 return 0;
             }
             else if ((insn[0] & 0xF0) == 0xF0) { /* EXOP jump/call */
-                uint8_t size_attr = insn[0] & 0x03;
-                size_t nptr_bytes = 1ULL << size_attr;
+                uint8_t size = insn[0] & 0x03;
+                size_t nptr_bytes = 1ULL << size;
                 bool absolute;
                 if (byte_count < 1 + nptr_bytes) {
                     return 1 + nptr_bytes - byte_count;
@@ -321,7 +323,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 info->insn_info_valid = true;
                 di->argc = di->params.kinds.i = 1;
                 di->args[0].kinds.dispAny = 1;
-                di->args[0].kinds.disp8 = size_attr == 0; // set this accurately
+                di->args[0].kinds.disp8 = size == SA_BYTE; // set this accurately
                 memcpy(&di->args[0].as.imm, insn + 1, nptr_bytes);
                 if (absolute) {
                     bfd_vma mask = 1ULL << (8 * nptr_bytes);
@@ -687,7 +689,7 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
     else if (di.opc_info->size_info.suffix_allowed) {
 	/* Outputting ? here is also a disassembler bug */
 	snprintf(buffer, sizeof(buffer),
-		 "%s%c ", di.opc_info->name, di.size >= 0 ? size_names[di.size] : '?');
+		 "%s%c ", di.opc_info->name, di.size >= 0 ? etca_size_chars[di.size] : '?');
     } else {
 	snprintf(buffer, sizeof(buffer), "%s", di.opc_info->name);
     }

@@ -80,19 +80,19 @@ etca_match_cpuid_pattern(const struct etca_cpuid_pattern *pat, const struct etca
 
 /* Register info table. */
 const struct etca_reg_info etca_registers[] = {
-#define INFIX(before, after, num) {before after, num, {-1}, GPR}, \
-                                  {before "h" after, num, {0}, GPR}, \
-                                  {before "x" after, num, {1}, GPR}, \
-                                  {before "d" after, num, {2}, GPR}, \
-                                  {before "q" after, num, {3}, GPR}
+#define INFIX(before, after, num) {before after, num, {SA_UNKNOWN}, GPR}, \
+                                  {before "h" after, num, {SA_BYTE}, GPR}, \
+                                  {before "x" after, num, {SA_WORD}, GPR}, \
+                                  {before "d" after, num, {SA_DWORD}, GPR}, \
+                                  {before "q" after, num, {SA_QWORD}, GPR}
 #define INFIX_R(num) INFIX("r", #num, num)
-#define POSTFIX_CLS(name, num, cls) {name, num, {-1}, cls}, \
-                                  {name "h", num, {0}, cls}, \
-                                  {name "x", num, {1}, cls}, \
-                                  {name "d", num, {2}, cls}, \
-                                  {name "q", num, {3}, cls}
+#define POSTFIX_CLS(name, num, cls) {name, num, {SA_UNKNOWN}, cls}, \
+                                  {name "h", num, {SA_BYTE}, cls}, \
+                                  {name "x", num, {SA_WORD}, cls}, \
+                                  {name "d", num, {SA_DWORD}, cls}, \
+                                  {name "q", num, {SA_QWORD}, cls}
 #define POSTFIX(name, num) POSTFIX_CLS(name, num, GPR)
-#define CONTROL(name, num, exts)  {name, num, {exts}, CTRL}
+#define CONTROL(name, num, e)  {name, num, {.exts=e}, CTRL}
 #define EXTS_COMPLEX -1
 #define EXTS_ANY      0
 #define EXTS_INT      1
@@ -293,3 +293,5 @@ struct etca_opc_info etca_opcodes[] = {
 #undef ANY_ABM
 #undef SUFFIX
 #undef NOSUFFIX
+
+const char etca_size_chars[4] = { 'h', 'x', 'd', 'q' };

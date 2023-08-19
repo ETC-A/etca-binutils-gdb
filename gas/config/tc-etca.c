@@ -27,6 +27,9 @@
 #include <assert.h>
 #include <string.h>
 
+/* Locally rename enum etca_size_attr to something easier. */
+typedef etca_size_attr_t size_attr;
+
 /* A single operand to an ETCa instruction. Operands can be types of registers,
   immediates, displacements, or memory references. Some instructions have
   implicit operands (like push and pop). Those operands must be representable
@@ -40,7 +43,7 @@ struct etca_arg {
 	reg_num gpr_reg_num;
 	reg_num ctrl_reg_num;
     } reg;
-    int8_t reg_size;
+    size_attr reg_size;
 
     /* Contains the value of the imm.
      * When imm_expr.X_op == O_constant, we have a concrete value.
@@ -125,7 +128,7 @@ struct _assemble_info {
     const struct etca_opc_info *opcode;
     /* The size marker attached to the opcode, one of -1 (none),0 (h),1 (x),2 (d),3 (q).
         after compute_operand_size, this is the actual operand size attribute. */
-    int8_t opcode_size; 
+    size_attr opcode_size; 
     union etca_opc_params_field params;
     size_t argc;
     struct etca_arg args[MAX_OPERANDS];
@@ -149,7 +152,7 @@ static assemble_info ai;
 do {\
     ai = (assemble_info){0};\
     ai.start_of_instruction = frag_more(0);\
-    ai.opcode_size = -1;\
+    ai.opcode_size = SA_UNKNOWN;\
     ai.cond_prefix_code = ETCA_COND_ALWAYS;\
 } while (0)
 
@@ -215,7 +218,7 @@ static char *parse_register_name(char *str, struct etca_arg *result);
 
 static char *parse_immediate(char *str, struct etca_arg *result);
 
-static void  check_adr_size(int8_t adr_size);
+static void  check_adr_size(size_attr adr_size);
 static char *parse_memory_inner(char *str, struct etca_arg *result);
 static char *parse_asp         (char *str, struct etca_arg *result);
 static char *parse_memory_outer(char *str, struct etca_arg *result);
@@ -248,9 +251,9 @@ typedef enum etca_code_model etca_code_model_type;
 // Remember, pointers may be wider than specified here on the actual
 // architecture, but the promise is just that they can be represented
 // by the sign extension of a value of this width.
-uint8_t code_model_pointer_width[ETCA_NUM_CODE_MODELS] = {
-    [etca_model_small] = 1,
-    [etca_model_medany] = 2,
+size_attr code_model_pointer_width[ETCA_NUM_CODE_MODELS] = {
+    [etca_model_small] = SA_WORD,
+    [etca_model_medany] = SA_DWORD,
 };
 
 /* The known predefined archs. Needs to be kept in sync with gcc manually */
@@ -312,7 +315,7 @@ struct etca_settings {
     If the opcode was suffixed, place that size in ai.opcode_size.
     The computed size is placed in ai.opcode_size. If we are unable
     to determine the operand size, as_bad is called and 1 is used. */
-static int8_t compute_operand_size(void);
+static size_attr compute_operand_size(void);
 /* Validate the size of a (concrete) immediate operand. Before this
     is called, you should have already set imm{5/8}{s/z} appropriately,
     presumably in parse_immediate. You should also have already set
@@ -1737,9 +1740,8 @@ static bool assemble_rex_prefix(void) {
 // If an error is discovered, it is reported with as_bad, then the safe size
 // 1 (word) is returned to continue seeking potential errors.
 
-static const char size_chars[4] = { 'h', 'x', 'd', 'q' };
-typedef int8_t(*size_checker)(void);
-#define SIZE_CHK_HDR(name) static int8_t name(void)
+typedef size_attr(*size_checker)(void);
+#define SIZE_CHK_HDR(name) static size_attr name(void)
 
 /* Typical computation operand size check: must have a size, all operands agree.
     Note: if some operand is a memory operand, it reports a size of -1 and
@@ -1858,7 +1860,7 @@ static void validate_conc_imm_size(void) {
     if (!fits_in_bytes(imm_val, nbytes)) {
     bad_imm:
         as_bad("bad immediate for `%s' with operand size attr `%c'",
-            ai.opcode->name, size_chars[ai.opcode_size]);
+            ai.opcode->name, etca_size_chars[ai.opcode_size]);
     }
 
     // Now to determine if we need REX.Q, we must consider with signage.
@@ -1872,14 +1874,14 @@ static void validate_conc_imm_size(void) {
 
 /* Operand size check for one register size and an opcode size.
     The register must agree with the opcode. Shared code for several checkers. */
-static int8_t
-check_opcode_matches_opr_size(int8_t opcode_size, int8_t reg_size);
+static size_attr
+check_opcode_matches_opr_size(size_attr opcode_size, size_attr reg_size);
 
 // potential errors while computing operand sizes
 static void operand_size_mismatch(void);
-static void suffix_operand_disagree(int8_t suffix, int8_t opsize);
+static void suffix_operand_disagree(size_attr suffix, size_attr opsize);
 static void indeterminate_operand_size(void);
-static void bad_address_reg_size(int8_t reg_size);
+static void bad_address_reg_size(size_attr reg_size);
 static void must_be_a_label(void);
 
 static const size_checker size_checkers[NUM_ARGS_SIZES] = {
@@ -1889,7 +1891,7 @@ static const size_checker size_checkers[NUM_ARGS_SIZES] = {
     compute_opr_adr_size, compute_opr_any_size
 };
 
-static int8_t compute_operand_size() {
+static size_attr compute_operand_size() {
     // call the relevant size checker, that's all.
     gas_assert(ai.opcode->size_info.args_size < NUM_ARGS_SIZES);
     ai.opcode_size = size_checkers[ai.opcode->size_info.args_size]();
@@ -1898,7 +1900,7 @@ static int8_t compute_operand_size() {
 
 SIZE_CHK_HDR(compute_nullary_size) {
     gas_assert(ai.argc == 0);
-    gas_assert(ai.opcode->size_info.args_size == 0);
+    gas_assert(ai.opcode->size_info.args_size == NULLARY);
     // Mostly the opcodes don't have a size. The NOP pseudo instruction
     // deals with potentially absent size itself, so just pass over the existing value
     return ai.opcode_size;
@@ -1921,9 +1923,9 @@ SIZE_CHK_HDR(compute_adr_size) {
 
     check_adr_size(ai.args[0].reg_size);
     // we don't need an operand size for register jumps/calls
-    if (ai.opcode->format != ETCA_IF_SAF_JMP && ai.opcode_size < 0) {
+    if (ai.opcode->format != ETCA_IF_SAF_JMP && ai.opcode_size == SA_UNKNOWN) {
         indeterminate_operand_size();
-        return 1;
+        return SA_WORD;
     }
     return ai.opcode_size;
 }
@@ -1938,33 +1940,33 @@ SIZE_CHK_HDR(check_arg_is_lbl) {
     expr = &ai.args[0].imm_expr;
 
     if (expr->X_op != O_symbol || expr->X_add_number != 0) must_be_a_label();
-    return -1;
+    return SA_UNKNOWN;
 }
 
 SIZE_CHK_HDR(compute_opr_opr_size) {
-    int8_t opcode_size = ai.opcode_size;
-    int8_t arg1_size, arg2_size, arg_size;
+    size_attr opcode_size = ai.opcode_size;
+    size_attr arg1_size, arg2_size, arg_size;
     gas_assert(ai.argc == 2);
 
     arg1_size = ai.args[0].reg_size;
     arg2_size = ai.args[1].reg_size;
 
     // do args disagree?
-    if (arg1_size >= 0 && arg2_size >= 0 && arg1_size != arg2_size) {
+    if (arg1_size >= SA_BYTE && arg2_size >= SA_BYTE && arg1_size != arg2_size) {
         operand_size_mismatch();
-        return 1;
+        return SA_WORD;
     }
     // if args agree, compute arg_size
-    if (arg1_size >= 0) arg_size = arg1_size;
-    else                arg_size = arg2_size;
+    if (arg1_size >= SA_BYTE) arg_size = arg1_size;
+    else                      arg_size = arg2_size;
 
     return check_opcode_matches_opr_size(opcode_size, arg_size);
 }
 
 SIZE_CHK_HDR(compute_opr_adr_size) {
-    int8_t opcode_size = ai.opcode_size;
-    int8_t arg1_size, // this one should work with opcode size
-           arg2_size; // this one should work with address width
+    size_attr opcode_size = ai.opcode_size;
+    size_attr arg1_size, // this one should work with opcode size
+              arg2_size; // this one should work with address width
     gas_assert(ai.argc == 2);
 
     arg1_size = ai.args[0].reg_size;
@@ -1983,24 +1985,25 @@ SIZE_CHK_HDR(compute_opr_any_size) {
     return check_opcode_matches_opr_size(ai.opcode_size, ai.args[0].reg_size);
 }
 
-static int8_t check_opcode_matches_opr_size(int8_t opcode_size, int8_t reg_size) {
+static size_attr
+check_opcode_matches_opr_size(size_attr opcode_size, size_attr reg_size) {
     // do args disagree with opcode?
-    if (opcode_size >= 0 && reg_size >= 0 && opcode_size != reg_size) {
+    if (opcode_size >= SA_BYTE && reg_size >= SA_BYTE && opcode_size != reg_size) {
         suffix_operand_disagree(opcode_size, reg_size);
-        return 1;
+        return SA_WORD;
     }
     // if args and opcode sizes are all -1, we can't determine the size
-    else if (opcode_size == -1 && reg_size == -1) {
+    else if (opcode_size == SA_UNKNOWN && reg_size == SA_UNKNOWN) {
         indeterminate_operand_size();
-        return 1;
+        return SA_WORD;
     }
     // otherwise, one of opcode_size or arg_size is known, return that.
-    else if (opcode_size >= 0) return opcode_size;
-    else                       return reg_size;
+    else if (opcode_size >= SA_BYTE) return opcode_size;
+    else                             return reg_size;
 }
 
-static void check_adr_size(int8_t adr_size) {
-    if (adr_size >= 0 && adr_size != code_model_pointer_width[settings.code_model]) {
+static void check_adr_size(size_attr adr_size) {
+    if (adr_size >= SA_BYTE && adr_size != code_model_pointer_width[settings.code_model]) {
         bad_address_reg_size(adr_size);
     }
 }
@@ -2010,20 +2013,20 @@ static void check_adr_size(int8_t adr_size) {
 static void operand_size_mismatch(void) {
     as_bad("operand size mismatch for `%s'", ai.opcode->name);
 }
-static void suffix_operand_disagree(int8_t suffix, int8_t opsize) {
+static void suffix_operand_disagree(size_attr suffix, size_attr opsize) {
     as_bad("bad register size `%c' for `%s' used with suffix `%c'",
-        size_chars[opsize], ai.opcode->name, size_chars[suffix]);
+        etca_size_chars[opsize], ai.opcode->name, etca_size_chars[suffix]);
 }
 static void indeterminate_operand_size(void) {
     as_bad("can't determine operand size for `%s'", ai.opcode->name);
 }
-static void bad_address_reg_size(int8_t reg_size) {
+static void bad_address_reg_size(size_attr reg_size) {
     // I think this message looks better without the opcode name usually.
     // In any case, when parsing a memory operand, we don't want the opcode
     // name repeatedly (in case of several errors). With this simple
     // ad-hoc error reporting system, it's quite tricky to find an improvement.
     // Previously, before `ai' was a global variable, we could pass NULL. Alas.
-    as_bad("bad ptr register size `%c'", size_chars[reg_size]);
+    as_bad("bad ptr register size `%c'", etca_size_chars[reg_size]);
     // as_bad("bad ptr register size `%c' for `%s'", size_chars[reg_size], opc->name);
 }
 static void must_be_a_label(void) {
@@ -2034,14 +2037,14 @@ static void must_be_a_label(void) {
 static void
 process_nop_pseudo(void) {
     size_t byte_count;
-    if (ai.opcode_size == -1) {
-	if (etca_match_cpuid_pattern(&any_vwi_pat, &settings.current_cpuid)) {
-	    ai.opcode_size = 0; /* We are going to use the 1byte NOP by default*/
+    if (ai.opcode_size == SA_UNKNOWN) {
+	if (CHECK_PAT(any_vwi_pat)) {
+	    ai.opcode_size = SA_BYTE; /* We are going to use the 1byte NOP by default*/
 	} else {
-	    ai.opcode_size = 1; /* We need to use the base-isa 2byte NOP*/
+	    ai.opcode_size = SA_WORD; /* We need to use the base-isa 2byte NOP*/
 	}
     }
-    if (((uint8_t)ai.opcode_size) > 3) {
+    if (ai.opcode_size > SA_QWORD) {
 	as_fatal("internal error: Illegal opcode_size=%d", ai.opcode_size);
     }
     byte_count = 1 << ai.opcode_size;
@@ -2322,7 +2325,7 @@ void assemble_abm(enum abm_mode mode) {
             uint8_t bytes_needed = 1; // ABM byte
             uint8_t imm_bytes = ai.opcode_size;
             uint8_t imm_size;
-            if (ai.opcode_size == 3 && !ai.rex.Q) imm_bytes = 2; // qword clamping
+            if (ai.opcode_size == SA_QWORD && !ai.rex.Q) imm_bytes = SA_DWORD; // qword clamping
             imm_size = 1 << imm_bytes; // 1,2,4, rex.Q ? 8 : 4.
             bytes_needed += imm_size;
             output = frag_more(bytes_needed);
@@ -2353,8 +2356,8 @@ void assemble_base_abm(void) {
     char *output;
     size_t idx = 0;
     enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
-    uint8_t size_attr = ai.opcode_size;
-    gas_assert(size_attr <= 3); // otherwise we should've errored at compute_size
+    size_attr sa = ai.opcode_size;
+    gas_assert(sa <= SA_QWORD); // otherwise we should've errored at compute_size
 
     if (mode == invalid) { return; }
 
@@ -2365,10 +2368,10 @@ void assemble_base_abm(void) {
 
     if (mode == ri_byte) {
 	output = frag_more(1);
-	output[idx++] = (0b01000000 | size_attr << 4 | ai.opcode->opcode);
+	output[idx++] = (0b01000000 | sa << 4 | ai.opcode->opcode);
     } else {
 	output = frag_more(1);
-	output[idx++] = (0b00000000 | size_attr << 4 | ai.opcode->opcode);
+	output[idx++] = (0b00000000 | sa << 4 | ai.opcode->opcode);
     }
     assemble_abm(mode);
 }
@@ -2378,20 +2381,20 @@ void assemble_exop_abm(void) {
     char *output;
     size_t idx = 0;
     enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
-    uint8_t size_attr = ai.opcode_size;
+    size_attr sa = ai.opcode_size;
     uint8_t high_opcode = (ai.opcode->opcode & 0x1E0) >> 5;
     uint8_t mid_opcode  = (ai.opcode->opcode & 0x010) >> 4;
     uint8_t low_opcode  = (ai.opcode->opcode & 0x00F)     ;
     uint8_t fmt_spec    = mode == ri_byte;
 
-    gas_assert(size_attr <= 3);
+    gas_assert(sa <= SA_QWORD);
 
     if (mode == invalid) { return; }
 
     output = frag_more(2);
     output[idx++] = 0xE0 | high_opcode;
     output[idx++] = (mid_opcode << 7) | (fmt_spec << 6) 
-                  | (size_attr  << 4) | low_opcode;
+                  | (sa  << 4) | low_opcode;
     assemble_abm(mode);
 }
 
@@ -2426,7 +2429,7 @@ void assemble_mtcr_misc(void) {
     if COND is not available.
 */
 static void assemble_promoted_exop_jump(
-    bool call, bool absolute, uint8_t size_attr
+    bool call, bool absolute, size_attr sa
 ) {
     // MAJOR FIXME:
     // These really need to be relaxed to base jump formats,
@@ -2442,11 +2445,11 @@ static void assemble_promoted_exop_jump(
 
     char *output;
     fixS *fixp;
-    uint8_t nbytes = 1 << size_attr;
+    uint8_t nbytes = 1 << sa;
 
     output = frag_more(1 + nbytes);
 
-    *output++ = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | size_attr;
+    *output++ = 0xF0 | ((call & 1) << 3) | ((absolute & 1) << 2) | sa;
     md_number_to_chars(output, 0, nbytes);
     fixp = fix_new_exp(
         frag_now,
@@ -2454,7 +2457,7 @@ static void assemble_promoted_exop_jump(
         nbytes,
         &ai.args[0].imm_expr,
         !absolute, /* pcrel? yes for relative. */
-        bfd_reloc_for_size[size_attr] // this is only correct for absolute jumps at the moment.
+        bfd_reloc_for_size[sa] // this is only correct for absolute jumps at the moment.
     );
     fixp->fx_signed = true; // not convinced this is correct for absolute
 
@@ -2616,6 +2619,6 @@ void assemble_exop_jmp(void) {
     // (here, saf_call, and base_jmp).
     bool call = !!(ai.opcode->opcode & 0x08);
     bool absolute = settings.code_model == etca_model_small;
-    uint8_t ptr_attr = code_model_pointer_width[settings.code_model];
+    size_attr ptr_attr = code_model_pointer_width[settings.code_model];
     assemble_promoted_exop_jump(call, absolute, ptr_attr);
 }

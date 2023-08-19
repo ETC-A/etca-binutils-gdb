@@ -253,6 +253,19 @@ struct etca_extension {
     struct etca_cpuid cpi;
 };
 
+/* Give names to the ETCa Operation- and Pointer-Size Attributes. */
+enum etca_size_attr {
+    SA_UNKNOWN = -1,
+    SA_BYTE, SA_WORD, SA_DWORD, SA_QWORD
+};
+
+typedef enum etca_size_attr etca_size_attr_t;
+
+// defined in etca-opc.c to avoid linker errors resulting from trying to link
+// libopcodes (which would include the array defined here) with gas
+// (which would _also_ include the array defined here).
+extern const char etca_size_chars[4];
+
 /* Any other operand-related #define configuration should go here as well. */
 #define MAX_OPERANDS 2
 #define CLASS_WIDTH 2
@@ -357,7 +370,7 @@ struct etca_reg_info {
      * For GPR, this is the size. Validity is handled by a custom REX check.
      * For CTRL, this is an indication of what extension makes it valid. */
     union {
-        int8_t reg_size; /* standard: -1 none, 0 h, 1 x, 2 d, 3 q */
+        etca_size_attr_t reg_size; /* standard: -1 none, 0 h, 1 x, 2 d, 3 q */
         int8_t exts; /* nonstandard:
            -1: something more complicated, and checking validity is custom.
             0: always valid
