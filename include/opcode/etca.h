@@ -257,13 +257,17 @@ struct etca_extension {
 #define MAX_OPERANDS 2
 #define CLASS_WIDTH 2
 
+// note: with IP_REG we now have 4 classes. If you add another one,
+// you must bump up CLASS_WIDTH to 3 or there will be trouble!
 enum etca_register_class {
     /* Not a register. */
     RegClassNone,
     /* A general-purpose register. */
     GPR,
     /* A control register. */
-    CTRL
+    CTRL,
+    /* The instruction pointer. Only valid with MO2 at the moment. */
+    IP_REG,
 // no enum case for things like the instruction pointer;
 // references to the instruction pointer are handled in
 // etca_mem_arg.

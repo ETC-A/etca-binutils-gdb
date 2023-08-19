@@ -86,11 +86,12 @@ const struct etca_reg_info etca_registers[] = {
                                   {before "d" after, num, {2}, GPR}, \
                                   {before "q" after, num, {3}, GPR}
 #define INFIX_R(num) INFIX("r", #num, num)
-#define POSTFIX(name, num)        {name, num, {-1}, GPR}, \
-                                  {name "h", num, {0}, GPR}, \
-                                  {name "x", num, {1}, GPR}, \
-                                  {name "d", num, {2}, GPR}, \
-                                  {name "q", num, {3}, GPR}
+#define POSTFIX_CLS(name, num, cls) {name, num, {-1}, cls}, \
+                                  {name "h", num, {0}, cls}, \
+                                  {name "x", num, {1}, cls}, \
+                                  {name "d", num, {2}, cls}, \
+                                  {name "q", num, {3}, cls}
+#define POSTFIX(name, num) POSTFIX_CLS(name, num, GPR)
 #define CONTROL(name, num, exts)  {name, num, {exts}, CTRL}
 #define EXTS_COMPLEX -1
 #define EXTS_ANY      0
@@ -116,6 +117,9 @@ const struct etca_reg_info etca_registers[] = {
     INFIX("t", "0", 8), INFIX("t", "1", 9), INFIX("t", "2", 10), INFIX("t", "3", 11),
     INFIX("t", "4", 12), INFIX("s", "2", 13), INFIX("s", "3", 14), INFIX("s", "4", 15),
 
+    /* The instruction pointer. */
+    POSTFIX_CLS("ip", 0, IP_REG),
+
     /* base control registers */
     CONTROL("cpuid1", 0, EXTS_ANY), CONTROL("cpuid2", 1, EXTS_ANY), CONTROL("feat", 2, EXTS_ANY),
     /* INT control registers */
@@ -133,6 +137,7 @@ const struct etca_reg_info etca_registers[] = {
     CONTROL("address_mode", 17, EXTS_COMPLEX),
 #undef INFIX
 #undef INFIX_R
+#undef POSTFIX_CLS
 #undef POSTFIX
 #undef CONTROL
 #undef EXTS_COMPLEX

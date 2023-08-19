@@ -65,7 +65,7 @@ struct etca_arg {
     } memory;
 };
 
-//#define DEBUG_ARG_PAIRS 1
+#define DEBUG_ARG_PAIRS 1
 #ifdef DEBUG_ARG_PAIRS
 // debug print an etca_arg.
 static void print_etca_arg(struct etca_arg *arg) {
@@ -97,6 +97,8 @@ static void print_etca_arg(struct etca_arg *arg) {
         }
         *p = '\0';
         printf("[%s]", buffer);
+    } else if (arg->kind.memory) {
+        printf("imm:%s", arg->kind.immConc ? "conc" : "abstr");
     }
 }
 #endif
@@ -496,13 +498,13 @@ not_a_reg:
     // Determine if the register is valid in this context. If it's not, then
     // - GPR:  emit an error about the name being reserved
     // - CTRL: return NULL. (these are not intended to be portable)
+    // - IP_REG:   emit an error about the name being reserved
     // But if it is, then we can simply return reg.
     switch (reg->class) {
     case GPR:
         // does that register (entity) exist with current cpuid?
         if (reg->reg_num >= 16
-            || (reg->reg_num >= 8
-                && !etca_match_cpuid_pattern(&rex_pat, &settings.current_cpuid))) {
+            || (reg->reg_num >= 8 && !CHECK_PAT(rex_pat))) {
             as_bad(reserved_fmt, reg->name);
             // if it doesn't exist, we shouldn't check sizes.
             return &spoofed;
@@ -515,7 +517,7 @@ not_a_reg:
                 return &spoofed;
             }
         }
-        else if (!etca_match_cpuid_pattern(&size_pats[reg->aux.reg_size], &settings.current_cpuid)) {
+        else if (!CHECK_PAT(size_pats[reg->aux.reg_size])) {
             // we have a size, but it's not available in the cpuid.
             as_bad(reserved_fmt, reg->name);
             return &spoofed;
@@ -534,11 +536,19 @@ not_a_reg:
             else if (reg->aux.exts == 0) {
                 return reg; // always valid
             }
-            if (etca_match_cpuid_pattern(patterns[reg->aux.exts + 1], &settings.current_cpuid))
+            if (CHECK_PAT(*(patterns[reg->aux.exts + 1])))
                 return reg;
             // Otherwise we have a control register which is not valid in this CPUID.
             // We don't reserve control register names, so this is "not a register."
             goto not_a_reg;
+        }
+    case IP_REG:
+        {
+            if (CHECK_PAT(mo2_pat)) {
+                return reg;
+            }
+            as_bad(reserved_fmt, reg->name);
+            return &spoofed;
         }
     default:
         abort();
@@ -587,8 +597,11 @@ static char *parse_register_name(char *str, struct etca_arg *result) {
     } else if (reg_info->class == CTRL) {
         // If the class is CTRL, the size must be determined by something else.
         result->reg_size = -1;
+    } else if (reg_info->class == IP_REG) {
+        // for IP_REG, we get the size suffix just like a GPR.
+        result->reg_size = reg_info->aux.reg_size;
     } else {
-        // If we looked up a register and got something other than GPR or CTRL,
+        // If we looked up a register and got something other than GPR, CTRL, or IP_REG,
         // something is wrong in our lookup code - fail fast!
         abort();
     }
@@ -722,7 +735,8 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
         save_str = str; // new backtracking point
         // if the register was the instruction pointer,
         // skip ahead to displacement.
-        if (a_reg.kind.reg_class == -1 /* TODO: IP_REG */) {
+        if (a_reg.kind.reg_class == IP_REG) {
+            result->memory.have_ip = true;
             goto term_displacement;
         }
         result->memory.base_reg = a_reg.reg.gpr_reg_num;
