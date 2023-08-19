@@ -65,6 +65,42 @@ struct etca_arg {
     } memory;
 };
 
+//#define DEBUG_ARG_PAIRS 1
+#ifdef DEBUG_ARG_PAIRS
+// debug print an etca_arg.
+static void print_etca_arg(struct etca_arg *arg) {
+    if (arg->kind.reg_class == GPR) {
+        printf("r%d", arg->reg.gpr_reg_num);
+    } else if (arg->kind.reg_class == CTRL) {
+        printf("CTRL:%d", arg->reg.ctrl_reg_num);
+    } else if (arg->kind.memory) {
+        // check this before immAny because we might have both if there's a disp
+        char buffer[30]; // should be plenty long.
+        char *p = buffer;
+        bool have_thing = false;
+        if (arg->memory.have_ip) {
+            p += sprintf(p, "ip");
+            have_thing = true;
+        }
+        if (arg->memory.base_reg >= 0) {
+            p += sprintf(p, "r%d", arg->memory.base_reg);
+            have_thing = true;
+        }
+        if (arg->memory.index_reg >= 0) {
+            if (have_thing) p += sprintf(p, " + ");
+            p += sprintf(p, "%u*r%d", 1U << arg->memory.scale, arg->memory.index_reg);
+            have_thing = true;
+        }
+        if (arg->kind.immAny) {
+            if (have_thing) p += sprintf(p, " + ");
+            p += sprintf(p, "disp:%s", arg->kind.immConc ? "conc" : "abstr");
+        }
+        *p = '\0';
+        printf("[%s]", buffer);
+    }
+}
+#endif
+
 struct _rex_fields {
     uint8_t X:1;
     uint8_t B:1;
@@ -598,6 +634,7 @@ static char *parse_immediate(char *str, struct etca_arg *result) {
 
 // helpers for parsing memory_inner
 static char *parse_ptr_register(char *str, struct etca_arg *result);
+static char *parse_scale(char *str, unsigned char *result);
 
 // impl helpers for parsing memory_inner
 static char *parse_ptr_register(char *str, struct etca_arg *result) {
@@ -614,29 +651,136 @@ static char *parse_ptr_register(char *str, struct etca_arg *result) {
     check_adr_size(result->reg_size);
     return str;
 }
+static char *parse_scale(char *str, unsigned char *result) {
+    char *endp = NULL;
+    long r = strtol(str, &endp, 0); // 0 allows other base numbers, whatever
+
+    if (endp == str) {
+        // didn't read anything!
+        return NULL; // backtrack
+    }
+    if (*endp != '*') {
+        // this wasn't actually a scale (or different programmer error)
+        return NULL; // backtrack as well.
+    }
+    endp++; // consume '*'
+    switch (r) {
+    case 1:
+        *result = 0; break;
+    case 2:
+        *result = 1; break;
+    case 4:
+        *result = 2; break;
+    case 8:
+        *result = 3; break;
+    default:
+        *result = 0; // some value so that we can keep going
+        // might show user garbage in extreme cases of misuse. Oh well.
+        as_bad("`%ld' is not a valid scale", r);
+    }
+    return endp;
+}
+
 
 /* Parse a non-nested memory location, setting the fields in result correctly.
-
-    Only handles the simplest case of one register and no displacement for now.
+    This is not a backtracking point. If we fail to parse a memory operand, we
+    seek to the end of the apparent operand (']', or ',', or end of line) and
+    parsing should continue from there.
  */
 static char *parse_memory_inner(char *str, struct etca_arg *result) {
+// Grammar:
+// | IP '+' EXPR ']'
+// | PTRREG ['+' SCALE '*' PTRREG] ['+' EXPR] ']'
+// | SCALE '*' PTRREG ['+' EXPR] ']'
+// | EXPR ']'
+// Note ambiguity between SCALE and EXPR. Both can be numbers!
+// We handle this for now by trying "SCALE '*'" and backtracking
+// if it misses.
     struct etca_arg a_reg;
+    char *save_str = str; // update this at every backtracking point.
+    bool have_thing = false; // simplify grammar with context sensitivity:
+        // once we have a thing, '+' is required for further terms.
+
+// check for a '+' before the next term, if necessary.
+#define NEXT_TERM() do {\
+    if (have_thing) {\
+        if (*str != '+') goto check_done;\
+        str++;\
+    }\
+} while(0)
 
     // initialize the memory parameters as all absent.
     result->imm_expr.X_op = O_absent;
     result->memory.base_reg = -1;
     result->memory.index_reg = -1;
 
+    // TERM ONE : base register
     str = parse_ptr_register(str, &a_reg);
-
-    // if that wasn't a ptr register, or next isn't ']', give up:
-    if (!str || *str != ']') {
-        as_fatal("Generic memory location syntax not implemented");
-        return NULL;
+    // was that indeed a pointer register?
+    if (str) {
+        have_thing = true;
+        save_str = str; // new backtracking point
+        // if the register was the instruction pointer,
+        // skip ahead to displacement.
+        if (a_reg.kind.reg_class == -1 /* TODO: IP_REG */) {
+            goto term_displacement;
+        }
+        result->memory.base_reg = a_reg.reg.gpr_reg_num;
     }
-    str++; // consume ']'
+    else {
+        // otherwise, backtrack and try the next thing...
+        str = save_str;
+    }
 
-    result->memory.base_reg = a_reg.reg.gpr_reg_num;
+    // TERM TWO : scale and index register
+    NEXT_TERM();
+    str = parse_scale(str, &result->memory.scale);
+    if (str) {
+        // we've read a scale (that is, a validated number followed by a '*').
+        // It MUST be followed by a pointer register. If the user tries to write
+        // something like [%r0 + 4*8], this will screw them over; but we're not
+        // claiming to support the full generality of syntax right now. They can write 32.
+        str = parse_ptr_register(str, &a_reg);
+        if (!str) {
+            as_bad("scale not followed by a ptr register");
+            str = save_str;
+            goto give_up;
+        }
+        // Alright, we have a pointer register.
+        have_thing = true;
+        result->memory.index_reg = a_reg.reg.gpr_reg_num;
+        save_str = str;
+    }
+    else {
+        // otherwise, backtrack and try the next thing...
+        str = save_str;
+    }
+
+    // TERM THREE : displacement.
+term_displacement: // jump here after parsing IP as base.
+    NEXT_TERM();
+    // any displacement parsed here will set immAny and possibly bits that
+    // are relevant to immConc information. find_abm_mode will later use all
+    // of this information to help it pick a good ABM mode.
+    str = parse_immediate(str, result);
+    // If we can't parse an immediate, that's an error,
+    // since we've already consumed a '+'.
+    if (!str) {
+        str = save_str;
+        goto give_up;
+    }
+    // otherwise, we parsed an immediate successfully;
+    // fall through to check_done.
+
+check_done: // NEXT_TERM jumps here if there is no '+' indicating a new term.
+#undef NEXT_TERM
+    if (*str != ']') {
+        as_bad("junk in memory operand");
+give_up: // jump here to give up parsing and search for errors in next operand.
+        while (*++str != ']' && *str != ',' && *str != '\0') {}
+    }
+    if (*str == ']') str++; // consume ']'
+
     result->kind.memory = 1;
     result->reg_size = -1;
 
@@ -657,6 +801,9 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
      | '--' REG ']'  { predec $2 }
      | REG '++' ']'  { postinc $1 }
      | REG '--' ']'  { error }
+    
+    Unlike the rest of the memory parser, if ASP isn't available, this
+    indicates a backtrack immediately.
  */
 static char *parse_asp(char *str, struct etca_arg *result) {
     // TODO: Gas's scrubber currently turns `[%r0 + +]` into `[%r0++]`.
@@ -775,6 +922,12 @@ static char *parse_asp(char *str, struct etca_arg *result) {
     | '[' MemoryInner ']'
 
    Note that ASP and MemoryInner both consume the trailing ']'.
+
+   In any case, if a memory operand survives to find_abm_mode, it is the job of
+   find_abm_mode to validate that such an operand is actually allowed.
+   If it's not, we may have already reported some errors about the shape of the
+   memory operand and so we should prefer a "not available" message over
+   a "parse error" message.
  */
 static char *parse_memory_outer(char *str, struct etca_arg *result) {
     // ASP and MEM have some grammatical overlap; rather than trying to
@@ -952,6 +1105,8 @@ md_assemble(char *str) {
 
     size_t opcode_loop_iters = 0;
 
+    printf("Processed line: %s\n", str);
+
     // First stop: reset ai. Any information from the last insn is now bad.
     CLEAR_AI();
 
@@ -1074,6 +1229,13 @@ not_an_opcode:
     if (*str == ',') {
         as_bad("too many operands (maximum is 2)");
     }
+
+#ifdef DEBUG_ARG_PAIRS
+        print_etca_arg(&ai.args[0]);
+        printf(", ");
+        print_etca_arg(&ai.args[1]);
+        printf("\n");
+#endif
 
     assembler assembly_function;
     // compute params kind.
@@ -1912,12 +2074,23 @@ process_mov_pseudo(void) {
         assemble_base_abm();
         return;
     }
-    // two (GP) registers, or GPR and (any) MEM, or (any) MEM and GPR: it's just movs.
+    // two (GP) registers, or GPR and (any) MEM,
+    // or (any) MEM and GPR, or (any) MEM and IMM: it's just movs.
     if ((KIND(0).reg_class == GPR && KIND(1).reg_class == GPR)
         || (KIND(0).reg_class == GPR && KIND(1).memory)
-        || (KIND(0).memory && KIND(1).reg_class == GPR)) {
+        || (KIND(0).memory && KIND(1).reg_class == GPR)
+        || (KIND(0).memory && KIND(1).immAny)) {
         ai.opcode = str_hash_find(opcode_hash_control, "movs");
-        ai.params.kinds.rr = 1;
+
+        if (KIND(0).reg_class == GPR && KIND(1).reg_class == GPR)
+            ai.params.kinds.rr = 1;
+        if (KIND(1).memory)
+            ai.params.kinds.rm = 1;
+        if (KIND(1).reg_class == GPR)
+            ai.params.kinds.mr = 1;
+        if (KIND(1).immAny)
+            ai.params.kinds.mi = 1;
+
         assemble_base_abm();
         return;
     }
