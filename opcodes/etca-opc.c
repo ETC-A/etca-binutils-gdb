@@ -124,10 +124,10 @@ const struct etca_reg_info etca_registers[] = {
     CONTROL("cpuid1", 0, EXTS_ANY), CONTROL("cpuid2", 1, EXTS_ANY), CONTROL("feat", 2, EXTS_ANY),
     /* INT control registers */
     CONTROL("flags", 3, EXTS_INT), CONTROL("int_pc", 4, EXTS_INT),
-    CONTROL("int_sp", 5, EXTS_INT), CONTROL("int_mask", 6, EXTS_INT),
+    CONTROL("int_ret_pc", 5, EXTS_INT), CONTROL("int_mask", 6, EXTS_INT),
     CONTROL("int_pending", 7, EXTS_INT), CONTROL("int_cause", 8, EXTS_INT),
-    CONTROL("int_data", 9, EXTS_INT), CONTROL("int_ret_pc", 10, EXTS_INT),
-    CONTROL("int_ret_sp", 11, EXTS_INT),
+    CONTROL("int_data", 9, EXTS_INT), CONTROL("int_scratch_0", 10, EXTS_INT),
+    CONTROL("int_scratch_1", 11, EXTS_INT),
     /* PM control registers */
     CONTROL("priv", 12, EXTS_PM), CONTROL("int_ret_priv", 13, EXTS_PM),
     /* CI control registers */
