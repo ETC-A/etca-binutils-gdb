@@ -1450,7 +1450,7 @@ static int parse_hex_cpuid(const char *hex_cpuid, struct etca_cpuid *out) {
     char *a;
     char *b;
     uint64_t values[3];
-    gas_assert(sizeof(unsigned long long) == sizeof(uint64_t));
+    know(sizeof(unsigned long long) == sizeof(uint64_t));
     values[0] = strtoull(hex_cpuid, &a, 16);
     if (hex_cpuid == a || a[0] != '.') {
 	as_bad("CPUIDs need to be three dot-seperated hex numbers");
@@ -1701,8 +1701,8 @@ static bool format_includes_ccode(enum etca_iformat fmt) {
 }
 
 static bool assemble_cond_prefix(void) {
-    gas_assert(!ai.cond_prefix_emitted);
-    gas_assert(!ai.rex_emitted); // enforce order
+    know(!ai.cond_prefix_emitted);
+    know(!ai.rex_emitted); // enforce order
     if (ai.cond_prefix_code == ETCA_COND_ALWAYS) return false;
     // Can't use conditional prefix if format includes a ccode already.
     // This is a programmer error.
@@ -1711,7 +1711,7 @@ static bool assemble_cond_prefix(void) {
         return false;
     }
 
-    gas_assert((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code
+    know((ai.cond_prefix_code & 0x0F) == ai.cond_prefix_code
                 && ai.cond_prefix_code != ETCA_COND_ALWAYS /* would be register jmp header */
                 && ai.cond_prefix_code != ETCA_COND_NEVER); /* would be 1-byte nop */
     *frag_more(1) = 0xA0 | ai.cond_prefix_code;
@@ -1720,7 +1720,7 @@ static bool assemble_cond_prefix(void) {
 }
 
 static bool assemble_rex_prefix(void) {
-    gas_assert(ai.rex_initialized && !ai.rex_emitted);
+    know(ai.rex_initialized && !ai.rex_emitted);
     if (!NEED_REX()) return false;
 
     uint8_t rex = 0xC0;
@@ -1830,7 +1830,7 @@ static void validate_conc_imm_size(void) {
     if (ai.opcode->format == ETCA_IF_SPECIAL && ai.opcode->opcode == ETCA_MOV) {
         // we don't call this if we're doing slo expansion, so no need
         // to do a 5 bit check. In fact, let's make sure we have FI...
-        gas_assert(have_fi_fmt);
+        know(have_fi_fmt);
         if (the_imm->kind.imm8s || the_imm->kind.imm8z) return;
         fits_with_signage = fits_in_bytes;
     }
@@ -1893,14 +1893,14 @@ static const size_checker size_checkers[NUM_ARGS_SIZES] = {
 
 static size_attr compute_operand_size() {
     // call the relevant size checker, that's all.
-    gas_assert(ai.opcode->size_info.args_size < NUM_ARGS_SIZES);
+    know(ai.opcode->size_info.args_size < NUM_ARGS_SIZES);
     ai.opcode_size = size_checkers[ai.opcode->size_info.args_size]();
     return ai.opcode_size;
 }
 
 SIZE_CHK_HDR(compute_nullary_size) {
-    gas_assert(ai.argc == 0);
-    gas_assert(ai.opcode->size_info.args_size == NULLARY);
+    know(ai.argc == 0);
+    know(ai.opcode->size_info.args_size == NULLARY);
     // Mostly the opcodes don't have a size. The NOP pseudo instruction
     // deals with potentially absent size itself, so just pass over the existing value
     return ai.opcode_size;
@@ -1911,15 +1911,15 @@ SIZE_CHK_HDR(do_nothing) {
 }
 
 SIZE_CHK_HDR(compute_opr_size) {
-    gas_assert(ai.argc == 1);
-    gas_assert(ai.opcode->size_info.args_size == OPR);
+    know(ai.argc == 1);
+    know(ai.opcode->size_info.args_size == OPR);
 
     return check_opcode_matches_opr_size(ai.opcode_size, ai.args[0].reg_size);
 }
 
 SIZE_CHK_HDR(compute_adr_size) {
-    gas_assert(ai.argc == 1);
-    gas_assert(ai.opcode->size_info.args_size == ADR);
+    know(ai.argc == 1);
+    know(ai.opcode->size_info.args_size == ADR);
 
     check_adr_size(ai.args[0].reg_size);
     // we don't need an operand size for register jumps/calls
@@ -1932,10 +1932,10 @@ SIZE_CHK_HDR(compute_adr_size) {
 
 SIZE_CHK_HDR(check_arg_is_lbl) {
     const struct expressionS *expr;
-    gas_assert(ai.argc == 1);
-    gas_assert(ai.opcode->size_info.args_size == LBL);
+    know(ai.argc == 1);
+    know(ai.opcode->size_info.args_size == LBL);
     // compute_params has been called by now, and we must have an imm to get here.
-    gas_assert(ai.args[0].kind.immAny == 1);
+    know(ai.args[0].kind.immAny == 1);
 
     expr = &ai.args[0].imm_expr;
 
@@ -1946,7 +1946,7 @@ SIZE_CHK_HDR(check_arg_is_lbl) {
 SIZE_CHK_HDR(compute_opr_opr_size) {
     size_attr opcode_size = ai.opcode_size;
     size_attr arg1_size, arg2_size, arg_size;
-    gas_assert(ai.argc == 2);
+    know(ai.argc == 2);
 
     arg1_size = ai.args[0].reg_size;
     arg2_size = ai.args[1].reg_size;
@@ -1967,7 +1967,7 @@ SIZE_CHK_HDR(compute_opr_adr_size) {
     size_attr opcode_size = ai.opcode_size;
     size_attr arg1_size, // this one should work with opcode size
               arg2_size; // this one should work with address width
-    gas_assert(ai.argc == 2);
+    know(ai.argc == 2);
 
     arg1_size = ai.args[0].reg_size;
     arg2_size = ai.args[1].reg_size;
@@ -1981,7 +1981,7 @@ SIZE_CHK_HDR(compute_opr_adr_size) {
 }
 
 SIZE_CHK_HDR(compute_opr_any_size) {
-    gas_assert(ai.argc == 2);
+    know(ai.argc == 2);
     return check_opcode_matches_opr_size(ai.opcode_size, ai.args[0].reg_size);
 }
 
@@ -2274,7 +2274,7 @@ static enum abm_mode find_abm_mode(void) {
         // can't encode a control register number more than 31 (without FI);
         // we don't have any such yet, but ensure we get an error
         // if or when that happens.
-        gas_assert(ai.args[1].reg.ctrl_reg_num < 32);
+        know(ai.args[1].reg.ctrl_reg_num < 32);
         // set the immediate value to the control reg number
         ai.args[1].imm_expr.X_add_number = ai.args[1].reg.ctrl_reg_num;
         // and encode an ri_byte.
@@ -2318,7 +2318,7 @@ void assemble_abm(enum abm_mode mode) {
                           | 0b00001001; // A x i8
             output[idx++] = ai.args[1].imm_expr.X_add_number;
             // if that value was not concrete, we should never select this mode.
-            gas_assert(ai.args[1].kind.immConc);
+            know(ai.args[1].kind.immConc);
             break;
         case abm_fi_big:
             fixS *fixp;
@@ -2357,7 +2357,7 @@ void assemble_base_abm(void) {
     size_t idx = 0;
     enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
     size_attr sa = ai.opcode_size;
-    gas_assert(sa <= SA_QWORD); // otherwise we should've errored at compute_size
+    know(sa <= SA_QWORD); // otherwise we should've errored at compute_size
 
     if (mode == invalid) { return; }
 
@@ -2387,7 +2387,7 @@ void assemble_exop_abm(void) {
     uint8_t low_opcode  = (ai.opcode->opcode & 0x00F)     ;
     uint8_t fmt_spec    = mode == ri_byte;
 
-    gas_assert(sa <= SA_QWORD);
+    know(sa <= SA_QWORD);
 
     if (mode == invalid) { return; }
 
@@ -2399,7 +2399,7 @@ void assemble_exop_abm(void) {
 }
 
 /* Assemble an mtcr-misc format instruction. IRET, INT, WAIT.
-    Quite ad-hoc... but it's the misc format. */
+    Eventually, a couple caching instructions. */
 void assemble_mtcr_misc(void) {
     char *output = frag_more(2);
     size_t idx = 0;
@@ -2408,16 +2408,9 @@ void assemble_mtcr_misc(void) {
     case ETCA_SYSCALL:
     case ETCA_ERET:
     case ETCA_WAIT:
-        gas_assert(ai.argc == 0);
-        output[idx++] = 0x0F;
-        output[idx++] = ai.opcode->opcode;
-        break;
-        offsetT imm = ai.args[0].imm_expr.X_add_number;
-        gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
-        if (!ai.args[0].kind.immConc || imm < 0 || imm > 255)
-            as_bad("operand for `int' must be a concrete unsigned 8-bit value");
-        output[idx++] = 0x0F | ((imm & 0x80) >> 3);
-        output[idx++] = ((imm & 0x7E) << 1) | 0x02 | (imm & 1);
+        know(ai.argc == 0);
+        output[idx++] = 0x0F | (ai.opcode->opcode << 4);
+        output[idx++] = 0x11; // second opcode byte (would be mtcr A,[ip+d8])
         break;
     default:
         abort();
@@ -2528,7 +2521,7 @@ void assemble_base_jmp(void) {
 void assemble_saf_call(void) {
     char *output;
     size_t idx = 0;
-    gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
+    know(ai.argc == 1 && ai.args[0].kind.immAny);
 
     /* Promotion disabled until fixup relaxation is actually implemented.
     if (CHECK_PAT(exop_pat)) {
@@ -2563,7 +2556,7 @@ void assemble_saf_jmp(void) {
     char *output;
     size_t idx = 0;
     // nullary is a ret, if there's 1 arg it must be an explicit GPR.
-    gas_assert(ai.argc == 0 || (ai.argc == 1 && ai.args[0].kind.reg_class == GPR));
+    know(ai.argc == 0 || (ai.argc == 1 && ai.args[0].kind.reg_class == GPR));
 
     if (ai.argc == 0) {
         ai.argc = 1;
@@ -2584,14 +2577,14 @@ void assemble_saf_jmp(void) {
 void assemble_saf_stk(void) {
     // 12 => pop;  stack pointer belongs in the B operand
     // 13 => push; stack pointer belongs in the A operand
-    gas_assert(ai.opcode->opcode == 12 || ai.opcode->opcode == 13);
-    gas_assert(ai.argc == 1);
+    know(ai.opcode->opcode == 12 || ai.opcode->opcode == 13);
+    know(ai.argc == 1);
 
     // Kind r => rr. Kind i => ri. Kind m needs depends on which opcode we have.
     ai.params.kinds.rr = ai.params.kinds.r;
     ai.params.kinds.ri = ai.params.kinds.i;
     ai.params.kinds.r  = ai.params.kinds.i = 0;
-    gas_assert(ai.params.kinds.rr || ai.params.kinds.ri || ai.params.kinds.m);
+    know(ai.params.kinds.rr || ai.params.kinds.ri || ai.params.kinds.m);
 
     if (ai.opcode->opcode == 12) { /* pop */
         // parsed operand is already in the A operand. Just pull in stack pointer...

@@ -143,32 +143,21 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    di->format = ETCA_IF_BASE_ABM;
 	    di->size =  (int8_t) ((insn[0] & 0x30) >> 4);
 	    di->opcode = insn[0] & 0x0F;
+            if (di->opcode == 15 && (insn[1] & 0x13) == 0x11) { /* mtcr misc format: syscall,eret,wait */
+                di->format = ETCA_IF_MTCR_MISC;
+                info->insn_type = dis_nonbranch;
+                di->params.kinds.e = 1;
+                di->argc = 0;
+                di->opcode = (insn[0] & 0x30) >> 4;
+                return 0;
+            } else if (di->opcode == 15 && (insn[1] & 0x1B) != 0x09) { /* mtcr-like but not FI */
+                // FIXME: Actually, m,i operands are legal, but we aren't handling them yet.
+                return -1; // illegal
+            }
 	    if (di->opcode == 10 || di->opcode == 11) { /* LOAD or STORE */
 		info->data_size = (1 << di->size);
 		info->insn_type = dis_dref;
 	    }
-            if (di->opcode == 15) { /* mtcr misc format */
-                di->format = ETCA_IF_MTCR_MISC;
-                info->insn_type = dis_nonbranch;
-                if ((insn[0] & 0xE0) == 0 && (insn[1] & 0x02) == 0x02) { /* int n */
-                    di->argc = di->params.kinds.i = 1;
-                    di->args[0].kinds.imm8z = di->args[0].kinds.immAny = 1;
-                    di->args[0].as.imm
-                      = ((insn[0] & 0x10) << 3) // top 1 bit
-                      | ((insn[1] & 0xFC) >> 1) // next 6 bits
-                      | ((insn[1] & 0x01)     ); // last bit
-                    di->opcode = ETCA_INT;
-                }
-                if (insn[0] == 0x0F && insn[1] == 0x00) { /* iret */
-                    di->params.kinds.e = 1;
-                    di->opcode = ETCA_IRET;
-                }
-                if (insn[0] == 0x0F && insn[1] == 0x04) { /* wait */
-                    di->params.kinds.e = 1;
-                    di->opcode = ETCA_WAIT;
-                }
-                return 0;
-            }
 	    di->argc = 2;
 	    if ((insn[1] & 3) == 0) { /* RR ABM mode */
 		di->params.kinds.rr = 1;
@@ -176,7 +165,7 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 		di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
 		di->args[1].kinds.reg_class = GPR;
 		di->args[1].as.reg = REX(b, (insn[1] & 0x1C) >> 2);
-            } else if ((insn[1] & 3) == 1 && (insn[1] & 0x18) == 0x08) { /* FI */
+            } else if ((insn[1] & 0x1B) == 0x09) { /* FI */
                 size_t num_fi_bytes;
                 bool is_signed = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
                 if ( !(insn[1] & 0x04) ) { /* 8-bit format */

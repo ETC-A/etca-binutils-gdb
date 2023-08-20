@@ -440,7 +440,7 @@ enum etca_iformat {
     ETCA_IF_PSEUDO,    /* A pseudo instruction that takes over *after* argument pairing */
     ETCA_IF_BASE_ABM,  /* A base instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
     ETCA_IF_EXOP_ABM,  /* A exop instruction with an RI or ABM byte, potentially with FI/MO1/MO2 */
-    ETCA_IF_MTCR_MISC, /* The MISC format using writecr's RR encoding. Includes IRET, WAIT, and INT. */
+    ETCA_IF_MTCR_MISC, /* The MISC format using writecr's RR encoding. Includes ERET, WAIT, and SYSCALL. */
     ETCA_IF_BASE_JMP,  /* A base cond jump with a 9bit displacement. Can promote to a (COND)+EXOP format. */
     ETCA_IF_SAF_CALL,  /* A saf call with a 12-bit displacement. Usually promotes to an EXOP format. */
     ETCA_IF_SAF_JMP,   /* A saf cond jump or call, with a register */
@@ -490,9 +490,9 @@ enum etca_pseudo_opcode {
 
 /* An enumeration of MISC names to avoid magic numbers in the misc assembler. */
 enum etca_misc_opcodes {
-    ETCA_IRET = 0,
-    ETCA_INT  = 2, // severely complicated by the immediate format...
-    ETCA_WAIT = 4,
+    ETCA_SYSCALL,
+    ETCA_ERET,
+    ETCA_WAIT,
 };
 
 #define ETCA_BASE_ABM_IMM_SIGNED(opcode) ((opcode) < 8 || (opcode) == 9)

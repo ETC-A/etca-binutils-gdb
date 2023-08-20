@@ -230,9 +230,9 @@ struct etca_opc_info etca_opcodes[] = {
 
 #define MISC_FMT(name, c, arg, size, ext) \
         { name, ETCA_IF_MTCR_MISC, c, PARAMS1(arg), NOSUFFIX(size), ETCA_PAT(ext), 0 }
-        MISC_FMT("iret", ETCA_IRET, e, NULLARY, INT),
-        MISC_FMT("int",  ETCA_INT,  i, UNCHECKED, INT),
-        MISC_FMT("wait", ETCA_WAIT, e, NULLARY, PM),
+        MISC_FMT("eret",     ETCA_ERET,     e, NULLARY, INT),
+        MISC_FMT("syscall",  ETCA_SYSCALL,  e, NULLARY, INT),
+        MISC_FMT("wait",     ETCA_WAIT,     e, NULLARY, PM),
 #undef MISC_FMT
 
 #define BASE_JMP(name, opcode) {name, ETCA_IF_BASE_JMP, opcode, PARAMS1(i), NOSUFFIX(LBL), ETCA_PAT(BASE), 0}, \
