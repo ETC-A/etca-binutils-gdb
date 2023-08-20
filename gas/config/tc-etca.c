@@ -2405,13 +2405,13 @@ void assemble_mtcr_misc(void) {
     size_t idx = 0;
 
     switch (ai.opcode->opcode) {
-    case ETCA_IRET:
+    case ETCA_SYSCALL:
+    case ETCA_ERET:
     case ETCA_WAIT:
         gas_assert(ai.argc == 0);
         output[idx++] = 0x0F;
         output[idx++] = ai.opcode->opcode;
         break;
-    case ETCA_INT:
         offsetT imm = ai.args[0].imm_expr.X_add_number;
         gas_assert(ai.argc == 1 && ai.args[0].kind.immAny);
         if (!ai.args[0].kind.immConc || imm < 0 || imm > 255)
