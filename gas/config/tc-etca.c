@@ -77,7 +77,6 @@ static void print_etca_arg(struct etca_arg *arg) {
     } else if (arg->kind.reg_class == CTRL) {
         printf("CTRL:%d", arg->reg.ctrl_reg_num);
     } else if (arg->kind.memory) {
-        // check this before immAny because we might have both if there's a disp
         char buffer[30]; // should be plenty long.
         char *p = buffer;
         bool have_thing = false;
@@ -94,7 +93,7 @@ static void print_etca_arg(struct etca_arg *arg) {
             p += sprintf(p, "%u*r%d", 1U << arg->memory.scale, arg->memory.index_reg);
             have_thing = true;
         }
-        if (arg->kind.immAny) {
+        if (arg->kind.dispAny) {
             if (have_thing) p += sprintf(p, " + ");
             p += sprintf(p, "disp:%s", arg->kind.immConc ? "conc" : "abstr");
         }
@@ -225,6 +224,10 @@ static char *parse_memory_outer(char *str, struct etca_arg *result);
 
 static char *parse_operand(char *str, struct etca_arg *result);
 
+/* Test if a value would fit in the given number of bytes in
+    EITHER a sign-extended or zero-extended setting. It doesn't matter which. */
+static bool fits_in_bytes(int64_t val, uint8_t nbytes);
+
 enum etca_code_model {
     /* The 'small' code model. All pointers can be represented by
         sign-extended 16-bit values, and any of those pointers can
@@ -262,14 +265,15 @@ static struct etca_known_arch {
     struct etca_cpuid cpuid;
     char is_concrete;
     etca_code_model_type default_code_model;
+    size_attr default_address_attr;
 } known_archs[] = {
 	/* unknown, the default. Also used when only -mextensions is used. */
-	{"unknown", ETCA_CPI_BASE,              0, etca_model_small},
+	{"unknown", ETCA_CPI_BASE,              0, etca_model_small, SA_WORD},
 	/* base-isa with no predefined instructions */
-	{"base",    ETCA_CPI_BASE,              1, etca_model_small},
+	{"base",    ETCA_CPI_BASE,              1, etca_model_small, SA_WORD},
 	/* The core extension set: FI, SAF, INT, BYTE, EXOP, VON  */
-	{"core",    MK_ETCA_CPI(0xF, 0x1, 0x1), 0, etca_model_small},
-	{0, {0, 0, 0},                          0, etca_model_invalid}
+	{"core",    MK_ETCA_CPI(0xF, 0x1, 0x1), 0, etca_model_small, SA_WORD},
+	{0, {0, 0, 0},                          0, etca_model_invalid, SA_UNKNOWN}
 };
 
 
@@ -290,6 +294,7 @@ struct etca_settings {
     struct etca_cpuid mextensions;
 
     etca_code_model_type code_model;
+    size_attr address_size;
     /* Various fields*/
     uint32_t arch_name: 1; /* We got an explicit ARCH name */
     uint32_t custom_name: 1; /* We got a custom ARCH name */
@@ -305,6 +310,7 @@ struct etca_settings {
 	.custom_name = 0,
 	.manual_cpuid = 0,
         .code_model = etca_model_invalid,
+        .address_size = SA_UNKNOWN,
         .require_prefix = 1,
         .pedantic = 0,
 };
@@ -740,9 +746,9 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
         // skip ahead to displacement.
         if (a_reg.kind.reg_class == IP_REG) {
             result->memory.have_ip = true;
-            goto term_displacement;
+        } else {
+            result->memory.base_reg = a_reg.reg.gpr_reg_num;
         }
-        result->memory.base_reg = a_reg.reg.gpr_reg_num;
     }
     else {
         // otherwise, backtrack and try the next thing...
@@ -764,6 +770,11 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
             goto give_up;
         }
         // Alright, we have a pointer register.
+        if (result->memory.have_ip) {
+            // can't have a scale with IP. We could skip even trying to parse it, but
+            // we get a better error message by trying.
+            as_bad("can't have index with ip-rel addressing");
+        }
         have_thing = true;
         result->memory.index_reg = a_reg.reg.gpr_reg_num;
         save_str = str;
@@ -774,15 +785,29 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
     }
 
     // TERM THREE : displacement.
-term_displacement: // jump here after parsing IP as base.
     NEXT_TERM();
     // any displacement parsed here will set immAny and possibly bits that
     // are relevant to immConc information. find_abm_mode will later use all
     // of this information to help it pick a good ABM mode.
     str = parse_immediate(str, result);
-    // If we can't parse an immediate, that's an error,
-    // since we've already consumed a '+'.
-    if (!str) {
+    if (str) {
+        // keep immConc information, but swap imm info for disp info.
+        result->kind.disp8   = result->kind.imm8s;
+        result->kind.dispAny = result->kind.immAny;
+        // unclear what to do with dispPtr. Until we know if it's supposed to
+        // be absolute or relative, it's hard to fill in, and even then,
+        // a base+disp mode _could_ be intended either way. So probably
+        // we should just verify that we can encode it at all, namely
+        // that it fits in the bytes specified by the code model.
+        // If it's abstract, assume it fits (as always).
+        result->kind.dispPtr = fits_in_bytes(
+            result->imm_expr.X_add_number,
+            1U << code_model_pointer_width[settings.code_model]
+        );
+        result->kind.immAny = 0;
+    } else {
+        // If we couldn't parse an immediate, that's an error,
+        // since we've already consumed a '+'.
         str = save_str;
         goto give_up;
     }
@@ -1389,7 +1414,7 @@ enum options {
     OPTION_MEXTENSIONS,
     OPTION_MCPUID,
     OPTION_MCMODEL,
-    // OPTION_MPTR, // do we want this? what's the syntax?
+    OPTION_MPW,
     OPTION_NOPREFIX,
     OPTION_PEDANTIC,
 };
@@ -1400,6 +1425,7 @@ struct option md_longopts[] =
 		{"mextensions", required_argument, NULL, OPTION_MEXTENSIONS},
 		{"mcpuid",      required_argument, NULL, OPTION_MCPUID},
                 {"mcmodel",     required_argument, NULL, OPTION_MCMODEL},
+                {"mpw",         required_argument, NULL, OPTION_MPW},
                 {"pedantic",    no_argument,       NULL, OPTION_PEDANTIC},
                 {"noprefix",    no_argument,       NULL, OPTION_NOPREFIX},
 		{NULL,          no_argument,       NULL, 0},
@@ -1486,6 +1512,33 @@ static int parse_code_model(const char *cmodel, etca_code_model_type *out) {
     return 0;
 }
 
+static int parse_pointer_width(const char *pw, size_attr *out) {
+    char *p;
+    unsigned long long num = strtoull(pw, &p, 10);
+    if (p != pw && *p == '\0') { /* the argument is really a number. */
+        switch (num) {
+        case 16:
+            *out = SA_WORD; return 1;
+        case 32:
+            *out = SA_DWORD; return 1;
+        case 64:
+            *out = SA_QWORD; return 1;
+        default:
+            return 0; // it's a number, but not one we know :(
+        }
+    }
+    // OK, it wasn't a number. Try comparing to our known strings, one-by-one.
+    if      (strcmp(pw, "x") == 0) *out = SA_WORD;
+    else if (strcmp(pw, "d") == 0) *out = SA_DWORD;
+    else if (strcmp(pw, "q") == 0) *out = SA_QWORD;
+    else if (strcmp(pw, "word")  == 0) *out = SA_WORD;
+    else if (strcmp(pw, "dword") == 0) *out = SA_DWORD;
+    else if (strcmp(pw, "qword") == 0) *out = SA_QWORD;
+    else return 0; // unrecognized.
+
+    return 1; // shared return for the non-'else' cases
+}
+
 int
 md_parse_option(int c, const char *arg) {
     switch (c) {
@@ -1531,6 +1584,11 @@ md_parse_option(int c, const char *arg) {
                 as_warn("Multiple code models specified; choosing the last one");
             }
             return parse_code_model(arg, &settings.code_model);
+        case OPTION_MPW:
+            if (settings.address_size != SA_UNKNOWN) {
+                as_warn("Multiple address sizes specified; choosing the last one");
+            }
+            return parse_pointer_width(arg, &settings.address_size);
         case OPTION_NOPREFIX:
             settings.require_prefix = 0;
             return 1;
@@ -1554,6 +1612,9 @@ md_show_usage(FILE *stream) {
     fprintf (stream, "  -mcpuid=CP1.CP2.FT\t  Specify an architecture via a CPUID triplet\n");
     fprintf (stream, "  -mcmodel={small|medany} Specify a code model. Overrides any arch default.\n");
     fprintf (stream, "\t\t\t  `medany' is only available with DW and DWAS. Recommend MO2.\n");
+    fprintf (stream, "  -mpw\t\t\t  Specify an address size attribute (\"Pointer Width\")\n");
+    fprintf (stream, "\t\t\t  Overrides any arch default.\n");
+    fprintf (stream, "\t\t\t  Options: [x|d|q|word|dword|qword|16|32|64]\n");
     fprintf (stream, "  -noprefix\t\t  Allow register names without the '%%' prefix\n");
     fprintf (stream, "  -pedantic\t\t  Enable various forms of pedantry; at the moment,\n");
     fprintf (stream, "\t\t\t  only checks that opcodes and registers have size markers\n");
@@ -1578,6 +1639,10 @@ void etca_after_parse_args(void) {
                     // if the code model is already set, it overrides us; otherwise apply default.
                     if (settings.code_model == etca_model_invalid) {
                         settings.code_model = arch->default_code_model;
+                    }
+                    // same story for pointer width.
+                    if (settings.address_size == SA_UNKNOWN) {
+                        settings.address_size = arch->default_address_attr;
                     }
 		    break;
 		}
@@ -1613,6 +1678,29 @@ void etca_after_parse_args(void) {
         } 
         if (!CHECK_PAT(mo2_pat)) {
             as_warn("Selected code model `medany' may be unlinkable without IP-relative addressing.");
+        }
+    }
+
+    // checks on address size. Must be at least the width specified by the code model and
+    // the extension that makes that address size attribute available must be present.
+    if (settings.address_size == SA_UNKNOWN) {
+        // if one wasn't given and wasn't a default, take the code model width.
+        // This allows users doing normal things to ignore this setting.
+        settings.address_size = code_model_pointer_width[settings.code_model];
+    }
+    if (settings.address_size < code_model_pointer_width[settings.code_model]) {
+        // specified address size is too small. We're screwed, don't bother.
+        as_fatal("Selected address size is not compatible with selected code model");
+    }
+    {
+        static struct etca_cpuid_pattern
+            dwas_pat = ETCA_PAT(DWAS),
+            qwas_pat = ETCA_PAT(QWAS);
+        if (settings.address_size == SA_DWORD && !CHECK_PAT(dwas_pat)) {
+            as_fatal("Address size `dword' is only available with DWAS");
+        }
+        if (settings.address_size == SA_QWORD && !CHECK_PAT(qwas_pat)) {
+            as_fatal("Address size `qword' is only available with QWAS");
         }
     }
 }
