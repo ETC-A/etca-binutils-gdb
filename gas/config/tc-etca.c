@@ -333,6 +333,16 @@ static size_attr compute_operand_size(void);
     and REX is available, then REX.Q is set. Otherwise,
     as_bad is called.  */
 static void validate_conc_imm_size(void);
+/* Validate the size of a (concrete) displacement in a memory operand.
+    That does **not** include the immediate operand to a load or store
+    instruction - that's an immediate.
+    You should have already set disp{8/Ptr/Any} appropriately,
+    presumably in parse_memory_inner. dispPtr should be set according
+    to the actual pointer mode, even if that's wider than the code
+    model. Code models are for us to pick when we get to choose;
+    we don't get to choose here. However, I think we can emit a warning
+    maybe if it fits in Ptr but not the code model. */
+static void validate_conc_disp_size(void);
 
 /* Compute a value for ai.params from the parsed ai.argc and ai.args. */
 static bool compute_params(void);
@@ -791,20 +801,34 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
     // of this information to help it pick a good ABM mode.
     str = parse_immediate(str, result);
     if (str) {
+        size_attr model_attr = code_model_pointer_width[settings.code_model];
         // keep immConc information, but swap imm info for disp info.
         result->kind.disp8   = result->kind.imm8s;
         result->kind.dispAny = result->kind.immAny;
-        // unclear what to do with dispPtr. Until we know if it's supposed to
-        // be absolute or relative, it's hard to fill in, and even then,
-        // a base+disp mode _could_ be intended either way. So probably
-        // we should just verify that we can encode it at all, namely
-        // that it fits in the bytes specified by the code model.
-        // If it's abstract, assume it fits (as always).
+        // dispPtr should be set according to the actual pointer mode.
+        // So the question remains: do we check as signed or unsigned?
+        // Well an absolute address should be treated as unsigned,
+        // but a relative displacement as signed, so we should allow either.
+        // However, even though we should use the actual pointer mode
+        // (to help determine later if we will need REX.Q), we should warn
+        // if it doesn't fit in the code model as that's a strong indicator
+        // that the programmer is doing something that may not link.
         result->kind.dispPtr = fits_in_bytes(
             result->imm_expr.X_add_number,
-            1U << code_model_pointer_width[settings.code_model]
+            1U << settings.address_size
         );
-        result->kind.immAny = 0;
+        if (settings.address_size != model_attr && !fits_in_bytes(
+            result->imm_expr.X_add_number,
+            1U << model_attr
+        )) {
+            as_warn("displacement is outside range specified by code model");
+        }
+        result->kind.immAny
+            = result->kind.imm5s
+            = result->kind.imm5z
+            = result->kind.imm8s
+            = result->kind.imm8z
+            = 0;
     } else {
         // If we couldn't parse an immediate, that's an error,
         // since we've already consumed a '+'.
@@ -1025,7 +1049,6 @@ md_operand(expressionS *op) {
     op->X_op = O_illegal;
 }
 
-
 /* This function is called once, at assembler startup time.  It sets
    up the hash table with all the opcodes in it, and also initializes
    some aliases for compatibility with other assemblers.  */
@@ -1086,6 +1109,7 @@ bool compute_params(void) {
 #define IS_REG(arg) ((arg).kind.reg_class == GPR)
 #define IS_CTRL_REG(arg) ((arg).kind.reg_class == CTRL)
 #define IS_IMM(arg) ((arg).kind.immAny) // this covers it unless parse_immediate screws up.
+#define IS_MEM(arg) ((arg).kind.memory)
 #define IS_SPECIAL(arg) ((arg).kind.nested_memory || (arg).kind.predec || (arg.kind.postinc))
     /* This can probably be solved better... */
     if (ai.argc == 0) {
@@ -1101,6 +1125,9 @@ bool compute_params(void) {
 	} else if (IS_IMM(ai.args[0])) {
 	    ai.params.kinds.i = 1;
 	    return true;
+        } else if (IS_MEM(ai.args[0])) {
+            ai.params.kinds.m = 1;
+            return true;
 	} else {
 	    abort(); // incomplete matching
 	}
@@ -1118,9 +1145,24 @@ bool compute_params(void) {
             } else if (IS_CTRL_REG(ai.args[1])) {
                 ai.params.kinds.rc = 1;
                 return true;
+            } else if (IS_MEM(ai.args[1])) {
+                ai.params.kinds.rm = 1;
+                return true;
 	    } else {
 		abort(); // incomplete matching
 	    }
+        } else if (IS_MEM(ai.args[0])) {
+            if (IS_REG(ai.args[1])) {
+                ai.params.kinds.mr = 1;
+                return true;
+            } else if (IS_IMM(ai.args[1])) {
+                ai.params.kinds.mi = 1;
+                return true;
+            } else if (IS_SPECIAL(ai.args[1]) || IS_CTRL_REG(ai.args[1])) {
+                return false; // not feasible
+            } else {
+                abort(); // not feasible
+            }
 	} else if (IS_IMM(ai.args[0]) || IS_CTRL_REG(ai.args[0])) {
             return false; // not feasible
 	} else {
@@ -1320,6 +1362,8 @@ not_an_opcode:
     compute_operand_size();
     // note that this does not do _anything at all_ for `mov'!
     validate_conc_imm_size();
+    validate_conc_disp_size(); // at the moment, this one only runs on ABM displacements.
+                               // Not on jumps.
     // I tried putting this here but it turned out to be simpler to just let the format_assemblers do it.
     //   generic_rex_init();
     // However this one fits very well here. We just have to be sure to call this again if we later
@@ -1624,6 +1668,7 @@ md_show_usage(FILE *stream) {
 void etca_after_parse_args(void) {
     struct etca_cpuid temp_cpuid;
     bool is_concrete = true;
+    size_attr model_size;
     if(settings.arch_name) {
 	if (strncmp(settings.march, "cpuid:", strlen("cpuid:")) == 0) {
 	    memmove(settings.march,
@@ -1680,15 +1725,23 @@ void etca_after_parse_args(void) {
             as_warn("Selected code model `medany' may be unlinkable without IP-relative addressing.");
         }
     }
+    model_size = code_model_pointer_width[settings.code_model];
+
+    // check on pointer sizes: if the model says QWORD, we are going to need REX.Q
+    // in order to do basically anything. If we don't have it, just error out, that's
+    // not a resonable system configuration.
+    if (model_size == SA_QWORD && !CHECK_PAT(rex_pat)) {
+        as_fatal("The selected code model requires REX");
+    }
 
     // checks on address size. Must be at least the width specified by the code model and
     // the extension that makes that address size attribute available must be present.
     if (settings.address_size == SA_UNKNOWN) {
         // if one wasn't given and wasn't a default, take the code model width.
         // This allows users doing normal things to ignore this setting.
-        settings.address_size = code_model_pointer_width[settings.code_model];
+        settings.address_size = model_size;
     }
-    if (settings.address_size < code_model_pointer_width[settings.code_model]) {
+    if (settings.address_size < model_size) {
         // specified address size is too small. We're screwed, don't bother.
         as_fatal("Selected address size is not compatible with selected code model");
     }
@@ -1876,8 +1929,7 @@ static void validate_conc_imm_size(void) {
     bool have_fi_fmt; // do we have the _correct_ FI format for this?
     bool have_rex;    // are we allowed to set REX.Q?
     // we should only be inspecting ABM formats.
-    // If this turns oout to be inconvenient, we can add more.
-    // Beware that `int' is a special case.
+    // If this turns out to be inconvenient, we can add more.
     if (ai.opcode->format != ETCA_IF_BASE_ABM
         && ai.opcode->format != ETCA_IF_EXOP_ABM) {
         return; // not ABM. Might be an immediate, but we don't care here.
@@ -1893,6 +1945,7 @@ static void validate_conc_imm_size(void) {
         the_imm = &ai.args[1];
         have_fi_fmt = CHECK_PAT(fi_pat);
     } else {
+        know(ai.params.kinds.mi && ai.args[0].kind.memory);
         the_imm = &ai.args[1];
         have_fi_fmt = CHECK_PAT(mo2_pat);
     }
@@ -1954,10 +2007,95 @@ static void validate_conc_imm_size(void) {
     // Now to determine if we need REX.Q, we must consider with signage.
     // If the value fits correctly in 4 bytes, there's no need for REX.Q.
     if (nbytes == 8 && !fits_with_signage(imm_val, 4)) {
-        if (have_rex) ai.rex.Q = 1;
-        // otherwise we can't represent it, so we must error.
-        else goto bad_imm;
+        // we can only use REX.Q here if we have rex, and there's no
+        // memory displacement in the first operand.
+        if (have_rex && !(ai.args[0].kind.memory && ai.args[0].kind.dispAny)) {
+            ai.rex.Q = 1;
+        } else {
+            // otherwise we can't represent it, so we must error.
+            goto bad_imm;
+        }
     }
+}
+
+static void validate_conc_disp_size(void) {
+    struct etca_arg *the_disp;
+    // we assume that we have the correct MO format for whatever this is.
+    // find_abm_mode will actually check that later. For now, we just need
+    // to work out if REX.Q is required for the displacement and if it's allowed.
+    bool have_rex = CHECK_PAT(rex_pat);
+    bool want_rex = false; // does it look like we need REX.Q?
+    size_attr model_size = code_model_pointer_width[settings.code_model];
+
+    // only ABM formats (and mov, but mov is responsible for calling this again
+    // after demoting itself if necessary). So bail quickly otherwise.
+    if (ai.opcode->format != ETCA_IF_BASE_ABM 
+        && ai.opcode->format != ETCA_IF_EXOP_ABM) {
+        return;
+    }
+    // only param pairs that might have a displacement should be considered.
+    if (!ai.params.kinds.m && !ai.params.kinds.mi && !ai.params.kinds.mr
+        && !ai.params.kinds.rm
+    ) {
+        return; // No memory displacement.
+    }
+
+    // figure out which argument might actually have a displacement...
+    if (ai.params.kinds.m || ai.params.kinds.mi || ai.params.kinds.mr) {
+        the_disp = &ai.args[0];
+    } else if (ai.params.kinds.rm) {
+        the_disp = &ai.args[1];
+    } else {
+        abort(); // something is wrong!
+    }
+    // that better be a memory operand:
+    know(the_disp->kind.memory);
+    // if it doesn't also have a displacement, we're good.
+    if (!the_disp->kind.dispAny) {
+        return;
+    }
+
+    // OK, so we have a memory operand with a displacement.
+    // If it's not concrete, we have to assume model-sized.
+    // That's fine, unless that would be quad, in which case we need rex.
+    if (!the_disp->kind.immConc) {
+        if (model_size == SA_QWORD) {
+            know(have_rex); // SA_QWORD code models require REX for precisely this reason.
+            want_rex = true;
+        } else {
+            return; // not concrete, and model size is "small" - definitely fine.
+        }
+    }
+    else if (!the_disp->kind.dispPtr) {
+        // displacement is concrete, but we can't encode it. RIP.
+        as_bad("displacement is too large for an address");
+    }
+    else if (settings.address_size == SA_QWORD) {
+        // disp is concrete, fits in PTR, and PTR is QWORD. If the displacement
+        // will fit _signed_ in a DWORD field, we don't need REX, otherwise, we do.
+        // In any case, though, REX must be available since
+        // qword address => qword model => REX.
+        know(have_rex);
+        if (!fits_in_bytes_signed(the_disp->imm_expr.X_add_number, 4)) {
+            want_rex = true;
+        }
+    }
+
+    // if we didn't decide that we want REX.Q, we're done - everything will work!
+    if (!want_rex) return;
+    // set want_rex, but not have_rex? should be impossible...
+    know(have_rex);
+
+    // Now, we want REX.Q. The rules: the address size must be qword (which we know):
+    know(settings.address_size == SA_QWORD);
+    // there cannot also be an immediate in this instruction.
+    if (ai.params.kinds.mi) {
+        as_bad("qword displacements cannot be used with immediates");
+        return;
+    }
+
+    // if we're all good to use rex, set it, and we're done.
+    ai.rex.Q = 1;
 }
 
 /* Operand size check for one register size and an opcode size.
@@ -2327,7 +2465,8 @@ enum abm_mode {
  * (i.e. what assemble_base_abm and assemble_exop_abm need to do).
  * This includes:
  * - Correctly indicate format between RI and ABM (when return value == ri_byte)
- * - Setting the A, B, and X bits of `ai.rex' (but Q must be set already)
+ * - Setting the bits of 'ai.rex'. However, validate_imm_conc_size **must** be called first;
+ *      it sets the 'ai.rex.Q' bit if needed for a large immediate.
  * - Emit a REX prefix
  * The returned int is to be passed to assemble_abm which uses it to shortcut
  * instead of reanalyzing everything. If the return value is 'invalid', `as_bad`
