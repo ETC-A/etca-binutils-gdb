@@ -72,6 +72,32 @@ static reloc_howto_type etca_elf_howto_table [] =
 	   0x00000000,		/* src_mask */
 	   0xFF10,		/* dst_mask */
 	   false),		/* pcrel_offset */
+
+    /* EXOP jump relocations. The relative jumps just use
+        R_ETCA_IPREL_{8/16/32/64}. The absolute jumps,
+        however, need a special type, because the overflow
+        checking is "are the top bits of the IP the same?"
+        and not anything about sign. */
+#define HOWTO_EXABS(bits) HOWTO( \
+                R_ETCA_EXABS_ ## bits,  \
+                0,                      \
+                (bits / 8U),            \
+                bits,                   \
+                false,                  \
+                0,                      \
+                complain_overflow_dont, \
+                bfd_elf_generic_reloc,  \
+                "R_ETCA_EXABS_" #bits,  \
+                false,                  \
+                0,                      \
+                bits == 64 ? MINUS_ONE : ((bfd_vma) 1 << bits) - 1, \
+                false)
+    HOWTO_EXABS(8),
+    HOWTO_EXABS(16),
+    HOWTO_EXABS(32),
+    HOWTO_EXABS(64),
+#undef HOWTO_EXABS
+
     HOWTO (R_ETCA_SAF_CALL,	/* type */
 	   0,			/* rightshift */
 	   2,			/* size */
@@ -85,6 +111,7 @@ static reloc_howto_type etca_elf_howto_table [] =
 	   0x00000000,		/* src_mask */
 	   0xFF0F,		/* dst_mask */
 	   false),		/* pcrel_offset */
+    
 #define HOWTO_RIS(bytes, bits) HOWTO( \
 		R_ETCA_ABM_RIS_ ## bits,            \
 		0,                                  \
@@ -188,61 +215,42 @@ static reloc_howto_type etca_elf_howto_table [] =
     HOWTO_MOV_REX(21, 32),
 #undef HOWTO_MOV_REX
 
-    HOWTO (R_ETCA_8,     	/* type */
-	   0,			/* rightshift */
-	   1,			/* size */
-	   8,			/* bitsize */
-	   false,		/* pc_relative */
-	   0,			/* bitpos */
-	   complain_overflow_bitfield, /* complain_on_overflow */
-	   bfd_elf_generic_reloc,	/* special_function */
-	   "R_ETCA_8",		/* name */
-	   false,		/* partial_inplace */
-	   0x00000000,		/* src_mask */
-	   0xFF,		/* dst_mask */
-	   false),		/* pcrel_offset */
-
-    HOWTO (R_ETCA_16,     	/* type */
-	   0,			/* rightshift */
-	   2,			/* size */
-	   16,			/* bitsize */
-	   false,		/* pc_relative */
-	   0,			/* bitpos */
-	   complain_overflow_bitfield, /* complain_on_overflow */
-	   bfd_elf_generic_reloc,	/* special_function */
-	   "R_ETCA_16",		/* name */
-	   false,		/* partial_inplace */
-	   0x00000000,		/* src_mask */
-	   0xFFFF,		/* dst_mask */
-	   false),		/* pcrel_offset */
-
-    HOWTO (R_ETCA_32,     	/* type */
-	   0,			/* rightshift */
-	   4,			/* size */
-	   32,			/* bitsize */
-	   false,		/* pc_relative */
-	   0,			/* bitpos */
-	   complain_overflow_bitfield, /* complain_on_overflow */
-	   bfd_elf_generic_reloc,	/* special_function */
-	   "R_ETCA_32",		/* name */
-	   false,		/* partial_inplace */
-	   0x00000000,		/* src_mask */
-	   0xFFFFFFFF,		/* dst_mask */
-	   false),		/* pcrel_offset */
-
-    HOWTO (R_ETCA_64,     	/* type */
-	   0,			/* rightshift */
-	   8,			/* size */
-	   64,			/* bitsize */
-	   false,		/* pc_relative */
-	   0,			/* bitpos */
-	   complain_overflow_bitfield, /* complain_on_overflow */
-	   bfd_elf_generic_reloc,	/* special_function */
-	   "R_ETCA_64",		/* name */
-	   false,		/* partial_inplace */
-	   0x00000000,		/* src_mask */
-	   0xFFFFFFFFFFFFFFFF,		/* dst_mask */
-	   false),		/* pcrel_offset */
+#define HOWTO_DISP(bits) HOWTO ( \
+            R_ETCA_ ## bits,     \
+            0,                   \
+            (bits / 8U),         \
+            bits,                \
+            false,               \
+            0,                   \
+            complain_overflow_signed, \
+            bfd_elf_generic_reloc, \
+            "R_ETCA_" #bits,     \
+            false,               \
+            0,                   \
+            bits == 64 ? MINUS_ONE : ((bfd_vma) 1 << bits) - 1, \
+            false)
+#define HOWTO_IPREL(bits) HOWTO ( \
+            R_ETCA_IPREL_ ## bits, \
+            0,                     \
+            (bits / 8U),           \
+            bits,                  \
+            true,                  \
+            0,                     \
+            complain_overflow_signed, \
+            bfd_elf_generic_reloc, \
+            "R_ETCA_IPREL_" #bits, \
+            false,                 \
+            0,                     \
+            bits == 64 ? MINUS_ONE : ((bfd_vma) 1 << bits) - 1, \
+            false)
+    HOWTO_DISP(8),
+    HOWTO_DISP(16),
+    HOWTO_DISP(32),
+    HOWTO_DISP(64),
+    HOWTO_IPREL(8),
+    HOWTO_IPREL(16),
+    HOWTO_IPREL(32),
+    HOWTO_IPREL(64),
 };
 
 #define GET_SIZE(old) ((old >> 4) & 3)
@@ -256,6 +264,7 @@ perform_relocation (const reloc_howto_type *howto,
 		    asection *input_section,
 		    bfd *input_bfd ATTRIBUTE_UNUSED,
 		    bfd_byte *contents) {
+    // TODO: Overflow checks?
     if (howto->pc_relative)
 	value -= sec_addr (input_section) + rel->r_offset;
     value += rel->r_addend;
@@ -269,19 +278,35 @@ perform_relocation (const reloc_howto_type *howto,
 	    contents[0] |= (value & 0xF00) >> 8;
 	    contents[1] = value & 0xFF;
 	    return bfd_reloc_ok;
+        case R_ETCA_EXABS_8: /* only difference between these 5 is overflow checks (well... and relaxation...) */
+        case R_ETCA_ABM_RIS_8:
+        case R_ETCA_ABM_RIZ_8:
+        case R_ETCA_IPREL_8: /* IP adjustment has already been made above. */
 	case R_ETCA_8: /* We could probably use functions for these, but it's honestly not even worth it*/
 	    contents[0] = value & 0xFF;
 	    return bfd_reloc_ok;
+        case R_ETCA_EXABS_16:
+        case R_ETCA_ABM_RIS_16:
+        case R_ETCA_ABM_RIZ_16:
+        case R_ETCA_IPREL_16:
 	case R_ETCA_16:
 	    contents[0] = (value >> 0) & 0xFF;
 	    contents[1] = (value >> 8) & 0xFF;
 	    return bfd_reloc_ok;
+        case R_ETCA_EXABS_32:
+        case R_ETCA_ABM_RIS_32:
+        case R_ETCA_ABM_RIZ_32:
+        case R_ETCA_IPREL_32:
 	case R_ETCA_32:
 	    contents[0] = (value >> 0) & 0xFF;
 	    contents[1] = (value >> 8) & 0xFF;
 	    contents[2] = (value >> 16) & 0xFF;
 	    contents[3] = (value >> 24) & 0xFF;
 	    return bfd_reloc_ok;
+        case R_ETCA_EXABS_64:
+        case R_ETCA_ABM_RIS_64:
+        case R_ETCA_ABM_RIZ_64:
+        case R_ETCA_IPREL_64:
 	case R_ETCA_64:
 	    contents[0] = (value >> 0) & 0xFF;
 	    contents[1] = (value >> 8) & 0xFF;
@@ -440,7 +465,7 @@ etca_elf_relocate_section(bfd *output_bfd,
 		/* Nothing special to do*/
 		break;
 	    default:
-		if (R_ETCA_IS_MOV(r_type) || R_ETCA_IS_MOV_REX(r_type)) {
+		if (R_ETCA_IS_MOV(r_type) || R_ETCA_IS_MOV_REX(r_type) || R_ETCA_IS_ANY_DISP(r_type)) {
 		    break; /* Nothing to do */
 		} else {
 		    status = bfd_reloc_notsupported;
@@ -611,6 +636,10 @@ static const struct etca_reloc_map etca_reloc_map [] =
 #define PAIR(NAME) { BFD_RELOC_ETCA_ ## NAME,       	R_ETCA_ ## NAME }
 	{ BFD_RELOC_NONE,	       R_ETCA_NONE },
 	PAIR(BASE_JMP),
+        PAIR(EXABS_8),
+        PAIR(EXABS_16),
+        PAIR(EXABS_32),
+        PAIR(EXABS_64),
 	PAIR(SAF_CALL),
 	PAIR(ABM_RIS_5),
 	PAIR(ABM_RIZ_5),
@@ -657,6 +686,10 @@ static const struct etca_reloc_map etca_reloc_map [] =
 	{ BFD_RELOC_16,	       R_ETCA_16 },
 	{ BFD_RELOC_32,	       R_ETCA_32 },
 	{ BFD_RELOC_64,	       R_ETCA_64 },
+        { BFD_RELOC_8_PCREL,   R_ETCA_IPREL_8 },
+        { BFD_RELOC_16_PCREL,  R_ETCA_IPREL_16 },
+        { BFD_RELOC_32_PCREL,  R_ETCA_IPREL_32 },
+        { BFD_RELOC_64_PCREL,  R_ETCA_IPREL_64 },
 #undef PAIR
 	};
 

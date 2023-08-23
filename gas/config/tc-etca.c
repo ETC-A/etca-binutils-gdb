@@ -189,10 +189,12 @@ static bool assemble_cond_prefix(void);
 #define ETCA_A_OFS 5
 // The offset of a 'B' register field in an ABM byte.
 #define ETCA_B_OFS 2
-// The offset of a 'B'[ase] register field in an SIB byte.
-#define ETCA_SIBB_OFS 3
+// the offset of a 'S'[cale] in an SIB byte.
+#define ETCA_SIBS_OFS 6
 // The offset of an [inde]'X' register field in an SIB byte.
-#define ETCA_SIBX_OFS 0
+#define ETCA_SIBX_OFS 3
+// The offset of a 'B'[ase] register field in an SIB byte.
+#define ETCA_SIBB_OFS 0
 // Place the (bottom 3 bits of the) given register number into a byte
 // at the given field.
 #define DEPOSIT_REG(regnum, field) ((regnum & 7) << ETCA_ ## field ## _OFS)
@@ -427,7 +429,7 @@ static int8_t parse_size_attr(char value) {
 static struct etca_cpuid_pattern rex_pat = ETCA_PAT(REX);
 static struct etca_cpuid_pattern cond_pat= ETCA_PAT(COND);
 static struct etca_cpuid_pattern fi_pat  = ETCA_PAT(FI);
-// static struct etca_cpuid_pattern mo1_pat = ETCA_PAT(MO1);
+static struct etca_cpuid_pattern mo1_pat = ETCA_PAT(MO1);
 static struct etca_cpuid_pattern mo2_pat = ETCA_PAT(MO2);
 static struct etca_cpuid_pattern exop_pat= ETCA_PAT(EXOP);
 static struct etca_cpuid_pattern int_pat = ETCA_PAT(INT);
@@ -735,6 +737,7 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
 
 // check for a '+' before the next term, if necessary.
 #define NEXT_TERM() do {\
+    if (*str == ']') goto check_done;\
     if (have_thing) {\
         if (*str != '+') goto check_done;\
         str++;\
@@ -841,14 +844,21 @@ static char *parse_memory_inner(char *str, struct etca_arg *result) {
 check_done: // NEXT_TERM jumps here if there is no '+' indicating a new term.
 #undef NEXT_TERM
     if (*str != ']') {
-        as_bad("junk in memory operand");
 give_up: // jump here to give up parsing and search for errors in next operand.
+        as_bad("junk in memory operand");
         while (*++str != ']' && *str != ',' && *str != '\0') {}
     }
     if (*str == ']') str++; // consume ']'
 
     result->kind.memory = 1;
     result->reg_size = -1;
+
+    // if we found [ip], fill in a fake concrete d8 displacement of 0.
+    if (result->memory.have_ip && !result->kind.dispAny) {
+        result->kind.immConc = result->kind.disp8 = result->kind.dispAny = 1;
+        result->imm_expr.X_op = O_constant;
+        result->imm_expr.X_add_number = 0;
+    }
 
     return str;
 }
@@ -2446,17 +2456,93 @@ process_mov_pseudo(void) {
 #undef KIND
 }
 
-static bfd_reloc_code_real_type bfd_reloc_for_size[4] = {
+static bfd_reloc_code_real_type bfd_disp_reloc_for_size[4] = {
     BFD_RELOC_8, BFD_RELOC_16, BFD_RELOC_32, BFD_RELOC_64,
+};
+static bfd_reloc_code_real_type bfd_iprel_reloc_for_size[4] = {
+    [SA_BYTE]  = BFD_RELOC_8_PCREL,
+    [SA_WORD]  = BFD_RELOC_16_PCREL,
+    [SA_DWORD] = BFD_RELOC_32_PCREL,
+    [SA_QWORD] = BFD_RELOC_64_PCREL,
+};
+static bfd_reloc_code_real_type bfd_exabs_reloc_for_size[4] = {
+    [SA_BYTE]  = BFD_RELOC_ETCA_EXABS_8,
+    [SA_WORD]  = BFD_RELOC_ETCA_EXABS_16,
+    [SA_DWORD] = BFD_RELOC_ETCA_EXABS_32,
+    [SA_QWORD] = BFD_RELOC_ETCA_EXABS_64,
+};
+static bfd_reloc_code_real_type bfd_signed_reloc_for_size[4] = {
+    [SA_BYTE]  = BFD_RELOC_ETCA_ABM_RIS_8,
+    [SA_WORD]  = BFD_RELOC_ETCA_ABM_RIS_16,
+    [SA_DWORD] = BFD_RELOC_ETCA_ABM_RIS_32,
+    [SA_QWORD] = BFD_RELOC_ETCA_ABM_RIS_64,
+};
+static bfd_reloc_code_real_type bfd_unsigned_reloc_for_size[4] = {
+    [SA_BYTE]  = BFD_RELOC_ETCA_ABM_RIZ_8,
+    [SA_WORD]  = BFD_RELOC_ETCA_ABM_RIZ_16,
+    [SA_DWORD] = BFD_RELOC_ETCA_ABM_RIZ_32,
+    [SA_QWORD] = BFD_RELOC_ETCA_ABM_RIZ_64,
 };
 
 enum abm_mode {
     invalid,
-    ri_byte,
+    // for the rest, we create a bitmap of the various features we need to encode:
+    // an immediate (8 or S), a displacement (8 or ptr), and each field of SIB.
+#define ABM_I8 0x40
+#define ABM_IS 0x20
+#define ABM_D8 0x10
+#define ABM_DP 0x08
+#define ABM_X  0x04
+#define ABM_B  0x02
+// indicates that we have r,m instead of m,r/i. Unset for iprel (that's separate), but set for bx.
+// (iprel does set this during encoding before handing itself off)
+#define ABM_DIR 0x01
+    // all the immediate modes
+    abm_d_i8   = ABM_DP | ABM_I8, // m,i is always DP
+    abm_d_iS   = ABM_DP | ABM_IS,
+    abm_b_i8   = ABM_B  | ABM_I8,
+    abm_b_iS   = ABM_B  | ABM_IS,
+    abm_bd_i8  = ABM_B  | ABM_DP | ABM_I8,
+    abm_bd_iS  = ABM_B  | ABM_DP | ABM_IS,
+    abm_xd_i8  = ABM_X  | ABM_DP | ABM_I8,
+    abm_xd_iS  = ABM_X  | ABM_DP | ABM_IS,
+    abm_bx_i8  = ABM_B  | ABM_X  | ABM_I8,
+    abm_bx_iS  = ABM_B  | ABM_X  | ABM_IS,
+    abm_bxd_i8 = ABM_B  | ABM_X  | ABM_DP | ABM_I8,
+    abm_bxd_iS = ABM_B  | ABM_X  | ABM_DP | ABM_IS,
+    // reversible modes
+    abm_b_r    = ABM_B,
+    abm_r_b    = ABM_B  | ABM_DIR,
+    abm_dP_r   = ABM_DP,
+    abm_r_dP   = ABM_DP | ABM_DIR,
+    abm_bd8_r  = ABM_B  | ABM_D8,
+    abm_r_bd8  = ABM_B  | ABM_D8 | ABM_DIR,
+    abm_bdP_r  = ABM_B  | ABM_DP,
+    abm_r_bdP  = ABM_B  | ABM_DP | ABM_DIR,
+    abm_xd8_r  = ABM_X  | ABM_D8,
+    abm_r_xd8  = ABM_X  | ABM_D8 | ABM_DIR,
+    abm_xdP_r  = ABM_X  | ABM_DP,
+    abm_r_xdP  = ABM_X  | ABM_DP | ABM_DIR,
+    abm_bxd8_r = ABM_B  | ABM_X  | ABM_D8,
+    abm_r_bxd8 = ABM_B  | ABM_X  | ABM_D8 | ABM_DIR,
+    abm_bxdP_r = ABM_B  | ABM_X  | ABM_DP,
+    abm_r_bxdP = ABM_B  | ABM_X  | ABM_DP | ABM_DIR,
+    // These are reversible but are encoded under MM=01 for space reasons.
+    // As a result, they are added by MO2.
+    abm_bx_r   = ABM_B  | ABM_X,
+    abm_r_bx   = ABM_B  | ABM_X | ABM_DIR,
+
+    // finally the miscellaneous ones; start above the bitmap.
+#define ABM_NO_BITMAP 0x80
+    ri_byte = ABM_NO_BITMAP,
     abm_00,
     abm_fi_8,
     abm_fi_big, // decision to set REX.Q should be made already
         // by validate_conc_imm_size. So we don't distinguish further here.
+        // similarly for the displacement memory modes.
+    // handle the iprel modes separately from the bitmap.
+    abm_iprel_8,
+    abm_iprel_P,
 };
 
 // Not declared above since it's a local implementation detail that depends on the above enum.
@@ -2475,6 +2561,7 @@ enum abm_mode {
  * Will modify ai to make small adjustments as needed, of course.
  * */
 static enum abm_mode find_abm_mode(void);
+static unsigned char fill_in_abm_mem_bitmap(struct etca_arg *mem, unsigned char bitmap);
 
 static void assemble_abm(enum abm_mode);
 
@@ -2506,15 +2593,137 @@ static enum abm_mode find_abm_mode(void) {
         ai.args[1].imm_expr.X_add_number = ai.args[1].reg.ctrl_reg_num;
         // and encode an ri_byte.
         mode = ri_byte;
+    } else if (ai.params.kinds.mi) {
+        unsigned char bitmap = 0; // will become mode eventually
+        // if kind.imm8 is set, it must be concrete, so we only have to check that.
+        know(ai.args[1].kind.immAny);
+        if (   ( ai.imm_signed && ai.args[1].kind.imm8s)
+            || (!ai.imm_signed && ai.args[1].kind.imm8z)) {
+            know(ai.args[1].kind.immConc);
+            bitmap |= ABM_I8;
+        } else {
+            bitmap |= ABM_IS;
+        }
+        bitmap = fill_in_abm_mem_bitmap(&ai.args[0], bitmap);
+        mode = (enum abm_mode)bitmap;
+    } else if (ai.params.kinds.mr) {
+        mode = (enum abm_mode) fill_in_abm_mem_bitmap(&ai.args[0], 0);
+    } else if (ai.params.kinds.rm) {
+        // if this is an ip-relative one, don't use a bitmap:
+        if (ai.args[1].memory.have_ip) {
+            mode = ai.args[1].kind.disp8 ? abm_iprel_8 : abm_iprel_P;
+        } else {
+            mode = (enum abm_mode) fill_in_abm_mem_bitmap(&ai.args[1], ABM_DIR);
+        }
     } else {
 	as_bad("Unknown params kind for assemble_abm");
 	return invalid;
     }
 #undef IS_VALID_REG
 
+    if (mode == invalid) {
+        // If the mode is invalid at this point, don't try to validate it
+        // or emit a REX byte. We've certainly emitted an error message
+        // and can give up.
+        return mode;
+    }
+
+    // check that we have the ABM mode that we need available.
+    // Don't check for FI, as validate_conc_imm_size has already done that
+    // (it needs to know if it should restrict immediates to 5 bits).
+    // So we only need to inspect MO1 and MO2 availability here.
+    // If it's not a memory mode that we have a name for, then it's
+    // a bad mode.
+    switch (mode) {
+        // MO1 modes
+        case abm_b_r: case abm_r_b: case abm_dP_r: case abm_r_dP:
+        case abm_bd8_r: case abm_r_bd8: case abm_bdP_r: case abm_r_bdP:
+        case abm_xd8_r: case abm_r_xd8: case abm_xdP_r: case abm_r_xdP:
+        case abm_bxd8_r: case abm_r_bxd8: case abm_bxdP_r: case abm_r_bxdP:
+            if (!CHECK_PAT(mo1_pat)) {
+                as_bad("this memory operand for `%s' requires MO1", ai.opcode->name);
+            }
+            break;
+        // MO2 modes
+        case abm_d_i8: case abm_d_iS: case abm_b_i8: case abm_b_iS:
+        case abm_bd_i8: case abm_bd_iS: case abm_xd_i8: case abm_xd_iS:
+        case abm_bx_i8: case abm_bx_iS: case abm_bxd_i8: case abm_bxd_iS:
+        case abm_iprel_8: case abm_iprel_P:
+        case abm_bx_r: case abm_r_bx:
+            if (!CHECK_PAT(mo2_pat)) {
+                as_bad("this operand pair for `%s' requires MO2", ai.opcode->name);
+            }
+            break;
+        
+        case ri_byte: case abm_00: // base modes
+            break;
+        case abm_fi_8: case abm_fi_big: // FI modes, already checked.
+            know(CHECK_PAT(fi_pat));
+            break;
+        default:
+            // this happens for anything the user can write but not encode,
+            // excluding []. So, [S*X], anything with d8 and an immediate,
+            // [d8], etc.
+            // Except, actually, [S*X] will turn into [S*X + d?], and we
+            // have a mode for that.
+            as_bad("bad operands for `%s'", ai.opcode->name);
+            return invalid;
+    }
+
     generic_rex_init();
     assemble_rex_prefix();
     return mode;
+}
+
+static unsigned char fill_in_abm_mem_bitmap(struct etca_arg *mem, unsigned char bitmap) {
+    // we don't use this if we have an (valid) IP. Also, *mem better be a memory operand!
+    know(mem->kind.memory);
+    // However, if the user has tried to write an IP-relative address as the left operand,
+    // we might get here. Give them an error message if that happens.
+    if (mem->memory.have_ip) {
+        know(mem == &ai.args[0]);
+        as_bad("the left operand of `%s' cannot be ip-relative", ai.opcode->name);
+        return invalid;
+    }
+    
+    // remaining fields are base and index.
+    if (mem->memory.base_reg >= 0) {
+        bitmap |= ABM_B;
+    }
+    if (mem->memory.index_reg >= 0) {
+        bitmap |= ABM_X;
+    }
+
+    if (!mem->kind.dispAny) {
+        // DISPLACEMENT PROMOTION:
+        // identify modes which the user should be able to write without a +0
+        // and insert the +0 automatically.
+        // This happens for [S*X] (d8 with r in either direction, dP with imm) mainly.
+        // However, it also happens for [B + S*X] if we don't have MO2.
+
+        if ((bitmap & ABM_X) && // must have S*X to promote
+            (  ((bitmap & ABM_B) && !CHECK_PAT(mo2_pat)) // and either B+S*X\MO2
+            || (!(bitmap & ABM_B)))) { // or just only S*X.
+            mem->kind.disp8 = mem->kind.dispAny = mem->kind.immConc = 1;
+            mem->imm_expr.X_op = O_constant;
+            mem->imm_expr.X_add_number = 0;
+        }
+    }
+    // no 'else' here, since previous 'if' may have inserted a displacement.
+    if (mem->kind.dispAny) {
+        // we can only use disp8 if this isn't an mi mode.
+        if (ai.params.kinds.mi) {
+            bitmap |= ABM_DP;
+        } else {
+            bitmap |= mem->kind.disp8 ? ABM_D8 : ABM_DP;
+        }
+    }
+
+    if (bitmap == 0) {
+        as_bad("[] is not a valid memory operand");
+    }
+
+    return bitmap;
 }
 
 /* Assembles just an abm or ri byte, for use by assemble_base_abm and assemble_exop_abm
@@ -2522,9 +2731,15 @@ static enum abm_mode find_abm_mode(void) {
  * potentially does further setup that is required for this function to work.
  */
 void assemble_abm(enum abm_mode mode) {
+    bfd_reloc_code_real_type (*imm_reloc_for_size)[4] =
+        ai.imm_signed ? &bfd_signed_reloc_for_size : &bfd_unsigned_reloc_for_size;
     char *output;
     size_t idx = 0;
+    bool iprel_disp = false;
 
+    // this switch handles all of the non-memory cases.
+    // Once we get into the memory cases, we want to test bitmap bits,
+    // which a switch cannot do.
     switch (mode) {
 	case invalid: /* We shouldn't be called in this case */
 	    abort();
@@ -2546,7 +2761,7 @@ void assemble_abm(enum abm_mode mode) {
             output[idx++] = ai.args[1].imm_expr.X_add_number;
             // if that value was not concrete, we should never select this mode.
             know(ai.args[1].kind.immConc);
-            break;
+            return;
         case abm_fi_big:
             fixS *fixp;
             uint8_t bytes_needed = 1; // ABM byte
@@ -2567,13 +2782,159 @@ void assemble_abm(enum abm_mode mode) {
                     imm_size,
                     &ai.args[1].imm_expr,
                     false, /* not pcrel */
-                    bfd_reloc_for_size[imm_bytes]
+                    (*imm_reloc_for_size)[imm_bytes]
                 );
                 fixp->fx_signed = ai.imm_signed;
             }
-            break;
-	default:
-	    abort();
+            return;
+	default: break;
+    }
+
+    // validate_conc_{imm/disp}_size both make a best-effort with the info
+    // that they have to exclude REX.Q in contexts where it is not legal.
+    // However, it may not be until find_abm_mode when we discover that
+    // we needed to do displacement promotion. This can make a previously-legal
+    // REX.Q immediate into an illegal immediate. Check for that.
+    if (ai.rex.Q && ai.params.kinds.mi && (mode & (ABM_D8 | ABM_DP))) {
+        as_bad(_("qword immediate cannot be used with this memory operand"));
+        return;
+    }
+
+    output = frag_more(1); // abm byte
+
+    // handle the iprel cases. We can leech off code for handling the bitmap by adjusting
+    // our mode to be ABM_D8 or ABM_DP before we start emitting mode-related things,
+    // but then we have to skip the code that tries to construct an SIB byte.
+    if (mode == abm_iprel_8) {
+        *output = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
+                | 0b00010001; // A x [ip + d8]
+        mode = ABM_D8 | ABM_DIR;
+        iprel_disp = true;
+        goto iprel_skip_sib;
+    } else if (mode == abm_iprel_P) {
+        *output = DEPOSIT_REG(ai.args[0].reg.gpr_reg_num, A)
+                | 0b00010101; // A x [ip + dP]
+        mode = ABM_DP | ABM_DIR;
+        iprel_disp = true;
+        goto iprel_skip_sib;
+    }
+
+    // prepare the ABM byte.
+    { /* prepare ABM */
+        // don't worry about truncating A/B, DEPOSIT_REG will handle it.
+        unsigned char field_A = 0, field_B = 0, field_M = 0;
+        // We need an MM=01 mode if we have mi operands, or
+        // if we have specifically a BX mode. FI and iprel are handled.
+        if (ai.params.kinds.mi || mode == abm_bx_r || mode == abm_r_bx) {
+            field_M = 0b01;
+            // simple ones first:
+            if (mode == abm_r_bx) {
+                field_A = ai.args[0].reg.gpr_reg_num;
+                field_B = 0b110;
+            }
+            else if (mode == abm_bx_r) {
+                field_A = ai.args[1].reg.gpr_reg_num;
+                field_B = 0b111;
+            }
+            else {
+                field_A = (!!(mode & ABM_X) << 2) | (!!(mode & ABM_B) << 1) | !!(mode & ABM_DP);
+                field_B = !!(mode & ABM_IS);
+            }
+        }
+        // All of the others are reversible MO1 modes.
+        else {
+            field_M = 0b10 | !(mode & ABM_DIR);
+            field_A = ai.args[!(mode & ABM_DIR)].reg.gpr_reg_num;
+
+            field_B |= !!(mode & ABM_DP); // bottom bit says we have dP (otherwise d8 or nothing).
+            // ABM_B means we should set the middle bit, UNLESS it's the only component.
+            // In that case, we use the 0b000 encoding which would otherwise mean [d8].
+            if (mode != abm_b_r && mode != abm_r_b) {
+                field_B |= !!(mode & ABM_B) << 1;
+            }
+            // finally the top bit means we have S*X.
+            field_B |= !!(mode & ABM_X) << 2;
+        }
+
+        *output = DEPOSIT_REG(field_A, A) | DEPOSIT_REG(field_B, B) | field_M;
+    } /* prepare ABM*/
+
+    // all of these modes use an SIB byte, but we have to fill it in.
+    { /* prepare SIB */
+        struct etca_arg *mem = &ai.args[!!(mode & ABM_DIR)];
+        bool have_B = !!(mode & ABM_B), have_X = !!(mode & ABM_X);
+        output = frag_more(1);
+
+        *output = 0;
+        if (have_B) *output |= DEPOSIT_REG(mem->memory.base_reg, SIBB);
+        if (have_X) {
+            *output |= DEPOSIT_REG(mem->memory.index_reg, SIBX)
+                     | DEPOSIT_REG(mem->memory.scale,     SIBS);
+        }
+    } /* prepare SIB */
+
+iprel_skip_sib: // jump here for iprel modes to skip ABM+SIB prep for less irregular MO modes.
+    bfd_reloc_code_real_type (*disp_reloc_for_size)[4] =
+      iprel_disp ? &bfd_iprel_reloc_for_size : &bfd_disp_reloc_for_size;
+
+    if (mode & ABM_D8) {
+        struct etca_arg *mem = &ai.args[!!(mode & ABM_DIR)];
+        know(mem->kind.immConc); // can't have abstract disp8 :=: disp8 must be concrete
+        output = frag_more(1);
+        *output = mem->imm_expr.X_add_number;
+    } else if (mode & ABM_DP) {
+        struct etca_arg *mem = &ai.args[!!(mode & ABM_DIR)];
+        size_attr ptr_attr = settings.address_size;
+        size_t num_bytes = 1U << ptr_attr;
+        output = frag_more(num_bytes);
+        // encode it literally if it's concrete, otherwise, it'll become a relocation.
+        if (mem->kind.immConc) {
+            md_number_to_chars(output, mem->imm_expr.X_add_number, num_bytes);
+        } else {
+            fixS *fixp = fix_new_exp(
+                frag_now,
+                output - frag_now->fr_literal,
+                num_bytes,
+                &mem->imm_expr,
+                iprel_disp, // it's pcrel only if we had an [ip+d] mode
+                (*disp_reloc_for_size)[ptr_attr]
+            );
+            if (iprel_disp)
+                fixp->fx_offset += output - ai.start_of_instruction;
+            md_number_to_chars(output, 0, num_bytes);
+        }
+    }
+
+    // Then, encode an immediate as described.
+    if (mode & ABM_I8) {
+        struct etca_arg *imm = &ai.args[1];
+        know(imm->kind.immConc); // same as with displacements.
+        output = frag_more(1);
+        *output = imm->imm_expr.X_add_number;
+    } else if (mode & ABM_IS) {
+        struct etca_arg *imm = &ai.args[1];
+        size_attr imm_size = ai.opcode_size;
+        size_t num_bytes;
+
+        // clamp the size of the immediate if we haven't already elected REX.Q.
+        if (!ai.rex.Q && imm_size == SA_QWORD) imm_size = SA_DWORD;
+        num_bytes = 1U << imm_size;
+
+        output = frag_more(num_bytes);
+        if (imm->kind.immConc) {
+            md_number_to_chars(output, imm->imm_expr.X_add_number, num_bytes);
+        } else {
+            fixS *fixp = fix_new_exp(
+                frag_now,
+                output - frag_now->fr_literal,
+                num_bytes,
+                &imm->imm_expr,
+                false,
+                (*imm_reloc_for_size)[imm_size]
+            );
+            fixp->fx_signed = ai.imm_signed;
+            md_number_to_chars(output, 0, num_bytes);
+        }
     }
 }
 
@@ -2666,6 +3027,8 @@ static void assemble_promoted_exop_jump(
     char *output;
     fixS *fixp;
     uint8_t nbytes = 1 << sa;
+    bfd_reloc_code_real_type (*reloc_for_size)[4] =
+        absolute ? &bfd_exabs_reloc_for_size : &bfd_iprel_reloc_for_size;
 
     output = frag_more(1 + nbytes);
 
@@ -2677,9 +3040,9 @@ static void assemble_promoted_exop_jump(
         nbytes,
         &ai.args[0].imm_expr,
         !absolute, /* pcrel? yes for relative. */
-        bfd_reloc_for_size[sa] // this is only correct for absolute jumps at the moment.
+        (*reloc_for_size)[sa] // this is only correct for absolute jumps at the moment.
     );
-    fixp->fx_signed = true; // not convinced this is correct for absolute
+    fixp->fx_signed = absolute; // not convinced this is correct for relative
 
     // if this is a relative jump, we must adjust the addend of the fixup
     // to account for the difference between where we put the relocation

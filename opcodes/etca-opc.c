@@ -196,6 +196,8 @@ struct etca_opc_info etca_opcodes[] = {
         {"readcr",  ETCA_IF_BASE_ABM, 14, PARAMS2(ri, rc), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
         {"writecr", ETCA_IF_BASE_ABM, 15, PARAMS2(ri, rc), SUFFIX(OPR_ANY), ETCA_PAT(BASE), 0},
 
+        {"lea",     ETCA_IF_BASE_ABM, 14, PARAMS1(rm), SUFFIX(OPR_OPR), ETCA_PAT_OR2(MO1,MO2), 0},
+
         {"pop",     ETCA_IF_SAF_STK, 12, PARAMS1(r), SUFFIX(OPR), ETCA_PAT(SAF), 0},
         {"pop",     ETCA_IF_SAF_STK, 12, PARAMS1(m), SUFFIX(OPR), ETCA_PAT_AND2(SAF,MMAI), 0},
         {"push",    ETCA_IF_SAF_STK, 13, PARAMS2(r, i), SUFFIX(OPR), ETCA_PAT(SAF), 0},
