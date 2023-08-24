@@ -1294,7 +1294,9 @@ not_an_opcode:
     // but if we don't have any size extensions, allow a default of word.
     // FIXME: this check happens on every line and should probably be cached in settings.
     if (ai.opcode->size_info.suffix_allowed &&
-        !etca_match_cpuid_pattern(&any_size_pat, &settings.current_cpuid)) {
+        !etca_match_cpuid_pattern(&any_size_pat, &settings.current_cpuid)
+        // but don't default for nop; let process_nop_pseudo handle it.
+        && !(ai.opcode->format == ETCA_IF_PSEUDO && ai.opcode->opcode == ETCA_NOP)) {
         ai.opcode_size = 1;
     }
 
@@ -2658,7 +2660,7 @@ static enum abm_mode find_abm_mode(void) {
         case ri_byte: case abm_00: // base modes
             break;
         case abm_fi_8: case abm_fi_big: // FI modes, already checked.
-            know(CHECK_PAT(fi_pat));
+            if (!CHECK_PAT(fi_pat)) return invalid;
             break;
         default:
             // this happens for anything the user can write but not encode,
@@ -2712,7 +2714,8 @@ static unsigned char fill_in_abm_mem_bitmap(struct etca_arg *mem, unsigned char 
     // no 'else' here, since previous 'if' may have inserted a displacement.
     if (mem->kind.dispAny) {
         // we can only use disp8 if this isn't an mi mode.
-        if (ai.params.kinds.mi) {
+        // Furthermore, if we have the [d] mode, we have to use dP as well.
+        if (ai.params.kinds.mi || !(bitmap & (ABM_B | ABM_X))) {
             bitmap |= ABM_DP;
         } else {
             bitmap |= mem->kind.disp8 ? ABM_D8 : ABM_DP;

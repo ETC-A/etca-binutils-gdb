@@ -90,6 +90,7 @@ struct decoded_arg {
             reg_num base_reg;
             reg_num index_reg;
             uint8_t scale;
+            bool iprel;
         } memory;
     } as;
 };
@@ -121,6 +122,9 @@ struct decode_info {
 
 #define SIGN_EXTEND(value, bit) ((((value) & ((1ULL << (bit)) -1)) ^ (1ULL << ((bit) - 1))) - (1ULL << ((bit) - 1)))
 
+static int decode_abm_mode(struct decode_info*, bfd_byte*, size_t);
+static int8_t get_ptr_size(void);
+
 /* decode the instruction or prefix at the current location in the buffer
  * This is potentially called multiple times to decode prefixes or situations where more bytes are needed
  * byte_count should be the number of bytes that are currently valid in buffer
@@ -150,52 +154,18 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
                 di->argc = 0;
                 di->opcode = (insn[0] & 0x30) >> 4;
                 return 0;
-            } else if (di->opcode == 15 && (insn[1] & 0x1B) != 0x09) { /* mtcr-like but not FI */
-                // FIXME: Actually, m,i operands are legal, but we aren't handling them yet.
-                return -1; // illegal
             }
 	    if (di->opcode == 10 || di->opcode == 11) { /* LOAD or STORE */
 		info->data_size = (1 << di->size);
 		info->insn_type = dis_dref;
 	    }
 	    di->argc = 2;
-	    if ((insn[1] & 3) == 0) { /* RR ABM mode */
-		di->params.kinds.rr = 1;
-		di->args[0].kinds.reg_class = GPR;
-		di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
-		di->args[1].kinds.reg_class = GPR;
-		di->args[1].as.reg = REX(b, (insn[1] & 0x1C) >> 2);
-            } else if ((insn[1] & 0x1B) == 0x09) { /* FI */
-                size_t num_fi_bytes;
-                bool is_signed = ETCA_BASE_ABM_IMM_SIGNED(di->opcode);
-                if ( !(insn[1] & 0x04) ) { /* 8-bit format */
-                    num_fi_bytes = 1;
-                    di->args[1].kinds.imm8s = is_signed;
-                    di->args[1].kinds.imm8z = !is_signed;
-                } else { /* SS attr -bit format */
-                    num_fi_bytes = di->size;
-                    // clamp if we didn't see rex.Q
-                    if (num_fi_bytes == SA_QWORD && !di->rex.q) num_fi_bytes = SA_DWORD;
-                    num_fi_bytes = 1 << num_fi_bytes;
-                }
-                if (byte_count < 2 + num_fi_bytes) { return 2 + num_fi_bytes - byte_count; }
-                di->params.kinds.ri = 1;
-                di->args[0].kinds.reg_class = GPR;
-                di->args[0].as.reg = REX(a, (insn[1] & 0xE0) >> 5);
-                di->args[1].kinds.immAny = 1;
-                di->args[1].as.imm = 0;
-                memcpy(&di->args[1].as.imm, insn + 2, num_fi_bytes);
-                if (is_signed) {
-                    size_t num_bits = num_fi_bytes * 8;
-                    if (num_bits < 64) {
-                        di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, num_bits);
-                    }
-                }
-                return 0;
-	    } else {
-		return -1;
-	    }
-	    return 0;
+            int res = decode_abm_mode(di, insn+1, byte_count-1);
+            if (di->opcode == 15 && (di->params.kinds.mr || di->params.kinds.rm)) {
+                // mtcr operands cannot be mr or rm (but mi is fine).
+                return -1;
+            }
+	    return res;
 	case 0b01:
 	    if (byte_count < 2) { return 1; }
 	    info->insn_info_valid = 1;
@@ -279,24 +249,22 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
             if ((insn[0] & 0xF0) == 0xE0) { /* EXOP computation */
                 if (byte_count < 3) { return 3 - byte_count; }
                 di->format = ETCA_IF_EXOP_ABM;
-                di->params.kinds.rr = !(insn[1] & 0x40);
-                di->params.kinds.ri = !di->params.kinds.r;
+                di->params.kinds.ri = !!(insn[1] & 0x40);
                 di->size   = (insn[1] & 0x30) >> 4;
                 di->opcode = ((insn[0] & 0x0F) << 5)
                            | ((insn[1] & 0x80) >> 3)
                            | ((insn[1] & 0x0F)     );
                 info->insn_type = dis_nonbranch;
                 di->argc = 2;
-                di->args[0].kinds.reg_class = GPR;
-                di->args[0].as.reg = REX(a, (insn[2] & 0xE0) >> 5);
-                if (di->params.kinds.rr) {
-                    di->args[1].kinds.reg_class = GPR;
-                    di->args[1].as.reg = REX(b, (insn[2] & 0x1C) >> 2);
-                } else {
+                if (di->params.kinds.ri) {
+                    di->args[0].kinds.reg_class = GPR;
+                    di->args[0].as.reg = REX(a, (insn[2] & 0xE0) >> 5);
                     di->args[1].kinds.immAny = di->args[1].kinds.imm5s = 1;
                     di->args[1].as.imm = SIGN_EXTEND(insn[2], 5);
+                    return 0;
+                } else {
+                    return decode_abm_mode(di, insn+2, byte_count-2);
                 }
-                return 0;
             }
             else if ((insn[0] & 0xF0) == 0xF0) { /* EXOP jump/call */
                 uint8_t size = insn[0] & 0x03;
@@ -340,6 +308,218 @@ decode_insn(struct disassemble_info *info, bfd_byte *insn, size_t byte_count) {
 	    }
 	    return -1;
     }
+    return -1;
+}
+
+static int decode_abm_mode(struct decode_info *di, bfd_byte *abm, size_t byte_count) {
+    if (byte_count == 0) return 1; // this shouldn't happen, but be defensive.
+        // require at least the ABM byte.
+
+    if ((abm[0] & 3) == 0) { /* RR */
+        di->params.kinds.rr = 1;
+        di->args[0].kinds.reg_class = GPR;
+        di->args[0].as.reg = REX(a, (abm[0] & 0xE0) >> 5);
+        di->args[1].kinds.reg_class = GPR;
+        di->args[1].as.reg = REX(b, (abm[0] & 0x1C) >> 2);
+        return 0;
+    }
+    if ((abm[0] & 0x1B) == 0x09) { /* FI */
+        size_t num_fi_bytes;
+        bool is_signed = !(di->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(di->opcode));
+        if ( !(abm[0] & 0x04) ) { /* 8-bit format */
+            num_fi_bytes = 1;
+            di->args[1].kinds.imm8s = is_signed;
+            di->args[1].kinds.imm8z = !is_signed;
+        } else { /* SS attr -bit format */
+            num_fi_bytes = di->size;
+            // clamp if we didn't see rex.Q
+            if (num_fi_bytes == SA_QWORD && !di->rex.q) num_fi_bytes = SA_DWORD;
+            num_fi_bytes = 1 << num_fi_bytes;
+        }
+        if (byte_count < 1 + num_fi_bytes) { return 1 + num_fi_bytes - byte_count; }
+        di->params.kinds.ri = 1;
+        di->args[0].kinds.reg_class = GPR;
+        di->args[0].as.reg = REX(a, (abm[0] & 0xE0) >> 5);
+        di->args[1].kinds.immAny = 1;
+        di->args[1].as.imm = 0;
+        memcpy(&di->args[1].as.imm, abm + 1, num_fi_bytes);
+        if (is_signed) {
+            size_t num_bits = num_fi_bytes * 8;
+            if (num_bits < 64) {
+                di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, num_bits);
+            }
+        }
+        return 0;
+    }
+    if ((abm[0] & 0x1B) == 0x01) { /* m,i operands */
+        size_attr ptr_attr = get_ptr_size();
+        size_attr imm_attr = (abm[0] & 0x04) ? di->size : SA_BYTE;
+        size_t num_ptr_bytes = 0;
+        size_t num_imm_bytes = 0;
+        unsigned char field_A = (abm[0] & 0xE0) >> 5; // should REX.A be illegal here?
+        bool have_disp = !!(field_A & 0x01);
+        bool have_base = !!(field_A & 0x02);
+        bool have_idx  = !!(field_A & 0x04);
+
+        // A = 0 and A = 4 are illegal
+        if (field_A == 0 || field_A == 4) return -1;
+
+        // can't have REX.Q with a displacement
+        if (ptr_attr == SA_QWORD) ptr_attr = SA_DWORD;
+        // but we can with an immediate, if there's no displacement. Check later.
+        if (imm_attr == SA_QWORD && !di->rex.q) imm_attr = SA_DWORD;
+
+        if (have_disp) num_ptr_bytes = 1U << ptr_attr;
+        num_imm_bytes = 1U << imm_attr;
+
+        if (byte_count < 2/*abm+sib*/ + num_ptr_bytes + num_imm_bytes)
+            return 2 + num_ptr_bytes + num_imm_bytes - byte_count;
+
+        // start filling in fields...
+        di->params.kinds.mi = 1;
+        di->args[0].kinds.memory = 1;
+        di->args[0].as.memory.base_reg = -1;
+        di->args[0].as.memory.index_reg = -1;
+        di->args[0].as.memory.disp = 0;
+        di->args[1].kinds.immAny = 1;
+        if (num_imm_bytes == 1) {
+            if (di->format == ETCA_IF_BASE_ABM && ETCA_BASE_ABM_IMM_UNSIGNED(di->opcode)) {
+                di->args[1].kinds.imm8z = 1;
+            } else {
+                di->args[1].kinds.imm8s = 1;
+            }
+        }
+
+        if (have_disp) {
+            if (di->rex.q) return -1; // can't have rex.q with disp and imm
+            di->args[0].kinds.dispAny = di->args[0].kinds.dispPtr = 1;
+            memcpy(&di->args[0].as.memory.disp, abm+2, num_ptr_bytes);
+            if (num_ptr_bytes < 8) {
+                di->args[0].as.memory.disp =
+                    SIGN_EXTEND(di->args[0].as.memory.disp, 8*num_ptr_bytes);
+            }
+        }
+        if (have_base) {
+            di->args[0].as.memory.base_reg = REX(b, (abm[1] & 0x07));
+        }
+        if (have_idx) {
+            di->args[0].as.memory.index_reg = REX(x, (abm[1] & 0x38) >> 3);
+            di->args[0].as.memory.scale = 1U << ((abm[1] & 0xC0) >> 6);
+        }
+        memcpy(&di->args[1].as.imm, abm + 2 + num_ptr_bytes, num_imm_bytes);
+        if (num_imm_bytes < 8) {
+            di->args[1].as.imm = SIGN_EXTEND(di->args[1].as.imm, 8*num_imm_bytes);
+        }
+        return 0;
+    }
+
+    if ((abm[0] & 0x1B) == 0x11) { /* r,[ip]*/
+        size_attr disp_attr = (abm[0] & 0x04) ? get_ptr_size() : SA_BYTE;
+        size_t num_disp_bytes;
+
+        // ensure we have enough bytes (no SIB byte)
+        if (disp_attr == SA_QWORD && !di->rex.q) disp_attr = SA_DWORD;
+        num_disp_bytes = 1U << disp_attr;
+
+        if (byte_count < 1 + num_disp_bytes) return 1 + num_disp_bytes - byte_count;
+
+        // now fill in fields.
+        di->args[0].kinds.reg_class = GPR;
+        di->params.kinds.rm = di->args[1].kinds.memory = 1;
+        di->args[1].as.memory.iprel = true;
+        di->args[1].as.memory.base_reg = -1;
+        di->args[1].as.memory.index_reg = -1;
+
+        di->args[0].as.reg = REX(a, (abm[0] & 0xE0) >> 5);
+
+        if (disp_attr == SA_BYTE) {
+            di->args[1].kinds.disp8 = 1;
+        } else {
+            di->args[1].kinds.dispPtr = 1;
+        }
+        di->args[1].kinds.dispAny = 1;
+        memcpy(&di->args[1].as.memory.disp, abm+1, num_disp_bytes);
+        if (num_disp_bytes < 8) {
+            di->args[1].as.memory.disp =
+                SIGN_EXTEND(di->args[1].as.memory.disp, 8*num_disp_bytes);
+        }
+        return 0;
+    }
+    if ((abm[0] & 0x02) || ((abm[0] & 0x1B) == 0x19)) { /* r,m or m,r */
+        struct decoded_arg *mem_arg, *reg_arg;
+        bool have_d8, have_dP, have_base, have_index;
+        size_attr disp_attr = SA_UNKNOWN;
+        size_t num_disp_bytes = 0;
+        have_d8 = have_dP = have_base = have_index = 0;
+        if ((abm[0] & 0x1B) == 0x19) { /* r,[B+S*X] (&0x04 == 0) and the reverse. */
+            if (abm[0] & 0x04) {
+                mem_arg = &di->args[0];
+                reg_arg = &di->args[1];
+                di->params.kinds.mr = 1;
+            } else {
+                reg_arg = &di->args[0];
+                mem_arg = &di->args[1];
+                di->params.kinds.rm = 1;
+            }
+            have_base = have_index = true;
+        } else { /* MO1 reversible modes */
+            if (abm[0] & 0x01) { /* m,r */
+                mem_arg = &di->args[0];
+                reg_arg = &di->args[1];
+                di->params.kinds.mr = 1;
+            } else { /* r,m */
+                reg_arg = &di->args[0];
+                mem_arg = &di->args[1];
+                di->params.kinds.rm = 1;
+            }
+            have_dP = !!(abm[0] & 0x04);
+            // we have a d8 if there's no dP, _unless_ ABM.regB is 0.
+            have_d8 = !have_dP && (abm[0] & 0x1C);
+            have_base  = !!(abm[0] & 0x08) || ((abm[0] & 0x1C) == 0);
+            have_index = !!(abm[0] & 0x10);
+        }
+
+        // how many bytes do we need? Hopefully, the compiler is smart
+        // enough to sink all of the otherwise-irrelevant base/index
+        // work above to below this. Moving it ourselves complicates the code.
+        if (have_d8 || have_dP) {
+            disp_attr = have_dP ? get_ptr_size() : SA_BYTE;
+            if (disp_attr == SA_QWORD && !di->rex.q) disp_attr = SA_DWORD;
+            num_disp_bytes = 1U << disp_attr;
+        }
+        // we need this ABM byte, the SIB byte, and the disp bytes.
+        if (byte_count < 2 + num_disp_bytes) return 2 + num_disp_bytes - byte_count;
+
+        // OK, we have enough bytes. Decode the fields.
+        reg_arg->kinds.reg_class = GPR;
+        reg_arg->as.reg = REX(a, (abm[0] & 0xE0) >> 5);
+        mem_arg->kinds.memory = 1;
+        mem_arg->as.memory.base_reg = -1;
+        mem_arg->as.memory.index_reg = -1;
+        // the rest of this is a copy of the m,i case and can maybe be pulled into a function.
+        if (have_base) {
+            mem_arg->as.memory.base_reg = REX(b, (abm[1] & 0x07));
+        }
+        if (have_index) {
+            mem_arg->as.memory.index_reg = REX(x, (abm[1] & 0x38) >> 3);
+            mem_arg->as.memory.scale = 1U << ((abm[1] & 0xC0) >> 6);
+        }
+        if (have_d8 || have_dP) {
+            mem_arg->kinds.dispAny = 1;
+            if (have_d8) mem_arg->kinds.disp8 = 1;
+            else         mem_arg->kinds.dispPtr = 1;
+
+            memcpy(&mem_arg->as.memory.disp, abm+2, num_disp_bytes);
+            if (num_disp_bytes < 8) {
+                mem_arg->as.memory.disp = SIGN_EXTEND(
+                    mem_arg->as.memory.disp, 8*num_disp_bytes
+                );
+            }
+        }
+        return 0;
+    }
+
+    // otherwise, we have no clue what this is.
     return -1;
 }
 
@@ -576,8 +756,9 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 
     int status;
     int action;
-    stream = info->stream;
     char buffer[128];
+    struct decoded_mem *needs_addr_comment = NULL;
+    stream = info->stream;
     fprs = info->fprintf_styled_func;
     if (info->disassembler_options) {
 	parse_etca_dis_options(info->disassembler_options);
@@ -700,6 +881,11 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
             bool have_thing = false; // should we print a + before the next term?
             if (di.args[i].kinds.nested_memory) fprs(stream, dis_style_text, "[");
             fprs(stream, dis_style_text, "[");
+
+            if (di.args[i].as.memory.iprel) {
+                fprs(stream, dis_style_register, "%%ip%c", etca_size_chars[get_ptr_size()]);
+                have_thing = true;
+            }
             if (di.args[i].as.memory.base_reg >= 0) {
                 fprs(stream, dis_style_register, "%%%s", get_reg_name(GPR, di.args[i].as.memory.base_reg, get_ptr_size()));
                 have_thing = true;
@@ -712,16 +898,22 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
                     get_reg_name(GPR, di.args[i].as.memory.index_reg, get_ptr_size()));
                 have_thing = true;
             }
-            if (di.args[i].as.memory.disp != 0) {
+            if (di.args[i].kinds.dispAny) {
                 int64_t disp = di.args[i].as.memory.disp;
                 uint64_t pos_disp = (uint64_t)(-disp); // this way INT_MIN properly becomes INT_MAX+1
-                if (have_thing && disp > 0) {
+                if (disp >= 0) pos_disp = disp;
+                if (have_thing && disp >= 0) {
                     fprs(stream, dis_style_text, " + ");
-                    pos_disp = disp;
                 }
                 if (have_thing && disp < 0) fprs(stream, dis_style_text, " - ");
                 else if (disp < 0)          fprs(stream, dis_style_text, "-");
                 fprs(stream, dis_style_address_offset, "%" PRIu64, pos_disp);
+
+                if (di.args[i].as.memory.iprel || !have_thing) {
+                    // print the target as a comment if this is an absolute or ip-relative address
+                    // (but not if we have a base or index, then it's probably just an offset).
+                    needs_addr_comment = &di.args[i].as.memory;
+                }
             }
             fprs(stream, dis_style_text, "]");
             if (di.args[i].kinds.nested_memory) fprs(stream, dis_style_text, "]");
@@ -739,6 +931,17 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
 	} else {
 	    fprs(stream, dis_style_text, "<unknown operand>");
 	}
+    }
+
+    if (needs_addr_comment) {
+        bfd_vma target = needs_addr_comment->disp;
+        // some memory operand had an address (lone displacement or was iprel).
+        // Add a comment to display what was there.
+        fprs(stream, dis_style_text, "\t; ");
+        if (needs_addr_comment->iprel) {
+            target += di.addr;
+        }
+        info->print_address_func(target, info);
     }
 
     info->private_data = NULL;
