@@ -71,6 +71,7 @@ END_RELOC_NUMBERS (R_ETCA_max)
 #define R_ETCA_IS_DISP(r_type)  (R_ETCA_8 <= (r_type) && (r_type) <= R_ETCA_64)
 #define R_ETCA_IS_IPREL(r_type) (R_ETCA_IPREL_8 <= (r_type) && (r_type) <= R_ETCA_IPREL_64)
 #define R_ETCA_IS_ANY_DISP(r_type) (R_ETCA_IS_EXABS(r_type) || R_ETCA_IS_DISP(r_type) || R_ETCA_IS_IPREL(r_type))
+#define R_ETCA_IS_ABM_IMM(r_type) (R_ETCA_ABM_RIS_5 <= (r_type) && (r_type) <= R_ETCA_ABM_RIZ_64)
 
 #define R_ETCA_IS_MOV(r_type) (R_ETCA_MOV_5 <= (r_type) && (r_type) <= R_ETCA_MOV_32)
 #define R_ETCA_IS_MOV_REX(r_type) (R_ETCA_MOV_5_REX <= (r_type) && (r_type) <= R_ETCA_MOV_32_REX)

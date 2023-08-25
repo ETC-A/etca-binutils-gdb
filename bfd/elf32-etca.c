@@ -465,7 +465,8 @@ etca_elf_relocate_section(bfd *output_bfd,
 		/* Nothing special to do*/
 		break;
 	    default:
-		if (R_ETCA_IS_MOV(r_type) || R_ETCA_IS_MOV_REX(r_type) || R_ETCA_IS_ANY_DISP(r_type)) {
+		if (R_ETCA_IS_MOV(r_type) || R_ETCA_IS_MOV_REX(r_type) ||
+                    R_ETCA_IS_ABM_IMM(r_type) || R_ETCA_IS_ANY_DISP(r_type)) {
 		    break; /* Nothing to do */
 		} else {
 		    status = bfd_reloc_notsupported;
