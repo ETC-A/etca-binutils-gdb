@@ -33,7 +33,7 @@ static fprintf_styled_ftype fprs;
 static void *stream;
 
 static bool no_pseudo = false;
-
+static enum etca_size_attr address_size = SA_WORD;
 
 extern void print_etca_disassembler_options (FILE * s) {
 
@@ -42,8 +42,8 @@ The following ETCa specific disassembler options are supported for use\n\
 with the -M switch (multiple options should be separated by commas):\n");
     fprintf (s, "\n");
     fprintf (s, "  no-pseudo      Disassemble only into canonical instructions.\n");
+    fprintf (s, "  addr32         Assume 32-bit address size (default 16).\n");
     fprintf (s, "\n");
-
 }
 
 /* Parse ETCa disassembler option (without arguments).  */
@@ -51,7 +51,9 @@ static bool
 parse_etca_dis_option_without_args (const char *option)
 {
     if (strcmp (option, "no-pseudo") == 0)
-	no_pseudo = true;
+    	no_pseudo = true;
+    else if (strcmp (option, "addr32") == 0)
+        address_size = SA_DWORD;
     else
 	return false;
     return true;
@@ -123,7 +125,7 @@ struct decode_info {
 #define SIGN_EXTEND(value, bit) ((((value) & ((1ULL << (bit)) -1)) ^ (1ULL << ((bit) - 1))) - (1ULL << ((bit) - 1)))
 
 static int decode_abm_mode(struct decode_info*, bfd_byte*, size_t);
-static int8_t get_ptr_size(void);
+static size_attr get_ptr_size(void);
 
 /* decode the instruction or prefix at the current location in the buffer
  * This is potentially called multiple times to decode prefixes or situations where more bytes are needed
@@ -523,8 +525,8 @@ static int decode_abm_mode(struct decode_info *di, bfd_byte *abm, size_t byte_co
     return -1;
 }
 
-static int8_t get_ptr_size(void) {
-    return 1;
+static size_attr get_ptr_size(void) {
+    return address_size;
 }
 
 static const char*
@@ -902,12 +904,21 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
                 int64_t disp = di.args[i].as.memory.disp;
                 uint64_t pos_disp = (uint64_t)(-disp); // this way INT_MIN properly becomes INT_MAX+1
                 if (disp >= 0) pos_disp = disp;
-                if (have_thing && disp >= 0) {
-                    fprs(stream, dis_style_text, " + ");
+                if (have_thing) {
+                    // if we have a term already, print a base-10 offset from that
+                    if (disp >= 0) {
+                        fprs(stream, dis_style_text, " + ");
+                    }
+                    if (disp < 0)      fprs(stream, dis_style_text, " - ");
+                    fprs(stream, dis_style_address_offset, "%" PRIu64, pos_disp);
+                } else {
+                    // otherwise, this is a constant address; print it in hex at approprite width.
+                    size_attr address_width = get_ptr_size();
+                    uint64_t mask = (address_width == SA_QWORD) 
+                        ? (uint64_t)-1 
+                        : (1ULL << (1U << (address_width+3))) - 1;
+                    fprs(stream, dis_style_address, "0x%" PRIx64, disp & mask);
                 }
-                if (have_thing && disp < 0) fprs(stream, dis_style_text, " - ");
-                else if (disp < 0)          fprs(stream, dis_style_text, "-");
-                fprs(stream, dis_style_address_offset, "%" PRIu64, pos_disp);
 
                 if (di.args[i].as.memory.iprel || !have_thing) {
                     // print the target as a comment if this is an absolute or ip-relative address
@@ -934,14 +945,29 @@ print_insn_etca(bfd_vma addr, struct disassemble_info *info) {
     }
 
     if (needs_addr_comment) {
+        // The idea here is to print the address and name of the symbol defined
+        // there. But this doesn't seem to work for labels outside of the text
+        // segment at all. I suspect this is a BFD deficiency. Regardless, x86
+        // also doesn't print names in this situation, so I think we're SOL.
+        /*
         bfd_vma target = needs_addr_comment->disp;
+        asymbol *sym = NULL;
         // some memory operand had an address (lone displacement or was iprel).
         // Add a comment to display what was there.
         fprs(stream, dis_style_text, "\t; ");
         if (needs_addr_comment->iprel) {
             target += di.addr;
         }
-        info->print_address_func(target, info);
+        sym = info->symbol_at_address_func(target, info);
+        if (sym) {
+            fprs(stream, dis_style_address, "%ld ", target);
+            fprs(stream, dis_style_text,    "<");
+            fprs(stream, dis_style_symbol,  "%s", sym->name);
+            fprs(stream, dis_style_text,    ">");
+        } else {
+            info->print_address_func(target, info);
+        }
+        */
     }
 
     info->private_data = NULL;
