@@ -39,7 +39,7 @@ const bfd_arch_info_type bfd_etca_arch =
                 1,                   /* Is Default  */
                 bfd_default_compatible,
                 bfd_default_scan,
-                0,
+                bfd_arch_default_fill,  /* we may want to define a custom here. See cpu-i386.c */
                 0,                        /* next */
                 0,         /* max_reloc_offset_into_insn */
         };
