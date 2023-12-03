@@ -898,6 +898,7 @@ static char *parse_asp(char *str, struct etca_arg *result) {
     enum asp_ops op;
     char *backtrack = str;
     bool got_register = true;
+    struct etca_arg a_reg;
 
     // if ASP isn't available, backtrack immediately.
     if (!(settings.current_cpuid.cpuid1 & ETCA_CP1_ASP)) {
@@ -922,12 +923,17 @@ static char *parse_asp(char *str, struct etca_arg *result) {
         }
         result->kind.predec = 1;
     } else {
-        str = parse_register_name(str, result);
+        // parse into a_reg here in case we have to backtrack. Otherwise
+        // we might accidentally update result when we aren't actually
+        // reading an ASP operand.
+        str = parse_register_name(str, &a_reg);
         // in this case it might just be a regular memory operand,
         // so definitely don't call as_bad. We can't check for postinc
         // or postdec here since we don't know how much parse_register_name
         // tried to consume.
-        if (!str) return backtrack;
+        if (!str) {
+            return backtrack;
+        }
         // otherwise check for postinc/postdec. If it's not one of those,
         // it's still not an error... just backtrack.
         if (*str == '+' && *(str+1) == '+') {
@@ -940,10 +946,12 @@ static char *parse_asp(char *str, struct etca_arg *result) {
         } else {
             return backtrack;
         }
-        if (result->kind.reg_class != GPR) {
+        if (a_reg.kind.reg_class != GPR) {
             as_bad(not_reg, op_sym[op]);
             got_register = false;
         }
+        result->reg_size = a_reg.reg_size;
+        result->reg = a_reg.reg;
     }
 
     // if we did get a register, ensure the size agrees with address.
