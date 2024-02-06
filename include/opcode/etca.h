@@ -405,6 +405,10 @@ struct etca_params_kind {
 
     uint16_t other: 1; // Other, used by the disassembler to select pseudo ops
 };
+/* Once the syntax of an instruction is fully resolved, the params kind of each
+    operand must be known exactly. At that point, it is useful for debug mode to
+    check that the params_kind is actually one-hot. */
+#define IS_ONE_HOT(x) ((x) && !((x) & ((x) - 1)))
 
 enum etca_args_size {
     NULLARY, // no operands

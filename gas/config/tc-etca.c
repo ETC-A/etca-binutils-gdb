@@ -2957,6 +2957,7 @@ void assemble_base_abm(void) {
     enum abm_mode mode = find_abm_mode(); // sets up and emits the REX byte if needed
     size_attr sa = ai.opcode_size;
     know(sa <= SA_QWORD); // otherwise we should've errored at compute_size
+    know(IS_ONE_HOT(ai.params.uint));
 
     if (mode == invalid) { return; }
 
@@ -2987,6 +2988,7 @@ void assemble_exop_abm(void) {
     uint8_t fmt_spec    = mode == ri_byte;
 
     know(sa <= SA_QWORD);
+    know(IS_ONE_HOT(ai.params.uint));
 
     if (mode == invalid) { return; }
 
