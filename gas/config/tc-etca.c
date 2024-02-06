@@ -2313,6 +2313,8 @@ process_mov_pseudo(void) {
 #define KIND(idx) (ai.args[idx].kind)
 // TODO: simple mem should include displacement but no register
 #define SIMPLE_MEM(idx) (KIND(idx).memory && !KIND(idx).dispAny && ai.args[idx].memory.index_reg == -1)
+
+    ai.params.uint = 0;
     // simple MEM <- reg: store
     if (SIMPLE_MEM(0) && KIND(1).reg_class == GPR) {
         ai.opcode = str_hash_find(opcode_hash_control, "store");
@@ -2346,11 +2348,11 @@ process_mov_pseudo(void) {
 
         if (KIND(0).reg_class == GPR && KIND(1).reg_class == GPR)
             ai.params.kinds.rr = 1;
-        if (KIND(1).memory)
+        else if (KIND(1).memory)
             ai.params.kinds.rm = 1;
-        if (KIND(1).reg_class == GPR)
+        else if (KIND(1).reg_class == GPR)
             ai.params.kinds.mr = 1;
-        if (KIND(1).immAny)
+        else if (KIND(1).immAny)
             ai.params.kinds.mi = 1;
 
         assemble_base_abm();
