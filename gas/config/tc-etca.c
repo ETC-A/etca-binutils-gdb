@@ -3192,7 +3192,11 @@ void assemble_saf_stk(void) {
         ai.argc = 2;
         ai.args[1].kind.reg_class = GPR;
         ai.args[1].reg.gpr_reg_num = 6; // #define this somewhere? or maybe an enum?
-        assemble_base_abm();
+
+	ai.params.kinds.mr = ai.params.kinds.m;
+	ai.params.kinds.m = 0;
+
+	assemble_base_abm();
         return;
     } else if (ai.opcode->opcode == 13) { /* push */
         // parsed operand is in the A operand, but must be moved to B.
@@ -3200,8 +3204,10 @@ void assemble_saf_stk(void) {
         ai.args[1] = ai.args[0];
         ai.args[0].kind.reg_class = GPR;
         ai.args[0].reg.gpr_reg_num = 6;
-        ai.params.kinds.rr = 1;
-        ai.params.kinds.r = 0;
+
+        ai.params.kinds.rm = ai.params.kinds.m;
+        ai.params.kinds.m = 0;
+
         assemble_base_abm();
         return;
     }
