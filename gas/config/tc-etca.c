@@ -1689,7 +1689,7 @@ md_show_usage(FILE *stream) {
 
 /* Check that our arguments, especially the given -march and -mcpuid make sense*/
 void etca_after_parse_args(void) {
-    struct etca_cpuid temp_cpuid;
+    struct etca_cpuid temp_cpuid = ETCA_CPI_BASE;
     bool is_concrete = true;
     size_attr model_size;
     if(settings.arch_name) {
