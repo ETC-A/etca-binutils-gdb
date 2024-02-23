@@ -225,10 +225,10 @@ struct etca_cpuid_pattern {
     ETCA_CP2_##ext1 | ETCA_CP2_##ext2 | ETCA_CP2_##ext3, \
     ETCA_FT_##ext1  | ETCA_FT_##ext2  | ETCA_FT_##ext3)
 
-#define ETCA_EXT_PAT6(ext1, ext2, ext3, ext4, ext5, ext6) MK_ETCA_CPI( \
-    ETCA_CP1_##ext1 | ETCA_CP1_##ext2 | ETCA_CP1_##ext3 | ETCA_CP1_##ext4 | ETCA_CP1_##ext5 | ETCA_CP1_##ext6, \
-    ETCA_CP2_##ext1 | ETCA_CP2_##ext2 | ETCA_CP2_##ext3 | ETCA_CP2_##ext4 | ETCA_CP2_##ext5 | ETCA_CP2_##ext6, \
-    ETCA_FT_##ext1  | ETCA_FT_##ext2  | ETCA_FT_##ext3 | ETCA_FT_##ext4  | ETCA_FT_##ext5  | ETCA_FT_##ext6)
+#define ETCA_EXT_PAT7(ext1, ext2, ext3, ext4, ext5, ext6, ext7) MK_ETCA_CPI( \
+    ETCA_CP1_##ext1 | ETCA_CP1_##ext2 | ETCA_CP1_##ext3 | ETCA_CP1_##ext4 | ETCA_CP1_##ext5 | ETCA_CP1_##ext6 | ETCA_CP1_##ext7, \
+    ETCA_CP2_##ext1 | ETCA_CP2_##ext2 | ETCA_CP2_##ext3 | ETCA_CP2_##ext4 | ETCA_CP2_##ext5 | ETCA_CP2_##ext6 | ETCA_CP2_##ext7, \
+    ETCA_FT_##ext1  | ETCA_FT_##ext2  | ETCA_FT_##ext3 | ETCA_FT_##ext4  | ETCA_FT_##ext5   | ETCA_FT_##ext6  | ETCA_FT_##ext7)
 
 #define ETCA_PAT(ext) ((struct etca_cpuid_pattern){1, ETCA_CPI_##ext})
 #define ETCA_PAT_OR2(ext1, ext2) \
@@ -239,8 +239,8 @@ struct etca_cpuid_pattern {
     ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT3(ext1, ext2, ext3)})
 #define ETCA_PAT_AND3(ext1, ext2, ext3) \
     ((struct etca_cpuid_pattern){1, ETCA_EXT_PAT3(ext1, ext2, ext3)})
-#define ETCA_PAT_OR6(ext1, ext2, ext3, ext4, ext5, ext6) \
-    ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT6(ext1, ext2, ext3, ext4, ext5, ext6)})
+#define ETCA_PAT_OR7(ext1, ext2, ext3, ext4, ext5, ext6, ext7) \
+    ((struct etca_cpuid_pattern){0, ETCA_EXT_PAT7(ext1, ext2, ext3, ext4, ext5, ext6, ext7)})
 
 /* Return 0 if the pattern does not match, 1 otherwise. */
 extern unsigned
@@ -489,6 +489,8 @@ enum etca_pseudo_opcode {
     ETCA_MOV,
     ETCA_NOP,
     ETCA_HLT,
+    ETCA_REVB,  // grev r,-1
+    ETCA_BSWAP, // grev r,-8
     ETCA_PSEUDO_COUNT
 };
 

@@ -352,6 +352,7 @@ static bool compute_params(void);
 static void process_mov_pseudo(void);
 static void process_nop_pseudo(void);
 static void process_hlt_pseudo(void);
+static void process_grev_pseudo(void);
 
 static void assemble_base_abm(void);
 static void assemble_exop_abm(void);
@@ -363,9 +364,11 @@ static void assemble_saf_stk (void);
 static void assemble_exop_jmp(void);
 
 static assembler pseudo_functions[ETCA_PSEUDO_COUNT] = {
-	[ETCA_MOV] = process_mov_pseudo, /* mov */
-	[ETCA_NOP] = process_nop_pseudo, /* nop */
-	[ETCA_HLT] = process_hlt_pseudo, /* hlt */
+	[ETCA_MOV]   = process_mov_pseudo, /* mov */
+	[ETCA_NOP]   = process_nop_pseudo, /* nop */
+	[ETCA_HLT]   = process_hlt_pseudo, /* hlt */
+        [ETCA_REVB]  = process_grev_pseudo, /* revb */
+        [ETCA_BSWAP] = process_grev_pseudo, /* bswap */
 };
 static assembler format_assemblers[ETCA_IFORMAT_COUNT] = {
 	[ETCA_IF_ILLEGAL] = 0, /* ILLEGAL */
@@ -454,7 +457,7 @@ static struct etca_cpuid_pattern size_pats[4] = {
 static struct etca_cpuid_pattern any_size_pat =
     ETCA_PAT_OR3(BYTE, DW, QW);
 static struct etca_cpuid_pattern any_vwi_pat =
-    ETCA_PAT_OR6(FI, COND, REX, MO1, MO2, EXOP);
+    ETCA_PAT_OR7(FI, COND, REX, MO1, MO2, EXOP, BM1);
 
 /* Lookup the given name (passed by pointer) as a register.
  * The name should have a '%' prefix stripped. Also say if there was a '%' prefix.
@@ -2304,6 +2307,35 @@ process_hlt_pseudo(void) {
     char *output = frag_more(2);
     output[0] = 0b10001110; // j +
     output[1] = 0;          //    0
+}
+
+/* Process the GREV pseudo-instructions `revb` and `bswap`. It has already been verified
+    that there is one R or M argument. */
+static void
+process_grev_pseudo(void) {
+    ai.params.kinds.ri = ai.params.kinds.r;
+    ai.params.kinds.mi = ai.params.kinds.m;
+    ai.params.kinds.r = ai.params.kinds.m = 0;
+    ai.argc = 2;
+
+    // second argument is either the imm5s -1 or -8 depending on opcode.
+    ai.args[1].kind = (struct etca_arg_kind){
+        .imm5s = 1,
+        .immAny = 1,
+        .immConc = 1,
+    };
+    ai.args[1].imm_expr.X_op = O_constant;
+    if (ai.opcode->opcode == ETCA_REVB) {
+        ai.args[1].imm_expr.X_add_number = -1;
+    }
+    else if (ai.opcode->opcode == ETCA_BSWAP) {
+        ai.args[1].imm_expr.X_add_number = -8;
+    }
+    else {
+        as_fatal("process_grev_pseudo: not a grev pseudo?");
+    }
+    ai.opcode = str_hash_find(opcode_hash_control, "grev");
+    assemble_exop_abm();
 }
 
 /* Process the mov pseudo instruction. The only thing that needs to be guaranteed

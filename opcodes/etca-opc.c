@@ -179,7 +179,7 @@ struct etca_opc_info etca_opcodes[] = {
         BASE_COMPUTE("movs", 9),
 #undef  BASE_COMPUTE
         // pseudoinstruction takes over without params being checked, but size is computed.
-        { "mov", ETCA_IF_SPECIAL, ETCA_MOV, PARAMS1(other), SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0},
+        {"mov", ETCA_IF_SPECIAL, ETCA_MOV, PARAMS1(other), SUFFIX(OPR_OPR), ETCA_PAT(BASE), 0},
 	{"nop", ETCA_IF_PSEUDO, ETCA_NOP, PARAMS1(e), SUFFIX(NULLARY), ETCA_PAT(BASE), 0},
 
 #define BASE_MEMORY(name, c) \
@@ -212,11 +212,25 @@ struct etca_opc_info etca_opcodes[] = {
         EXOP_COMPUTE("asr", 3),
         EXOP_COMPUTE("rol", 4),
         EXOP_COMPUTE("ror", 5),
-        EXOP_COMPUTE("rcl", 6),
-        EXOP_COMPUTE("rcr", 7),
-        EXOP_COMPUTE("shl", 8),
-        EXOP_COMPUTE("shr", 9),
+        EXOP_COMPUTE("shl", 6),
+        EXOP_COMPUTE("shr", 7),
 #undef EXOP_COMPUTE
+#define BMI1_COMPUTE(name, c) EXOP_ABM_FMT(name, c, BM1)
+        BMI1_COMPUTE("rcl", 8),
+        BMI1_COMPUTE("rcr", 9),
+        BMI1_COMPUTE("popcnt", 10),
+        BMI1_COMPUTE("grev", 11),
+        BMI1_COMPUTE("ctz", 12),
+        BMI1_COMPUTE("clz", 13),
+        BMI1_COMPUTE("movn", 14),
+        BMI1_COMPUTE("andn", 15),
+        BMI1_COMPUTE("lsb", 24),
+        BMI1_COMPUTE("lsmskb", 25),
+        BMI1_COMPUTE("rlsb", 26),
+        BMI1_COMPUTE("zhib", 27),
+        {"revb",  ETCA_IF_PSEUDO, ETCA_REVB,  PARAMS2(r,m), SUFFIX(OPR), ETCA_PAT(BM1), 0},
+        {"bswap", ETCA_IF_PSEUDO, ETCA_BSWAP, PARAMS2(r,m), SUFFIX(OPR), ETCA_PAT(BM1), 0},
+#undef BMI1_COMPUTE
 #define MULDIV(name, c) EXOP_ABM_FMT(name, c, MD)
         MULDIV("udiv", 16),
         MULDIV("sdiv", 17),
