@@ -7356,6 +7356,10 @@ assembler and not (currently) written to any object files.  */
 
 /* ETCa ELF relocations.  */
   BFD_RELOC_ETCA_BASE_JMP,
+  BFD_RELOC_ETCA_EXABS_8,
+  BFD_RELOC_ETCA_EXABS_16,
+  BFD_RELOC_ETCA_EXABS_32,
+  BFD_RELOC_ETCA_EXABS_64,
   BFD_RELOC_ETCA_SAF_CALL,
   BFD_RELOC_ETCA_ABM_RIS_5,
   BFD_RELOC_ETCA_ABM_RIZ_5,
