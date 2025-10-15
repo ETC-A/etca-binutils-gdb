@@ -8,10 +8,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2024-03-04 22:26+0100\n"
+"POT-Creation-Date: 2024-03-04 17:08-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -176,8 +177,8 @@ msgstr ""
 
 #: ldelf.c:1364
 msgid ""
-"%F%P: compact frame descriptions incompatible with DWARF2 .eh_frame from %"
-"pB\n"
+"%F%P: compact frame descriptions incompatible with DWARF2 .eh_frame from "
+"%pB\n"
 msgstr ""
 
 #: ldelf.c:1400
@@ -215,8 +216,8 @@ msgstr ""
 
 #: ldelf.c:1602
 msgid ""
-"%P: warning: --package-metadata=%s does not contain valid JSON, ignoring: %"
-"s\n"
+"%P: warning: --package-metadata=%s does not contain valid JSON, ignoring: "
+"%s\n"
 msgstr ""
 
 #: ldelf.c:1631
@@ -257,14 +258,14 @@ msgstr ""
 
 #: ldelfgen.c:419
 msgid ""
-"%F%P: warning: CTF strtab association failed; strings will not be shared: %"
-"s\n"
+"%F%P: warning: CTF strtab association failed; strings will not be shared: "
+"%s\n"
 msgstr ""
 
 #: ldelfgen.c:446
 msgid ""
-"%F%P: warning: CTF symbol addition failed; CTF will not be tied to symbols: %"
-"s\n"
+"%F%P: warning: CTF symbol addition failed; CTF will not be tied to symbols: "
+"%s\n"
 msgstr ""
 
 #: ldelfgen.c:456
@@ -561,8 +562,8 @@ msgstr ""
 
 #: ldlang.c:2582
 msgid ""
-"%P:%pS: warning: --enable-non-contiguous-regions makes section `%pA' from `%"
-"pB' match /DISCARD/ clause.\n"
+"%P:%pS: warning: --enable-non-contiguous-regions makes section `%pA' from "
+"`%pB' match /DISCARD/ clause.\n"
 msgstr ""
 
 #: ldlang.c:2606
@@ -649,8 +650,8 @@ msgstr ""
 
 #: ldlang.c:3847
 msgid ""
-"%P: warning: CTF section emission failed; output will have no CTF section: %"
-"s\n"
+"%P: warning: CTF section emission failed; output will have no CTF section: "
+"%s\n"
 msgstr ""
 
 #: ldlang.c:3886
@@ -739,8 +740,8 @@ msgstr ""
 
 #: ldlang.c:5811
 msgid ""
-"%F%P:%pS: non constant or forward reference address expression for section %"
-"s\n"
+"%F%P:%pS: non constant or forward reference address expression for section "
+"%s\n"
 msgstr ""
 
 #: ldlang.c:5836
@@ -846,8 +847,8 @@ msgstr ""
 
 #: ldlang.c:8053
 msgid ""
-"%P: warning: --enable-non-contiguous-regions discards section `%pA' from `%"
-"pB'\n"
+"%P: warning: --enable-non-contiguous-regions discards section `%pA' from "
+"`%pB'\n"
 msgstr ""
 
 #: ldlang.c:8132
@@ -2134,17 +2135,17 @@ msgstr ""
 #: eaarch64elf.c:844 eaarch64elf32.c:844 eaarch64elf32b.c:844
 #: eaarch64elfb.c:844 eaarch64fbsd.c:849 eaarch64fbsdb.c:849
 #: eaarch64haiku.c:849 eaarch64linux.c:849 eaarch64linux32.c:849
-#: eaarch64linux32b.c:849 eaarch64linuxb.c:849 eaarch64nto.c:946
-#: earmelf.c:1107 earmelf_fbsd.c:1107 earmelf_fuchsia.c:1112
-#: earmelf_haiku.c:1112 earmelf_linux.c:1112 earmelf_linux_eabi.c:1112
+#: eaarch64linux32b.c:849 eaarch64linuxb.c:849 eaarch64nto.c:946 earmelf.c:1107
+#: earmelf_fbsd.c:1107 earmelf_fuchsia.c:1112 earmelf_haiku.c:1112
+#: earmelf_linux.c:1112 earmelf_linux_eabi.c:1112
 #: earmelf_linux_fdpiceabi.c:1112 earmelf_nacl.c:1112 earmelf_nbsd.c:1107
 #: earmelf_phoenix.c:1112 earmelf_vxworks.c:1143 earmelfb.c:1107
 #: earmelfb_fbsd.c:1107 earmelfb_fuchsia.c:1112 earmelfb_linux.c:1112
 #: earmelfb_linux_eabi.c:1112 earmelfb_linux_fdpiceabi.c:1112
 #: earmelfb_nacl.c:1112 earmelfb_nbsd.c:1107 earmnto.c:1082 ecskyelf.c:571
 #: ecskyelf_linux.c:738 eelf32metag.c:735 eelf64lppc.c:1206
-#: eelf64lppc_fbsd.c:1206 eelf64ppc.c:1206 eelf64ppc_fbsd.c:1206
-#: ehppaelf.c:591 ehppalinux.c:773 ehppanbsd.c:773 ehppaobsd.c:773
+#: eelf64lppc_fbsd.c:1206 eelf64ppc.c:1206 eelf64ppc_fbsd.c:1206 ehppaelf.c:591
+#: ehppalinux.c:773 ehppanbsd.c:773 ehppaobsd.c:773
 msgid "%F%P: invalid number `%s'\n"
 msgstr ""
 
@@ -2894,8 +2895,8 @@ msgstr ""
 
 #: pdb.c:2235
 msgid ""
-"%P: warning: CodeView type record LF_UDT_SRC_LINE referred to unknown type %"
-"v\n"
+"%P: warning: CodeView type record LF_UDT_SRC_LINE referred to unknown type "
+"%v\n"
 msgstr ""
 
 #: pdb.c:2257
@@ -3253,13 +3254,12 @@ msgstr ""
 #: eelf32lr5900.c:174 eelf32lr5900n32.c:174 eelf32lsmip.c:174
 #: eelf32ltsmip.c:174 eelf32ltsmip_fbsd.c:174 eelf32ltsmipn32.c:174
 #: eelf32ltsmipn32_fbsd.c:174 eelf32metag.c:89 eelf32mipswindiss.c:174
-#: eelf64bmip.c:188 eelf64btsmip.c:174 eelf64btsmip_fbsd.c:174
-#: eelf64lppc.c:121 eelf64lppc_fbsd.c:121 eelf64ltsmip.c:174
-#: eelf64ltsmip_fbsd.c:174 eelf64ppc.c:121 eelf64ppc_fbsd.c:121
-#: eelf_mipsel_haiku.c:174 ehppaelf.c:112 ehppalinux.c:112 ehppanbsd.c:112
-#: ehppaobsd.c:112 em68hc11elf.c:172 em68hc11elfb.c:172 em68hc12elf.c:172
-#: em68hc12elfb.c:172 enios2elf.c:94 enios2linux.c:94 eppcmacos.c:1660
-#: eppcmacos.c:1670
+#: eelf64bmip.c:188 eelf64btsmip.c:174 eelf64btsmip_fbsd.c:174 eelf64lppc.c:121
+#: eelf64lppc_fbsd.c:121 eelf64ltsmip.c:174 eelf64ltsmip_fbsd.c:174
+#: eelf64ppc.c:121 eelf64ppc_fbsd.c:121 eelf_mipsel_haiku.c:174 ehppaelf.c:112
+#: ehppalinux.c:112 ehppanbsd.c:112 ehppaobsd.c:112 em68hc11elf.c:172
+#: em68hc11elfb.c:172 em68hc12elf.c:172 em68hc12elfb.c:172 enios2elf.c:94
+#: enios2linux.c:94 eppcmacos.c:1660 eppcmacos.c:1670
 msgid "%F%P: can not create BFD: %E\n"
 msgstr ""
 
@@ -3453,23 +3453,23 @@ msgstr ""
 #: earmelfb_linux.c:299 earmelfb_linux_eabi.c:299
 #: earmelfb_linux_fdpiceabi.c:299 earmelfb_nacl.c:299 earmelfb_nbsd.c:298
 #: earmnto.c:298 eavr1.c:181 eavr2.c:181 eavr25.c:181 eavr3.c:181 eavr31.c:181
-#: eavr35.c:181 eavr4.c:181 eavr5.c:181 eavr51.c:181 eavr6.c:181
-#: eavrtiny.c:181 eavrxmega1.c:181 eavrxmega2.c:181 eavrxmega3.c:181
-#: eavrxmega4.c:181 eavrxmega5.c:181 eavrxmega6.c:181 eavrxmega7.c:181
-#: ecskyelf.c:212 ecskyelf_linux.c:212 eelf32b4300.c:207 eelf32bmip.c:207
-#: eelf32bmipn32.c:221 eelf32bsmip.c:221 eelf32btsmip.c:207
-#: eelf32btsmip_fbsd.c:207 eelf32btsmipn32.c:207 eelf32btsmipn32_fbsd.c:207
-#: eelf32ebmip.c:207 eelf32ebmipvxworks.c:207 eelf32elmip.c:207
-#: eelf32elmipvxworks.c:207 eelf32l4300.c:207 eelf32lmip.c:207
-#: eelf32lr5900.c:207 eelf32lr5900n32.c:207 eelf32lsmip.c:207
-#: eelf32ltsmip.c:207 eelf32ltsmip_fbsd.c:207 eelf32ltsmipn32.c:207
-#: eelf32ltsmipn32_fbsd.c:207 eelf32metag.c:208 eelf32mipswindiss.c:207
-#: eelf64bmip.c:221 eelf64btsmip.c:207 eelf64btsmip_fbsd.c:207
-#: eelf64lppc.c:484 eelf64lppc_fbsd.c:484 eelf64ltsmip.c:207
-#: eelf64ltsmip_fbsd.c:207 eelf64ppc.c:484 eelf64ppc_fbsd.c:484
-#: eelf_mipsel_haiku.c:207 ehppaelf.c:232 ehppalinux.c:232 ehppanbsd.c:232
-#: ehppaobsd.c:232 em68hc11elf.c:297 em68hc11elfb.c:297 em68hc12elf.c:297
-#: em68hc12elfb.c:297 enios2elf.c:225 enios2linux.c:225 eppcmacos.c:1125
+#: eavr35.c:181 eavr4.c:181 eavr5.c:181 eavr51.c:181 eavr6.c:181 eavrtiny.c:181
+#: eavrxmega1.c:181 eavrxmega2.c:181 eavrxmega3.c:181 eavrxmega4.c:181
+#: eavrxmega5.c:181 eavrxmega6.c:181 eavrxmega7.c:181 ecskyelf.c:212
+#: ecskyelf_linux.c:212 eelf32b4300.c:207 eelf32bmip.c:207 eelf32bmipn32.c:221
+#: eelf32bsmip.c:221 eelf32btsmip.c:207 eelf32btsmip_fbsd.c:207
+#: eelf32btsmipn32.c:207 eelf32btsmipn32_fbsd.c:207 eelf32ebmip.c:207
+#: eelf32ebmipvxworks.c:207 eelf32elmip.c:207 eelf32elmipvxworks.c:207
+#: eelf32l4300.c:207 eelf32lmip.c:207 eelf32lr5900.c:207 eelf32lr5900n32.c:207
+#: eelf32lsmip.c:207 eelf32ltsmip.c:207 eelf32ltsmip_fbsd.c:207
+#: eelf32ltsmipn32.c:207 eelf32ltsmipn32_fbsd.c:207 eelf32metag.c:208
+#: eelf32mipswindiss.c:207 eelf64bmip.c:221 eelf64btsmip.c:207
+#: eelf64btsmip_fbsd.c:207 eelf64lppc.c:484 eelf64lppc_fbsd.c:484
+#: eelf64ltsmip.c:207 eelf64ltsmip_fbsd.c:207 eelf64ppc.c:484
+#: eelf64ppc_fbsd.c:484 eelf_mipsel_haiku.c:207 ehppaelf.c:232 ehppalinux.c:232
+#: ehppanbsd.c:232 ehppaobsd.c:232 em68hc11elf.c:297 em68hc11elfb.c:297
+#: em68hc12elf.c:297 em68hc12elfb.c:297 enios2elf.c:225 enios2linux.c:225
+#: eppcmacos.c:1125
 msgid "%X%P: can not make stub section: %E\n"
 msgstr ""
 
@@ -3486,47 +3486,47 @@ msgstr ""
 #: earmelfb_fuchsia.c:411 earmelfb_linux.c:411 earmelfb_linux_eabi.c:411
 #: earmelfb_linux_fdpiceabi.c:411 earmelfb_nacl.c:411 earmelfb_nbsd.c:410
 #: earmnto.c:410 eavr1.c:316 eavr2.c:316 eavr25.c:316 eavr3.c:316 eavr31.c:316
-#: eavr35.c:316 eavr4.c:316 eavr5.c:316 eavr51.c:316 eavr6.c:316
-#: eavrtiny.c:316 eavrxmega1.c:316 eavrxmega2.c:316 eavrxmega3.c:316
-#: eavrxmega4.c:316 eavrxmega5.c:316 eavrxmega6.c:316 eavrxmega7.c:316
-#: ecriself.c:112 ecrislinux.c:113 ed10velf.c:112 eelf32_sparc.c:113
-#: eelf32_sparc_sol2.c:245 eelf32_sparc_vxworks.c:142 eelf32_spu.c:646
-#: eelf32_tic6x_be.c:183 eelf32_tic6x_elf_be.c:183 eelf32_tic6x_elf_le.c:183
-#: eelf32_tic6x_le.c:183 eelf32_tic6x_linux_be.c:183
-#: eelf32_tic6x_linux_le.c:183 eelf32_x86_64.c:137 eelf32am33lin.c:112
-#: eelf32b4300.c:309 eelf32bfin.c:122 eelf32bfinfd.c:122 eelf32bmip.c:309
-#: eelf32bmipn32.c:323 eelf32briscv.c:92 eelf32briscv_ilp32.c:92
-#: eelf32briscv_ilp32f.c:92 eelf32bsmip.c:323 eelf32btsmip.c:309
-#: eelf32btsmip_fbsd.c:309 eelf32btsmipn32.c:309 eelf32btsmipn32_fbsd.c:309
-#: eelf32cr16.c:262 eelf32crx.c:149 eelf32ebmip.c:309 eelf32ebmipvxworks.c:338
-#: eelf32elmip.c:309 eelf32elmipvxworks.c:338 eelf32epiphany.c:112
-#: eelf32epiphany_4x4.c:114 eelf32etca.c:112 eelf32frvfd.c:112
-#: eelf32ip2k.c:112 eelf32l4300.c:309 eelf32lm32.c:112 eelf32lm32fd.c:112
-#: eelf32lmip.c:309 eelf32loongarch.c:91 eelf32lppc.c:321
-#: eelf32lppclinux.c:321 eelf32lppcnto.c:321 eelf32lppcsim.c:321
-#: eelf32lr5900.c:309 eelf32lr5900n32.c:308 eelf32lriscv.c:92
-#: eelf32lriscv_ilp32.c:92 eelf32lriscv_ilp32f.c:92 eelf32lsmip.c:309
-#: eelf32ltsmip.c:309 eelf32ltsmip_fbsd.c:309 eelf32ltsmipn32.c:309
-#: eelf32ltsmipn32_fbsd.c:309 eelf32m32c.c:123 eelf32mb_linux.c:113
-#: eelf32mbel_linux.c:113 eelf32mcore.c:112 eelf32mep.c:112 eelf32metag.c:258
-#: eelf32microblaze.c:112 eelf32microblazeel.c:112 eelf32mipswindiss.c:308
-#: eelf32moxie.c:112 eelf32or1k.c:113 eelf32or1k_linux.c:113 eelf32ppc.c:321
-#: eelf32ppc_fbsd.c:321 eelf32ppchaiku.c:321 eelf32ppclinux.c:321
-#: eelf32ppcnto.c:321 eelf32ppcsim.c:321 eelf32ppcvxworks.c:295
-#: eelf32ppcwindiss.c:321 eelf32rl78.c:112 eelf32rx.c:128 eelf32rx_linux.c:125
-#: eelf32tilegx.c:113 eelf32tilegx_be.c:113 eelf32tilepro.c:113
-#: eelf32vax.c:112 eelf32visium.c:112 eelf32xstormy16.c:123
-#: eelf32xtensa.c:2009 eelf32z80.c:139 eelf64_aix.c:112 eelf64_ia64.c:138
-#: eelf64_ia64_fbsd.c:138 eelf64_ia64_vms.c:220 eelf64_s390.c:128
-#: eelf64_sparc.c:113 eelf64_sparc_fbsd.c:113 eelf64_sparc_sol2.c:245
-#: eelf64alpha.c:196 eelf64alpha_fbsd.c:196 eelf64alpha_nbsd.c:196
-#: eelf64bmip.c:323 eelf64bpf.c:112 eelf64briscv.c:92 eelf64briscv_lp64.c:92
-#: eelf64briscv_lp64f.c:92 eelf64btsmip.c:309 eelf64btsmip_fbsd.c:309
-#: eelf64hppa.c:112 eelf64loongarch.c:91 eelf64lppc.c:594
-#: eelf64lppc_fbsd.c:594 eelf64lriscv.c:92 eelf64lriscv_lp64.c:92
-#: eelf64lriscv_lp64f.c:92 eelf64ltsmip.c:309 eelf64ltsmip_fbsd.c:309
-#: eelf64mmix.c:223 eelf64ppc.c:594 eelf64ppc_fbsd.c:594 eelf64rdos.c:128
-#: eelf64tilegx.c:113 eelf64tilegx_be.c:113 eelf_i386.c:137 eelf_i386_be.c:136
+#: eavr35.c:316 eavr4.c:316 eavr5.c:316 eavr51.c:316 eavr6.c:316 eavrtiny.c:316
+#: eavrxmega1.c:316 eavrxmega2.c:316 eavrxmega3.c:316 eavrxmega4.c:316
+#: eavrxmega5.c:316 eavrxmega6.c:316 eavrxmega7.c:316 ecriself.c:112
+#: ecrislinux.c:113 ed10velf.c:112 eelf32_sparc.c:113 eelf32_sparc_sol2.c:245
+#: eelf32_sparc_vxworks.c:142 eelf32_spu.c:646 eelf32_tic6x_be.c:183
+#: eelf32_tic6x_elf_be.c:183 eelf32_tic6x_elf_le.c:183 eelf32_tic6x_le.c:183
+#: eelf32_tic6x_linux_be.c:183 eelf32_tic6x_linux_le.c:183 eelf32_x86_64.c:137
+#: eelf32am33lin.c:112 eelf32b4300.c:309 eelf32bfin.c:122 eelf32bfinfd.c:122
+#: eelf32bmip.c:309 eelf32bmipn32.c:323 eelf32briscv.c:92
+#: eelf32briscv_ilp32.c:92 eelf32briscv_ilp32f.c:92 eelf32bsmip.c:323
+#: eelf32btsmip.c:309 eelf32btsmip_fbsd.c:309 eelf32btsmipn32.c:309
+#: eelf32btsmipn32_fbsd.c:309 eelf32cr16.c:262 eelf32crx.c:149
+#: eelf32ebmip.c:309 eelf32ebmipvxworks.c:338 eelf32elmip.c:309
+#: eelf32elmipvxworks.c:338 eelf32epiphany.c:112 eelf32epiphany_4x4.c:114
+#: eelf32etca.c:112 eelf32frvfd.c:112 eelf32ip2k.c:112 eelf32l4300.c:309
+#: eelf32lm32.c:112 eelf32lm32fd.c:112 eelf32lmip.c:309 eelf32loongarch.c:91
+#: eelf32lppc.c:321 eelf32lppclinux.c:321 eelf32lppcnto.c:321
+#: eelf32lppcsim.c:321 eelf32lr5900.c:309 eelf32lr5900n32.c:308
+#: eelf32lriscv.c:92 eelf32lriscv_ilp32.c:92 eelf32lriscv_ilp32f.c:92
+#: eelf32lsmip.c:309 eelf32ltsmip.c:309 eelf32ltsmip_fbsd.c:309
+#: eelf32ltsmipn32.c:309 eelf32ltsmipn32_fbsd.c:309 eelf32m32c.c:123
+#: eelf32mb_linux.c:113 eelf32mbel_linux.c:113 eelf32mcore.c:112
+#: eelf32mep.c:112 eelf32metag.c:258 eelf32microblaze.c:112
+#: eelf32microblazeel.c:112 eelf32mipswindiss.c:308 eelf32moxie.c:112
+#: eelf32or1k.c:113 eelf32or1k_linux.c:113 eelf32ppc.c:321 eelf32ppc_fbsd.c:321
+#: eelf32ppchaiku.c:321 eelf32ppclinux.c:321 eelf32ppcnto.c:321
+#: eelf32ppcsim.c:321 eelf32ppcvxworks.c:295 eelf32ppcwindiss.c:321
+#: eelf32rl78.c:112 eelf32rx.c:128 eelf32rx_linux.c:125 eelf32tilegx.c:113
+#: eelf32tilegx_be.c:113 eelf32tilepro.c:113 eelf32vax.c:112 eelf32visium.c:112
+#: eelf32xstormy16.c:123 eelf32xtensa.c:2009 eelf32z80.c:139 eelf64_aix.c:112
+#: eelf64_ia64.c:138 eelf64_ia64_fbsd.c:138 eelf64_ia64_vms.c:220
+#: eelf64_s390.c:128 eelf64_sparc.c:113 eelf64_sparc_fbsd.c:113
+#: eelf64_sparc_sol2.c:245 eelf64alpha.c:196 eelf64alpha_fbsd.c:196
+#: eelf64alpha_nbsd.c:196 eelf64bmip.c:323 eelf64bpf.c:112 eelf64briscv.c:92
+#: eelf64briscv_lp64.c:92 eelf64briscv_lp64f.c:92 eelf64btsmip.c:309
+#: eelf64btsmip_fbsd.c:309 eelf64hppa.c:112 eelf64loongarch.c:91
+#: eelf64lppc.c:594 eelf64lppc_fbsd.c:594 eelf64lriscv.c:92
+#: eelf64lriscv_lp64.c:92 eelf64lriscv_lp64f.c:92 eelf64ltsmip.c:309
+#: eelf64ltsmip_fbsd.c:309 eelf64mmix.c:223 eelf64ppc.c:594
+#: eelf64ppc_fbsd.c:594 eelf64rdos.c:128 eelf64tilegx.c:113
+#: eelf64tilegx_be.c:113 eelf_i386.c:137 eelf_i386_be.c:136
 #: eelf_i386_fbsd.c:137 eelf_i386_haiku.c:137 eelf_i386_ldso.c:137
 #: eelf_i386_sol2.c:269 eelf_i386_vxworks.c:166 eelf_iamcu.c:137
 #: eelf_mipsel_haiku.c:309 eelf_s390.c:113 eelf_x86_64.c:137
@@ -3534,18 +3534,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:269 eh8300elf.c:112 eh8300elf_linux.c:112
 #: eh8300helf.c:112 eh8300helf_linux.c:112 eh8300hnelf.c:112 eh8300self.c:112
 #: eh8300self_linux.c:112 eh8300snelf.c:112 eh8300sxelf.c:112
-#: eh8300sxelf_linux.c:112 eh8300sxnelf.c:112 ehppa64linux.c:112
-#: ehppaelf.c:282 ehppalinux.c:282 ehppanbsd.c:282 ehppaobsd.c:282
-#: ei386lynx.c:127 ei386moss.c:127 ei386nto.c:127 em32relf.c:112
-#: em32relf_linux.c:112 em32rlelf.c:112 em32rlelf_linux.c:112
-#: em68hc11elf.c:389 em68hc11elfb.c:389 em68hc12elf.c:389 em68hc12elfb.c:389
-#: em68kelf.c:264 em68kelfnbsd.c:264 emn10300.c:112 ends32belf.c:220
-#: ends32belf16m.c:220 ends32belf_linux.c:220 ends32elf.c:220
-#: ends32elf16m.c:220 ends32elf_linux.c:220 enios2elf.c:275 enios2linux.c:275
-#: epruelf.c:133 escore3_elf.c:134 escore7_elf.c:134 eshelf.c:112
-#: eshelf_fd.c:113 eshelf_linux.c:113 eshelf_nbsd.c:112 eshelf_nto.c:112
-#: eshelf_uclinux.c:112 eshelf_vxworks.c:141 eshlelf.c:112 eshlelf_fd.c:113
-#: eshlelf_linux.c:113 eshlelf_nbsd.c:112 eshlelf_nto.c:112
+#: eh8300sxelf_linux.c:112 eh8300sxnelf.c:112 ehppa64linux.c:112 ehppaelf.c:282
+#: ehppalinux.c:282 ehppanbsd.c:282 ehppaobsd.c:282 ei386lynx.c:127
+#: ei386moss.c:127 ei386nto.c:127 em32relf.c:112 em32relf_linux.c:112
+#: em32rlelf.c:112 em32rlelf_linux.c:112 em68hc11elf.c:389 em68hc11elfb.c:389
+#: em68hc12elf.c:389 em68hc12elfb.c:389 em68kelf.c:264 em68kelfnbsd.c:264
+#: emn10300.c:112 ends32belf.c:220 ends32belf16m.c:220 ends32belf_linux.c:220
+#: ends32elf.c:220 ends32elf16m.c:220 ends32elf_linux.c:220 enios2elf.c:275
+#: enios2linux.c:275 epruelf.c:133 escore3_elf.c:134 escore7_elf.c:134
+#: eshelf.c:112 eshelf_fd.c:113 eshelf_linux.c:113 eshelf_nbsd.c:112
+#: eshelf_nto.c:112 eshelf_uclinux.c:112 eshelf_vxworks.c:141 eshlelf.c:112
+#: eshlelf_fd.c:113 eshlelf_linux.c:113 eshlelf_nbsd.c:112 eshlelf_nto.c:112
 #: eshlelf_vxworks.c:141 ev850.c:159 ev850_rh850.c:159
 msgid "%X%P: .eh_frame/.stab edit: %E\n"
 msgstr ""
@@ -3610,13 +3609,13 @@ msgstr ""
 #: earmelfb_linux.c:475 earmelfb_linux_eabi.c:475
 #: earmelfb_linux_fdpiceabi.c:475 earmelfb_nacl.c:475 earmelfb_nbsd.c:474
 #: earmnto.c:474 eavr1.c:204 eavr2.c:204 eavr25.c:204 eavr3.c:204 eavr31.c:204
-#: eavr35.c:204 eavr4.c:204 eavr5.c:204 eavr51.c:204 eavr6.c:204
-#: eavrtiny.c:204 eavrxmega1.c:204 eavrxmega2.c:204 eavrxmega3.c:204
-#: eavrxmega4.c:204 eavrxmega5.c:204 eavrxmega6.c:204 eavrxmega7.c:204
-#: eelf32metag.c:302 eelf64lppc.c:633 eelf64lppc_fbsd.c:633 eelf64ppc.c:633
-#: eelf64ppc_fbsd.c:633 ehppaelf.c:334 ehppalinux.c:334 ehppanbsd.c:334
-#: ehppaobsd.c:334 em68hc11elf.c:323 em68hc11elfb.c:323 em68hc12elf.c:323
-#: em68hc12elfb.c:323 enios2elf.c:320 enios2linux.c:320 eppcmacos.c:1165
+#: eavr35.c:204 eavr4.c:204 eavr5.c:204 eavr51.c:204 eavr6.c:204 eavrtiny.c:204
+#: eavrxmega1.c:204 eavrxmega2.c:204 eavrxmega3.c:204 eavrxmega4.c:204
+#: eavrxmega5.c:204 eavrxmega6.c:204 eavrxmega7.c:204 eelf32metag.c:302
+#: eelf64lppc.c:633 eelf64lppc_fbsd.c:633 eelf64ppc.c:633 eelf64ppc_fbsd.c:633
+#: ehppaelf.c:334 ehppalinux.c:334 ehppanbsd.c:334 ehppaobsd.c:334
+#: em68hc11elf.c:323 em68hc11elfb.c:323 em68hc12elf.c:323 em68hc12elfb.c:323
+#: enios2elf.c:320 enios2linux.c:320 eppcmacos.c:1165
 msgid "%X%P: can not build stubs: %E\n"
 msgstr ""
 
@@ -3656,19 +3655,18 @@ msgstr ""
 #: earmelf_vxworks.c:543 earmelfb.c:543 earmelfb_fbsd.c:543
 #: earmelfb_fuchsia.c:544 earmelfb_linux.c:544 earmelfb_linux_eabi.c:544
 #: earmelfb_linux_fdpiceabi.c:544 earmelfb_nacl.c:544 earmelfb_nbsd.c:543
-#: earmnto.c:543 earmpe.c:1601 eavr1.c:144 eavr2.c:144 eavr25.c:144
-#: eavr3.c:144 eavr31.c:144 eavr35.c:144 eavr4.c:144 eavr5.c:144 eavr51.c:144
-#: eavr6.c:144 eavrtiny.c:144 eavrxmega1.c:144 eavrxmega2.c:144
-#: eavrxmega3.c:144 eavrxmega4.c:144 eavrxmega5.c:144 eavrxmega6.c:144
-#: eavrxmega7.c:144 eelf32briscv.c:127 eelf32briscv_ilp32.c:127
-#: eelf32briscv_ilp32f.c:127 eelf32loongarch.c:111 eelf32lriscv.c:127
-#: eelf32lriscv_ilp32.c:127 eelf32lriscv_ilp32f.c:127 eelf64briscv.c:127
-#: eelf64briscv_lp64.c:127 eelf64briscv_lp64f.c:127 eelf64loongarch.c:111
-#: eelf64lriscv.c:127 eelf64lriscv_lp64.c:127 eelf64lriscv_lp64f.c:127
-#: ei386pe.c:1601 ei386pe_posix.c:1601 emcorepe.c:1601 ends32belf.c:76
-#: ends32belf16m.c:76 ends32belf_linux.c:76 ends32elf.c:76 ends32elf16m.c:76
-#: ends32elf_linux.c:76 escore3_elf.c:81 escore7_elf.c:81 eshpe.c:1601
-#: ev850.c:93 ev850_rh850.c:93
+#: earmnto.c:543 earmpe.c:1601 eavr1.c:144 eavr2.c:144 eavr25.c:144 eavr3.c:144
+#: eavr31.c:144 eavr35.c:144 eavr4.c:144 eavr5.c:144 eavr51.c:144 eavr6.c:144
+#: eavrtiny.c:144 eavrxmega1.c:144 eavrxmega2.c:144 eavrxmega3.c:144
+#: eavrxmega4.c:144 eavrxmega5.c:144 eavrxmega6.c:144 eavrxmega7.c:144
+#: eelf32briscv.c:127 eelf32briscv_ilp32.c:127 eelf32briscv_ilp32f.c:127
+#: eelf32loongarch.c:111 eelf32lriscv.c:127 eelf32lriscv_ilp32.c:127
+#: eelf32lriscv_ilp32f.c:127 eelf64briscv.c:127 eelf64briscv_lp64.c:127
+#: eelf64briscv_lp64f.c:127 eelf64loongarch.c:111 eelf64lriscv.c:127
+#: eelf64lriscv_lp64.c:127 eelf64lriscv_lp64f.c:127 ei386pe.c:1601
+#: ei386pe_posix.c:1601 emcorepe.c:1601 ends32belf.c:76 ends32belf16m.c:76
+#: ends32belf_linux.c:76 ends32elf.c:76 ends32elf16m.c:76 ends32elf_linux.c:76
+#: escore3_elf.c:81 escore7_elf.c:81 eshpe.c:1601 ev850.c:93 ev850_rh850.c:93
 msgid "%F%P: error: cannot change output format whilst linking %s binaries\n"
 msgstr ""
 
@@ -3685,42 +3683,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:832 earmelfb_linux.c:832 earmelfb_linux_eabi.c:832
 #: earmelfb_linux_fdpiceabi.c:832 earmelfb_nacl.c:832 earmelfb_nbsd.c:831
 #: earmnto.c:806 eavr1.c:431 eavr2.c:431 eavr25.c:431 eavr3.c:431 eavr31.c:431
-#: eavr35.c:431 eavr4.c:431 eavr5.c:431 eavr51.c:431 eavr6.c:431
-#: eavrtiny.c:431 eavrxmega1.c:431 eavrxmega2.c:431 eavrxmega3.c:431
-#: eavrxmega4.c:431 eavrxmega5.c:431 eavrxmega6.c:431 eavrxmega7.c:431
-#: ecriself.c:222 ecrislinux.c:254 ecskyelf.c:466 ecskyelf_linux.c:523
-#: ed10velf.c:207 eelf32_sparc.c:279 eelf32_sparc_sol2.c:411
-#: eelf32_sparc_vxworks.c:316 eelf32_spu.c:804 eelf32_tic6x_be.c:390
-#: eelf32_tic6x_elf_be.c:390 eelf32_tic6x_elf_le.c:390 eelf32_tic6x_le.c:390
-#: eelf32_tic6x_linux_be.c:390 eelf32_tic6x_linux_le.c:390 eelf32_x86_64.c:313
-#: eelf32am33lin.c:253 eelf32b4300.c:494 eelf32bfin.c:271 eelf32bfinfd.c:296
-#: eelf32bmip.c:494 eelf32bmipn32.c:508 eelf32briscv.c:361
-#: eelf32briscv_ilp32.c:361 eelf32briscv_ilp32f.c:361 eelf32bsmip.c:508
-#: eelf32btsmip.c:494 eelf32btsmip_fbsd.c:494 eelf32btsmipn32.c:494
-#: eelf32btsmipn32_fbsd.c:494 eelf32cr16.c:357 eelf32crx.c:244
-#: eelf32ebmip.c:494 eelf32ebmipvxworks.c:529 eelf32elmip.c:494
-#: eelf32elmipvxworks.c:529 eelf32epiphany.c:222 eelf32epiphany_4x4.c:209
-#: eelf32etca.c:2736 eelf32frvfd.c:278 eelf32ip2k.c:222 eelf32l4300.c:494
-#: eelf32lm32.c:222 eelf32lm32fd.c:278 eelf32lmip.c:494 eelf32loongarch.c:332
-#: eelf32lppc.c:530 eelf32lppclinux.c:530 eelf32lppcnto.c:530
-#: eelf32lppcsim.c:530 eelf32lr5900.c:463 eelf32lr5900n32.c:462
-#: eelf32lriscv.c:361 eelf32lriscv_ilp32.c:361 eelf32lriscv_ilp32f.c:361
-#: eelf32lsmip.c:494 eelf32ltsmip.c:494 eelf32ltsmip_fbsd.c:494
-#: eelf32ltsmipn32.c:494 eelf32ltsmipn32_fbsd.c:494 eelf32m32c.c:233
-#: eelf32mb_linux.c:279 eelf32mbel_linux.c:279 eelf32mcore.c:228
-#: eelf32mep.c:207 eelf32metag.c:528 eelf32microblaze.c:207
-#: eelf32microblazeel.c:207 eelf32mipswindiss.c:437 eelf32moxie.c:222
-#: eelf32or1k.c:223 eelf32or1k_linux.c:279 eelf32ppc.c:530
+#: eavr35.c:431 eavr4.c:431 eavr5.c:431 eavr51.c:431 eavr6.c:431 eavrtiny.c:431
+#: eavrxmega1.c:431 eavrxmega2.c:431 eavrxmega3.c:431 eavrxmega4.c:431
+#: eavrxmega5.c:431 eavrxmega6.c:431 eavrxmega7.c:431 ecriself.c:222
+#: ecrislinux.c:254 ecskyelf.c:466 ecskyelf_linux.c:523 ed10velf.c:207
+#: eelf32_sparc.c:279 eelf32_sparc_sol2.c:411 eelf32_sparc_vxworks.c:316
+#: eelf32_spu.c:804 eelf32_tic6x_be.c:390 eelf32_tic6x_elf_be.c:390
+#: eelf32_tic6x_elf_le.c:390 eelf32_tic6x_le.c:390 eelf32_tic6x_linux_be.c:390
+#: eelf32_tic6x_linux_le.c:390 eelf32_x86_64.c:313 eelf32am33lin.c:253
+#: eelf32b4300.c:494 eelf32bfin.c:271 eelf32bfinfd.c:296 eelf32bmip.c:494
+#: eelf32bmipn32.c:508 eelf32briscv.c:361 eelf32briscv_ilp32.c:361
+#: eelf32briscv_ilp32f.c:361 eelf32bsmip.c:508 eelf32btsmip.c:494
+#: eelf32btsmip_fbsd.c:494 eelf32btsmipn32.c:494 eelf32btsmipn32_fbsd.c:494
+#: eelf32cr16.c:357 eelf32crx.c:244 eelf32ebmip.c:494 eelf32ebmipvxworks.c:529
+#: eelf32elmip.c:494 eelf32elmipvxworks.c:529 eelf32epiphany.c:222
+#: eelf32epiphany_4x4.c:209 eelf32etca.c:2736 eelf32frvfd.c:278
+#: eelf32ip2k.c:222 eelf32l4300.c:494 eelf32lm32.c:222 eelf32lm32fd.c:278
+#: eelf32lmip.c:494 eelf32loongarch.c:332 eelf32lppc.c:530
+#: eelf32lppclinux.c:530 eelf32lppcnto.c:530 eelf32lppcsim.c:530
+#: eelf32lr5900.c:463 eelf32lr5900n32.c:462 eelf32lriscv.c:361
+#: eelf32lriscv_ilp32.c:361 eelf32lriscv_ilp32f.c:361 eelf32lsmip.c:494
+#: eelf32ltsmip.c:494 eelf32ltsmip_fbsd.c:494 eelf32ltsmipn32.c:494
+#: eelf32ltsmipn32_fbsd.c:494 eelf32m32c.c:233 eelf32mb_linux.c:279
+#: eelf32mbel_linux.c:279 eelf32mcore.c:228 eelf32mep.c:207 eelf32metag.c:528
+#: eelf32microblaze.c:207 eelf32microblazeel.c:207 eelf32mipswindiss.c:437
+#: eelf32moxie.c:222 eelf32or1k.c:223 eelf32or1k_linux.c:279 eelf32ppc.c:530
 #: eelf32ppc_fbsd.c:530 eelf32ppchaiku.c:530 eelf32ppclinux.c:530
 #: eelf32ppcnto.c:530 eelf32ppcsim.c:530 eelf32ppcvxworks.c:504
 #: eelf32ppcwindiss.c:530 eelf32rl78.c:222 eelf32rx.c:250 eelf32rx_linux.c:235
-#: eelf32tilegx.c:279 eelf32tilegx_be.c:279 eelf32tilepro.c:279
-#: eelf32vax.c:253 eelf32visium.c:207 eelf32xstormy16.c:218
-#: eelf32xtensa.c:2192 eelf32z80.c:234 eelf64_aix.c:253 eelf64_ia64.c:310
-#: eelf64_ia64_fbsd.c:310 eelf64_s390.c:349 eelf64_sparc.c:279
-#: eelf64_sparc_fbsd.c:279 eelf64_sparc_sol2.c:411 eelf64alpha.c:372
-#: eelf64alpha_fbsd.c:372 eelf64alpha_nbsd.c:372 eelf64bmip.c:508
-#: eelf64bpf.c:207 eelf64briscv.c:361 eelf64briscv_lp64.c:361
+#: eelf32tilegx.c:279 eelf32tilegx_be.c:279 eelf32tilepro.c:279 eelf32vax.c:253
+#: eelf32visium.c:207 eelf32xstormy16.c:218 eelf32xtensa.c:2192 eelf32z80.c:234
+#: eelf64_aix.c:253 eelf64_ia64.c:310 eelf64_ia64_fbsd.c:310 eelf64_s390.c:349
+#: eelf64_sparc.c:279 eelf64_sparc_fbsd.c:279 eelf64_sparc_sol2.c:411
+#: eelf64alpha.c:372 eelf64alpha_fbsd.c:372 eelf64alpha_nbsd.c:372
+#: eelf64bmip.c:508 eelf64bpf.c:207 eelf64briscv.c:361 eelf64briscv_lp64.c:361
 #: eelf64briscv_lp64f.c:361 eelf64btsmip.c:494 eelf64btsmip_fbsd.c:494
 #: eelf64hppa.c:223 eelf64loongarch.c:332 eelf64lppc.c:980
 #: eelf64lppc_fbsd.c:980 eelf64lriscv.c:361 eelf64lriscv_lp64.c:361
@@ -3734,18 +3730,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:445 eh8300elf.c:222 eh8300elf_linux.c:222
 #: eh8300helf.c:222 eh8300helf_linux.c:222 eh8300hnelf.c:222 eh8300self.c:222
 #: eh8300self_linux.c:222 eh8300snelf.c:222 eh8300sxelf.c:222
-#: eh8300sxelf_linux.c:222 eh8300sxnelf.c:222 ehppa64linux.c:253
-#: ehppaelf.c:490 ehppalinux.c:562 ehppanbsd.c:562 ehppaobsd.c:562
-#: ei386lynx.c:268 ei386moss.c:268 ei386nto.c:268 em32relf.c:222
-#: em32relf_linux.c:278 em32rlelf.c:222 em32rlelf_linux.c:278
-#: em68hc11elf.c:492 em68hc11elfb.c:492 em68hc12elf.c:492 em68hc12elfb.c:492
-#: em68kelf.c:436 em68kelfnbsd.c:436 emn10300.c:253 ends32belf.c:343
-#: ends32belf16m.c:343 ends32belf_linux.c:366 ends32elf.c:343
-#: ends32elf16m.c:343 ends32elf_linux.c:366 enios2elf.c:509 enios2linux.c:540
-#: epruelf.c:228 escore3_elf.c:275 escore7_elf.c:275 eshelf.c:253
-#: eshelf_fd.c:279 eshelf_linux.c:279 eshelf_nbsd.c:253 eshelf_nto.c:253
-#: eshelf_uclinux.c:253 eshelf_vxworks.c:290 eshlelf.c:253 eshlelf_fd.c:279
-#: eshlelf_linux.c:279 eshlelf_nbsd.c:253 eshlelf_nto.c:253
+#: eh8300sxelf_linux.c:222 eh8300sxnelf.c:222 ehppa64linux.c:253 ehppaelf.c:490
+#: ehppalinux.c:562 ehppanbsd.c:562 ehppaobsd.c:562 ei386lynx.c:268
+#: ei386moss.c:268 ei386nto.c:268 em32relf.c:222 em32relf_linux.c:278
+#: em32rlelf.c:222 em32rlelf_linux.c:278 em68hc11elf.c:492 em68hc11elfb.c:492
+#: em68hc12elf.c:492 em68hc12elfb.c:492 em68kelf.c:436 em68kelfnbsd.c:436
+#: emn10300.c:253 ends32belf.c:343 ends32belf16m.c:343 ends32belf_linux.c:366
+#: ends32elf.c:343 ends32elf16m.c:343 ends32elf_linux.c:366 enios2elf.c:509
+#: enios2linux.c:540 epruelf.c:228 escore3_elf.c:275 escore7_elf.c:275
+#: eshelf.c:253 eshelf_fd.c:279 eshelf_linux.c:279 eshelf_nbsd.c:253
+#: eshelf_nto.c:253 eshelf_uclinux.c:253 eshelf_vxworks.c:290 eshlelf.c:253
+#: eshlelf_fd.c:279 eshlelf_linux.c:279 eshlelf_nbsd.c:253 eshlelf_nto.c:253
 #: eshlelf_vxworks.c:290 ev850.c:254 ev850_rh850.c:254
 msgid ""
 "%F%P: --compress-debug-sections=zstd: ld is not built with zstd support\n"
@@ -3764,42 +3759,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:837 earmelfb_linux.c:837 earmelfb_linux_eabi.c:837
 #: earmelfb_linux_fdpiceabi.c:837 earmelfb_nacl.c:837 earmelfb_nbsd.c:836
 #: earmnto.c:811 eavr1.c:436 eavr2.c:436 eavr25.c:436 eavr3.c:436 eavr31.c:436
-#: eavr35.c:436 eavr4.c:436 eavr5.c:436 eavr51.c:436 eavr6.c:436
-#: eavrtiny.c:436 eavrxmega1.c:436 eavrxmega2.c:436 eavrxmega3.c:436
-#: eavrxmega4.c:436 eavrxmega5.c:436 eavrxmega6.c:436 eavrxmega7.c:436
-#: ecriself.c:227 ecrislinux.c:259 ecskyelf.c:471 ecskyelf_linux.c:528
-#: ed10velf.c:212 eelf32_sparc.c:284 eelf32_sparc_sol2.c:416
-#: eelf32_sparc_vxworks.c:321 eelf32_spu.c:809 eelf32_tic6x_be.c:395
-#: eelf32_tic6x_elf_be.c:395 eelf32_tic6x_elf_le.c:395 eelf32_tic6x_le.c:395
-#: eelf32_tic6x_linux_be.c:395 eelf32_tic6x_linux_le.c:395 eelf32_x86_64.c:318
-#: eelf32am33lin.c:258 eelf32b4300.c:499 eelf32bfin.c:276 eelf32bfinfd.c:301
-#: eelf32bmip.c:499 eelf32bmipn32.c:513 eelf32briscv.c:366
-#: eelf32briscv_ilp32.c:366 eelf32briscv_ilp32f.c:366 eelf32bsmip.c:513
-#: eelf32btsmip.c:499 eelf32btsmip_fbsd.c:499 eelf32btsmipn32.c:499
-#: eelf32btsmipn32_fbsd.c:499 eelf32cr16.c:362 eelf32crx.c:249
-#: eelf32ebmip.c:499 eelf32ebmipvxworks.c:534 eelf32elmip.c:499
-#: eelf32elmipvxworks.c:534 eelf32epiphany.c:227 eelf32epiphany_4x4.c:214
-#: eelf32etca.c:2741 eelf32frvfd.c:283 eelf32ip2k.c:227 eelf32l4300.c:499
-#: eelf32lm32.c:227 eelf32lm32fd.c:283 eelf32lmip.c:499 eelf32loongarch.c:337
-#: eelf32lppc.c:535 eelf32lppclinux.c:535 eelf32lppcnto.c:535
-#: eelf32lppcsim.c:535 eelf32lr5900.c:468 eelf32lr5900n32.c:467
-#: eelf32lriscv.c:366 eelf32lriscv_ilp32.c:366 eelf32lriscv_ilp32f.c:366
-#: eelf32lsmip.c:499 eelf32ltsmip.c:499 eelf32ltsmip_fbsd.c:499
-#: eelf32ltsmipn32.c:499 eelf32ltsmipn32_fbsd.c:499 eelf32m32c.c:238
-#: eelf32mb_linux.c:284 eelf32mbel_linux.c:284 eelf32mcore.c:233
-#: eelf32mep.c:212 eelf32metag.c:533 eelf32microblaze.c:212
-#: eelf32microblazeel.c:212 eelf32mipswindiss.c:442 eelf32moxie.c:227
-#: eelf32or1k.c:228 eelf32or1k_linux.c:284 eelf32ppc.c:535
+#: eavr35.c:436 eavr4.c:436 eavr5.c:436 eavr51.c:436 eavr6.c:436 eavrtiny.c:436
+#: eavrxmega1.c:436 eavrxmega2.c:436 eavrxmega3.c:436 eavrxmega4.c:436
+#: eavrxmega5.c:436 eavrxmega6.c:436 eavrxmega7.c:436 ecriself.c:227
+#: ecrislinux.c:259 ecskyelf.c:471 ecskyelf_linux.c:528 ed10velf.c:212
+#: eelf32_sparc.c:284 eelf32_sparc_sol2.c:416 eelf32_sparc_vxworks.c:321
+#: eelf32_spu.c:809 eelf32_tic6x_be.c:395 eelf32_tic6x_elf_be.c:395
+#: eelf32_tic6x_elf_le.c:395 eelf32_tic6x_le.c:395 eelf32_tic6x_linux_be.c:395
+#: eelf32_tic6x_linux_le.c:395 eelf32_x86_64.c:318 eelf32am33lin.c:258
+#: eelf32b4300.c:499 eelf32bfin.c:276 eelf32bfinfd.c:301 eelf32bmip.c:499
+#: eelf32bmipn32.c:513 eelf32briscv.c:366 eelf32briscv_ilp32.c:366
+#: eelf32briscv_ilp32f.c:366 eelf32bsmip.c:513 eelf32btsmip.c:499
+#: eelf32btsmip_fbsd.c:499 eelf32btsmipn32.c:499 eelf32btsmipn32_fbsd.c:499
+#: eelf32cr16.c:362 eelf32crx.c:249 eelf32ebmip.c:499 eelf32ebmipvxworks.c:534
+#: eelf32elmip.c:499 eelf32elmipvxworks.c:534 eelf32epiphany.c:227
+#: eelf32epiphany_4x4.c:214 eelf32etca.c:2741 eelf32frvfd.c:283
+#: eelf32ip2k.c:227 eelf32l4300.c:499 eelf32lm32.c:227 eelf32lm32fd.c:283
+#: eelf32lmip.c:499 eelf32loongarch.c:337 eelf32lppc.c:535
+#: eelf32lppclinux.c:535 eelf32lppcnto.c:535 eelf32lppcsim.c:535
+#: eelf32lr5900.c:468 eelf32lr5900n32.c:467 eelf32lriscv.c:366
+#: eelf32lriscv_ilp32.c:366 eelf32lriscv_ilp32f.c:366 eelf32lsmip.c:499
+#: eelf32ltsmip.c:499 eelf32ltsmip_fbsd.c:499 eelf32ltsmipn32.c:499
+#: eelf32ltsmipn32_fbsd.c:499 eelf32m32c.c:238 eelf32mb_linux.c:284
+#: eelf32mbel_linux.c:284 eelf32mcore.c:233 eelf32mep.c:212 eelf32metag.c:533
+#: eelf32microblaze.c:212 eelf32microblazeel.c:212 eelf32mipswindiss.c:442
+#: eelf32moxie.c:227 eelf32or1k.c:228 eelf32or1k_linux.c:284 eelf32ppc.c:535
 #: eelf32ppc_fbsd.c:535 eelf32ppchaiku.c:535 eelf32ppclinux.c:535
 #: eelf32ppcnto.c:535 eelf32ppcsim.c:535 eelf32ppcvxworks.c:509
 #: eelf32ppcwindiss.c:535 eelf32rl78.c:227 eelf32rx.c:255 eelf32rx_linux.c:240
-#: eelf32tilegx.c:284 eelf32tilegx_be.c:284 eelf32tilepro.c:284
-#: eelf32vax.c:258 eelf32visium.c:212 eelf32xstormy16.c:223
-#: eelf32xtensa.c:2197 eelf32z80.c:239 eelf64_aix.c:258 eelf64_ia64.c:315
-#: eelf64_ia64_fbsd.c:315 eelf64_s390.c:354 eelf64_sparc.c:284
-#: eelf64_sparc_fbsd.c:284 eelf64_sparc_sol2.c:416 eelf64alpha.c:377
-#: eelf64alpha_fbsd.c:377 eelf64alpha_nbsd.c:377 eelf64bmip.c:513
-#: eelf64bpf.c:212 eelf64briscv.c:366 eelf64briscv_lp64.c:366
+#: eelf32tilegx.c:284 eelf32tilegx_be.c:284 eelf32tilepro.c:284 eelf32vax.c:258
+#: eelf32visium.c:212 eelf32xstormy16.c:223 eelf32xtensa.c:2197 eelf32z80.c:239
+#: eelf64_aix.c:258 eelf64_ia64.c:315 eelf64_ia64_fbsd.c:315 eelf64_s390.c:354
+#: eelf64_sparc.c:284 eelf64_sparc_fbsd.c:284 eelf64_sparc_sol2.c:416
+#: eelf64alpha.c:377 eelf64alpha_fbsd.c:377 eelf64alpha_nbsd.c:377
+#: eelf64bmip.c:513 eelf64bpf.c:212 eelf64briscv.c:366 eelf64briscv_lp64.c:366
 #: eelf64briscv_lp64f.c:366 eelf64btsmip.c:499 eelf64btsmip_fbsd.c:499
 #: eelf64hppa.c:228 eelf64loongarch.c:337 eelf64lppc.c:985
 #: eelf64lppc_fbsd.c:985 eelf64lriscv.c:366 eelf64lriscv_lp64.c:366
@@ -3813,18 +3806,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:450 eh8300elf.c:227 eh8300elf_linux.c:227
 #: eh8300helf.c:227 eh8300helf_linux.c:227 eh8300hnelf.c:227 eh8300self.c:227
 #: eh8300self_linux.c:227 eh8300snelf.c:227 eh8300sxelf.c:227
-#: eh8300sxelf_linux.c:227 eh8300sxnelf.c:227 ehppa64linux.c:258
-#: ehppaelf.c:495 ehppalinux.c:567 ehppanbsd.c:567 ehppaobsd.c:567
-#: ei386lynx.c:273 ei386moss.c:273 ei386nto.c:273 em32relf.c:227
-#: em32relf_linux.c:283 em32rlelf.c:227 em32rlelf_linux.c:283
-#: em68hc11elf.c:497 em68hc11elfb.c:497 em68hc12elf.c:497 em68hc12elfb.c:497
-#: em68kelf.c:441 em68kelfnbsd.c:441 emn10300.c:258 ends32belf.c:348
-#: ends32belf16m.c:348 ends32belf_linux.c:371 ends32elf.c:348
-#: ends32elf16m.c:348 ends32elf_linux.c:371 enios2elf.c:514 enios2linux.c:545
-#: epruelf.c:233 escore3_elf.c:280 escore7_elf.c:280 eshelf.c:258
-#: eshelf_fd.c:284 eshelf_linux.c:284 eshelf_nbsd.c:258 eshelf_nto.c:258
-#: eshelf_uclinux.c:258 eshelf_vxworks.c:295 eshlelf.c:258 eshlelf_fd.c:284
-#: eshlelf_linux.c:284 eshlelf_nbsd.c:258 eshlelf_nto.c:258
+#: eh8300sxelf_linux.c:227 eh8300sxnelf.c:227 ehppa64linux.c:258 ehppaelf.c:495
+#: ehppalinux.c:567 ehppanbsd.c:567 ehppaobsd.c:567 ei386lynx.c:273
+#: ei386moss.c:273 ei386nto.c:273 em32relf.c:227 em32relf_linux.c:283
+#: em32rlelf.c:227 em32rlelf_linux.c:283 em68hc11elf.c:497 em68hc11elfb.c:497
+#: em68hc12elf.c:497 em68hc12elfb.c:497 em68kelf.c:441 em68kelfnbsd.c:441
+#: emn10300.c:258 ends32belf.c:348 ends32belf16m.c:348 ends32belf_linux.c:371
+#: ends32elf.c:348 ends32elf16m.c:348 ends32elf_linux.c:371 enios2elf.c:514
+#: enios2linux.c:545 epruelf.c:233 escore3_elf.c:280 escore7_elf.c:280
+#: eshelf.c:258 eshelf_fd.c:284 eshelf_linux.c:284 eshelf_nbsd.c:258
+#: eshelf_nto.c:258 eshelf_uclinux.c:258 eshelf_vxworks.c:295 eshlelf.c:258
+#: eshlelf_fd.c:284 eshlelf_linux.c:284 eshlelf_nbsd.c:258 eshlelf_nto.c:258
 #: eshlelf_vxworks.c:295 ev850.c:259 ev850_rh850.c:259
 msgid "%F%P: invalid --compress-debug-sections option: `%s'\n"
 msgstr ""
@@ -3839,11 +3831,11 @@ msgstr ""
 #: earmelf_linux_fdpiceabi.c:888 earmelf_nacl.c:888 earmelf_nbsd.c:887
 #: earmelf_phoenix.c:888 earmelf_vxworks.c:923 earmelfb.c:887
 #: earmelfb_fbsd.c:887 earmelfb_fuchsia.c:888 earmelfb_linux.c:888
-#: earmelfb_linux_eabi.c:888 earmelfb_linux_fdpiceabi.c:888
-#: earmelfb_nacl.c:888 earmelfb_nbsd.c:887 earmnto.c:862 ecrislinux.c:310
-#: ecskyelf_linux.c:579 eelf32_sparc.c:335 eelf32_sparc_sol2.c:467
-#: eelf32_sparc_vxworks.c:372 eelf32_tic6x_be.c:446 eelf32_tic6x_elf_be.c:446
-#: eelf32_tic6x_elf_le.c:446 eelf32_tic6x_le.c:446 eelf32_tic6x_linux_be.c:446
+#: earmelfb_linux_eabi.c:888 earmelfb_linux_fdpiceabi.c:888 earmelfb_nacl.c:888
+#: earmelfb_nbsd.c:887 earmnto.c:862 ecrislinux.c:310 ecskyelf_linux.c:579
+#: eelf32_sparc.c:335 eelf32_sparc_sol2.c:467 eelf32_sparc_vxworks.c:372
+#: eelf32_tic6x_be.c:446 eelf32_tic6x_elf_be.c:446 eelf32_tic6x_elf_le.c:446
+#: eelf32_tic6x_le.c:446 eelf32_tic6x_linux_be.c:446
 #: eelf32_tic6x_linux_le.c:446 eelf32_x86_64.c:369 eelf32am33lin.c:309
 #: eelf32b4300.c:550 eelf32bfin.c:327 eelf32bfinfd.c:352 eelf32bmip.c:550
 #: eelf32bmipn32.c:564 eelf32briscv.c:417 eelf32briscv_ilp32.c:417
@@ -3869,8 +3861,8 @@ msgstr ""
 #: eelf64btsmip.c:550 eelf64btsmip_fbsd.c:550 eelf64hppa.c:279
 #: eelf64loongarch.c:388 eelf64lppc.c:1036 eelf64lppc_fbsd.c:1036
 #: eelf64lriscv.c:417 eelf64lriscv_lp64.c:417 eelf64lriscv_lp64f.c:417
-#: eelf64ltsmip.c:550 eelf64ltsmip_fbsd.c:550 eelf64mmix.c:420
-#: eelf64ppc.c:1036 eelf64ppc_fbsd.c:1036 eelf64rdos.c:360 eelf64tilegx.c:335
+#: eelf64ltsmip.c:550 eelf64ltsmip_fbsd.c:550 eelf64mmix.c:420 eelf64ppc.c:1036
+#: eelf64ppc_fbsd.c:1036 eelf64rdos.c:360 eelf64tilegx.c:335
 #: eelf64tilegx_be.c:335 eelf_i386.c:369 eelf_i386_be.c:333
 #: eelf_i386_fbsd.c:369 eelf_i386_haiku.c:369 eelf_i386_ldso.c:344
 #: eelf_i386_sol2.c:501 eelf_i386_vxworks.c:396 eelf_iamcu.c:369
@@ -3878,12 +3870,12 @@ msgstr ""
 #: eelf_x86_64_cloudabi.c:369 eelf_x86_64_fbsd.c:369 eelf_x86_64_haiku.c:369
 #: eelf_x86_64_sol2.c:501 ehppa64linux.c:309 ehppalinux.c:618 ehppanbsd.c:618
 #: ehppaobsd.c:618 ei386lynx.c:324 ei386moss.c:324 ei386nto.c:324
-#: em32relf_linux.c:334 em32rlelf_linux.c:334 em68kelf.c:492
-#: em68kelfnbsd.c:492 emn10300.c:309 ends32belf_linux.c:422
-#: ends32elf_linux.c:422 enios2linux.c:596 escore3_elf.c:331 escore7_elf.c:331
-#: eshelf.c:309 eshelf_fd.c:335 eshelf_linux.c:335 eshelf_nbsd.c:309
-#: eshelf_nto.c:309 eshelf_uclinux.c:309 eshelf_vxworks.c:346 eshlelf.c:309
-#: eshlelf_fd.c:335 eshlelf_linux.c:335 eshlelf_nbsd.c:309 eshlelf_nto.c:309
+#: em32relf_linux.c:334 em32rlelf_linux.c:334 em68kelf.c:492 em68kelfnbsd.c:492
+#: emn10300.c:309 ends32belf_linux.c:422 ends32elf_linux.c:422
+#: enios2linux.c:596 escore3_elf.c:331 escore7_elf.c:331 eshelf.c:309
+#: eshelf_fd.c:335 eshelf_linux.c:335 eshelf_nbsd.c:309 eshelf_nto.c:309
+#: eshelf_uclinux.c:309 eshelf_vxworks.c:346 eshlelf.c:309 eshlelf_fd.c:335
+#: eshlelf_linux.c:335 eshlelf_nbsd.c:309 eshlelf_nto.c:309
 #: eshlelf_vxworks.c:346
 msgid "%F%P: invalid hash style `%s'\n"
 msgstr ""
@@ -3901,42 +3893,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:905 earmelfb_linux.c:905 earmelfb_linux_eabi.c:905
 #: earmelfb_linux_fdpiceabi.c:905 earmelfb_nacl.c:905 earmelfb_nbsd.c:904
 #: earmnto.c:879 eavr1.c:453 eavr2.c:453 eavr25.c:453 eavr3.c:453 eavr31.c:453
-#: eavr35.c:453 eavr4.c:453 eavr5.c:453 eavr51.c:453 eavr6.c:453
-#: eavrtiny.c:453 eavrxmega1.c:453 eavrxmega2.c:453 eavrxmega3.c:453
-#: eavrxmega4.c:453 eavrxmega5.c:453 eavrxmega6.c:453 eavrxmega7.c:453
-#: ecriself.c:244 ecrislinux.c:327 ecskyelf.c:488 ecskyelf_linux.c:596
-#: ed10velf.c:229 eelf32_sparc.c:352 eelf32_sparc_sol2.c:484
-#: eelf32_sparc_vxworks.c:389 eelf32_spu.c:826 eelf32_tic6x_be.c:463
-#: eelf32_tic6x_elf_be.c:463 eelf32_tic6x_elf_le.c:463 eelf32_tic6x_le.c:463
-#: eelf32_tic6x_linux_be.c:463 eelf32_tic6x_linux_le.c:463 eelf32_x86_64.c:386
-#: eelf32am33lin.c:326 eelf32b4300.c:567 eelf32bfin.c:344 eelf32bfinfd.c:369
-#: eelf32bmip.c:567 eelf32bmipn32.c:581 eelf32briscv.c:434
-#: eelf32briscv_ilp32.c:434 eelf32briscv_ilp32f.c:434 eelf32bsmip.c:581
-#: eelf32btsmip.c:567 eelf32btsmip_fbsd.c:567 eelf32btsmipn32.c:567
-#: eelf32btsmipn32_fbsd.c:567 eelf32cr16.c:379 eelf32crx.c:266
-#: eelf32ebmip.c:567 eelf32ebmipvxworks.c:602 eelf32elmip.c:567
-#: eelf32elmipvxworks.c:602 eelf32epiphany.c:244 eelf32epiphany_4x4.c:231
-#: eelf32etca.c:2758 eelf32frvfd.c:351 eelf32ip2k.c:244 eelf32l4300.c:567
-#: eelf32lm32.c:244 eelf32lm32fd.c:351 eelf32lmip.c:567 eelf32loongarch.c:405
-#: eelf32lppc.c:603 eelf32lppclinux.c:603 eelf32lppcnto.c:603
-#: eelf32lppcsim.c:603 eelf32lr5900.c:485 eelf32lr5900n32.c:484
-#: eelf32lriscv.c:434 eelf32lriscv_ilp32.c:434 eelf32lriscv_ilp32f.c:434
-#: eelf32lsmip.c:567 eelf32ltsmip.c:567 eelf32ltsmip_fbsd.c:567
-#: eelf32ltsmipn32.c:567 eelf32ltsmipn32_fbsd.c:567 eelf32m32c.c:255
-#: eelf32mb_linux.c:352 eelf32mbel_linux.c:352 eelf32mcore.c:250
-#: eelf32mep.c:229 eelf32metag.c:601 eelf32microblaze.c:229
-#: eelf32microblazeel.c:229 eelf32mipswindiss.c:459 eelf32moxie.c:244
-#: eelf32or1k.c:245 eelf32or1k_linux.c:352 eelf32ppc.c:603
+#: eavr35.c:453 eavr4.c:453 eavr5.c:453 eavr51.c:453 eavr6.c:453 eavrtiny.c:453
+#: eavrxmega1.c:453 eavrxmega2.c:453 eavrxmega3.c:453 eavrxmega4.c:453
+#: eavrxmega5.c:453 eavrxmega6.c:453 eavrxmega7.c:453 ecriself.c:244
+#: ecrislinux.c:327 ecskyelf.c:488 ecskyelf_linux.c:596 ed10velf.c:229
+#: eelf32_sparc.c:352 eelf32_sparc_sol2.c:484 eelf32_sparc_vxworks.c:389
+#: eelf32_spu.c:826 eelf32_tic6x_be.c:463 eelf32_tic6x_elf_be.c:463
+#: eelf32_tic6x_elf_le.c:463 eelf32_tic6x_le.c:463 eelf32_tic6x_linux_be.c:463
+#: eelf32_tic6x_linux_le.c:463 eelf32_x86_64.c:386 eelf32am33lin.c:326
+#: eelf32b4300.c:567 eelf32bfin.c:344 eelf32bfinfd.c:369 eelf32bmip.c:567
+#: eelf32bmipn32.c:581 eelf32briscv.c:434 eelf32briscv_ilp32.c:434
+#: eelf32briscv_ilp32f.c:434 eelf32bsmip.c:581 eelf32btsmip.c:567
+#: eelf32btsmip_fbsd.c:567 eelf32btsmipn32.c:567 eelf32btsmipn32_fbsd.c:567
+#: eelf32cr16.c:379 eelf32crx.c:266 eelf32ebmip.c:567 eelf32ebmipvxworks.c:602
+#: eelf32elmip.c:567 eelf32elmipvxworks.c:602 eelf32epiphany.c:244
+#: eelf32epiphany_4x4.c:231 eelf32etca.c:2758 eelf32frvfd.c:351
+#: eelf32ip2k.c:244 eelf32l4300.c:567 eelf32lm32.c:244 eelf32lm32fd.c:351
+#: eelf32lmip.c:567 eelf32loongarch.c:405 eelf32lppc.c:603
+#: eelf32lppclinux.c:603 eelf32lppcnto.c:603 eelf32lppcsim.c:603
+#: eelf32lr5900.c:485 eelf32lr5900n32.c:484 eelf32lriscv.c:434
+#: eelf32lriscv_ilp32.c:434 eelf32lriscv_ilp32f.c:434 eelf32lsmip.c:567
+#: eelf32ltsmip.c:567 eelf32ltsmip_fbsd.c:567 eelf32ltsmipn32.c:567
+#: eelf32ltsmipn32_fbsd.c:567 eelf32m32c.c:255 eelf32mb_linux.c:352
+#: eelf32mbel_linux.c:352 eelf32mcore.c:250 eelf32mep.c:229 eelf32metag.c:601
+#: eelf32microblaze.c:229 eelf32microblazeel.c:229 eelf32mipswindiss.c:459
+#: eelf32moxie.c:244 eelf32or1k.c:245 eelf32or1k_linux.c:352 eelf32ppc.c:603
 #: eelf32ppc_fbsd.c:603 eelf32ppchaiku.c:603 eelf32ppclinux.c:603
 #: eelf32ppcnto.c:603 eelf32ppcsim.c:603 eelf32ppcvxworks.c:577
 #: eelf32ppcwindiss.c:603 eelf32rl78.c:244 eelf32rx.c:272 eelf32rx_linux.c:257
-#: eelf32tilegx.c:352 eelf32tilegx_be.c:352 eelf32tilepro.c:352
-#: eelf32vax.c:326 eelf32visium.c:229 eelf32xstormy16.c:240
-#: eelf32xtensa.c:2265 eelf32z80.c:256 eelf64_aix.c:326 eelf64_ia64.c:383
-#: eelf64_ia64_fbsd.c:383 eelf64_s390.c:422 eelf64_sparc.c:352
-#: eelf64_sparc_fbsd.c:352 eelf64_sparc_sol2.c:484 eelf64alpha.c:445
-#: eelf64alpha_fbsd.c:445 eelf64alpha_nbsd.c:445 eelf64bmip.c:581
-#: eelf64bpf.c:229 eelf64briscv.c:434 eelf64briscv_lp64.c:434
+#: eelf32tilegx.c:352 eelf32tilegx_be.c:352 eelf32tilepro.c:352 eelf32vax.c:326
+#: eelf32visium.c:229 eelf32xstormy16.c:240 eelf32xtensa.c:2265 eelf32z80.c:256
+#: eelf64_aix.c:326 eelf64_ia64.c:383 eelf64_ia64_fbsd.c:383 eelf64_s390.c:422
+#: eelf64_sparc.c:352 eelf64_sparc_fbsd.c:352 eelf64_sparc_sol2.c:484
+#: eelf64alpha.c:445 eelf64alpha_fbsd.c:445 eelf64alpha_nbsd.c:445
+#: eelf64bmip.c:581 eelf64bpf.c:229 eelf64briscv.c:434 eelf64briscv_lp64.c:434
 #: eelf64briscv_lp64f.c:434 eelf64btsmip.c:567 eelf64btsmip_fbsd.c:567
 #: eelf64hppa.c:296 eelf64loongarch.c:405 eelf64lppc.c:1053
 #: eelf64lppc_fbsd.c:1053 eelf64lriscv.c:434 eelf64lriscv_lp64.c:434
@@ -3950,18 +3940,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:518 eh8300elf.c:244 eh8300elf_linux.c:244
 #: eh8300helf.c:244 eh8300helf_linux.c:244 eh8300hnelf.c:244 eh8300self.c:244
 #: eh8300self_linux.c:244 eh8300snelf.c:244 eh8300sxelf.c:244
-#: eh8300sxelf_linux.c:244 eh8300sxnelf.c:244 ehppa64linux.c:326
-#: ehppaelf.c:512 ehppalinux.c:635 ehppanbsd.c:635 ehppaobsd.c:635
-#: ei386lynx.c:341 ei386moss.c:341 ei386nto.c:341 em32relf.c:244
-#: em32relf_linux.c:351 em32rlelf.c:244 em32rlelf_linux.c:351
-#: em68hc11elf.c:514 em68hc11elfb.c:514 em68hc12elf.c:514 em68hc12elfb.c:514
-#: em68kelf.c:509 em68kelfnbsd.c:509 emn10300.c:326 ends32belf.c:365
-#: ends32belf16m.c:365 ends32belf_linux.c:439 ends32elf.c:365
-#: ends32elf16m.c:365 ends32elf_linux.c:439 enios2elf.c:531 enios2linux.c:613
-#: epruelf.c:250 escore3_elf.c:348 escore7_elf.c:348 eshelf.c:326
-#: eshelf_fd.c:352 eshelf_linux.c:352 eshelf_nbsd.c:326 eshelf_nto.c:326
-#: eshelf_uclinux.c:326 eshelf_vxworks.c:363 eshlelf.c:326 eshlelf_fd.c:352
-#: eshlelf_linux.c:352 eshlelf_nbsd.c:326 eshlelf_nto.c:326
+#: eh8300sxelf_linux.c:244 eh8300sxnelf.c:244 ehppa64linux.c:326 ehppaelf.c:512
+#: ehppalinux.c:635 ehppanbsd.c:635 ehppaobsd.c:635 ei386lynx.c:341
+#: ei386moss.c:341 ei386nto.c:341 em32relf.c:244 em32relf_linux.c:351
+#: em32rlelf.c:244 em32rlelf_linux.c:351 em68hc11elf.c:514 em68hc11elfb.c:514
+#: em68hc12elf.c:514 em68hc12elfb.c:514 em68kelf.c:509 em68kelfnbsd.c:509
+#: emn10300.c:326 ends32belf.c:365 ends32belf16m.c:365 ends32belf_linux.c:439
+#: ends32elf.c:365 ends32elf16m.c:365 ends32elf_linux.c:439 enios2elf.c:531
+#: enios2linux.c:613 epruelf.c:250 escore3_elf.c:348 escore7_elf.c:348
+#: eshelf.c:326 eshelf_fd.c:352 eshelf_linux.c:352 eshelf_nbsd.c:326
+#: eshelf_nto.c:326 eshelf_uclinux.c:326 eshelf_vxworks.c:363 eshlelf.c:326
+#: eshlelf_fd.c:352 eshlelf_linux.c:352 eshlelf_nbsd.c:326 eshlelf_nto.c:326
 #: eshlelf_vxworks.c:363 ev850.c:276 ev850_rh850.c:276
 msgid "%F%P: invalid maximum page size `%s'\n"
 msgstr ""
@@ -3979,42 +3968,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:915 earmelfb_linux.c:915 earmelfb_linux_eabi.c:915
 #: earmelfb_linux_fdpiceabi.c:915 earmelfb_nacl.c:915 earmelfb_nbsd.c:914
 #: earmnto.c:889 eavr1.c:463 eavr2.c:463 eavr25.c:463 eavr3.c:463 eavr31.c:463
-#: eavr35.c:463 eavr4.c:463 eavr5.c:463 eavr51.c:463 eavr6.c:463
-#: eavrtiny.c:463 eavrxmega1.c:463 eavrxmega2.c:463 eavrxmega3.c:463
-#: eavrxmega4.c:463 eavrxmega5.c:463 eavrxmega6.c:463 eavrxmega7.c:463
-#: ecriself.c:254 ecrislinux.c:337 ecskyelf.c:498 ecskyelf_linux.c:606
-#: ed10velf.c:239 eelf32_sparc.c:362 eelf32_sparc_sol2.c:494
-#: eelf32_sparc_vxworks.c:399 eelf32_spu.c:836 eelf32_tic6x_be.c:473
-#: eelf32_tic6x_elf_be.c:473 eelf32_tic6x_elf_le.c:473 eelf32_tic6x_le.c:473
-#: eelf32_tic6x_linux_be.c:473 eelf32_tic6x_linux_le.c:473 eelf32_x86_64.c:396
-#: eelf32am33lin.c:336 eelf32b4300.c:577 eelf32bfin.c:354 eelf32bfinfd.c:379
-#: eelf32bmip.c:577 eelf32bmipn32.c:591 eelf32briscv.c:444
-#: eelf32briscv_ilp32.c:444 eelf32briscv_ilp32f.c:444 eelf32bsmip.c:591
-#: eelf32btsmip.c:577 eelf32btsmip_fbsd.c:577 eelf32btsmipn32.c:577
-#: eelf32btsmipn32_fbsd.c:577 eelf32cr16.c:389 eelf32crx.c:276
-#: eelf32ebmip.c:577 eelf32ebmipvxworks.c:612 eelf32elmip.c:577
-#: eelf32elmipvxworks.c:612 eelf32epiphany.c:254 eelf32epiphany_4x4.c:241
-#: eelf32etca.c:2768 eelf32frvfd.c:361 eelf32ip2k.c:254 eelf32l4300.c:577
-#: eelf32lm32.c:254 eelf32lm32fd.c:361 eelf32lmip.c:577 eelf32loongarch.c:415
-#: eelf32lppc.c:613 eelf32lppclinux.c:613 eelf32lppcnto.c:613
-#: eelf32lppcsim.c:613 eelf32lr5900.c:495 eelf32lr5900n32.c:494
-#: eelf32lriscv.c:444 eelf32lriscv_ilp32.c:444 eelf32lriscv_ilp32f.c:444
-#: eelf32lsmip.c:577 eelf32ltsmip.c:577 eelf32ltsmip_fbsd.c:577
-#: eelf32ltsmipn32.c:577 eelf32ltsmipn32_fbsd.c:577 eelf32m32c.c:265
-#: eelf32mb_linux.c:362 eelf32mbel_linux.c:362 eelf32mcore.c:260
-#: eelf32mep.c:239 eelf32metag.c:611 eelf32microblaze.c:239
-#: eelf32microblazeel.c:239 eelf32mipswindiss.c:469 eelf32moxie.c:254
-#: eelf32or1k.c:255 eelf32or1k_linux.c:362 eelf32ppc.c:613
+#: eavr35.c:463 eavr4.c:463 eavr5.c:463 eavr51.c:463 eavr6.c:463 eavrtiny.c:463
+#: eavrxmega1.c:463 eavrxmega2.c:463 eavrxmega3.c:463 eavrxmega4.c:463
+#: eavrxmega5.c:463 eavrxmega6.c:463 eavrxmega7.c:463 ecriself.c:254
+#: ecrislinux.c:337 ecskyelf.c:498 ecskyelf_linux.c:606 ed10velf.c:239
+#: eelf32_sparc.c:362 eelf32_sparc_sol2.c:494 eelf32_sparc_vxworks.c:399
+#: eelf32_spu.c:836 eelf32_tic6x_be.c:473 eelf32_tic6x_elf_be.c:473
+#: eelf32_tic6x_elf_le.c:473 eelf32_tic6x_le.c:473 eelf32_tic6x_linux_be.c:473
+#: eelf32_tic6x_linux_le.c:473 eelf32_x86_64.c:396 eelf32am33lin.c:336
+#: eelf32b4300.c:577 eelf32bfin.c:354 eelf32bfinfd.c:379 eelf32bmip.c:577
+#: eelf32bmipn32.c:591 eelf32briscv.c:444 eelf32briscv_ilp32.c:444
+#: eelf32briscv_ilp32f.c:444 eelf32bsmip.c:591 eelf32btsmip.c:577
+#: eelf32btsmip_fbsd.c:577 eelf32btsmipn32.c:577 eelf32btsmipn32_fbsd.c:577
+#: eelf32cr16.c:389 eelf32crx.c:276 eelf32ebmip.c:577 eelf32ebmipvxworks.c:612
+#: eelf32elmip.c:577 eelf32elmipvxworks.c:612 eelf32epiphany.c:254
+#: eelf32epiphany_4x4.c:241 eelf32etca.c:2768 eelf32frvfd.c:361
+#: eelf32ip2k.c:254 eelf32l4300.c:577 eelf32lm32.c:254 eelf32lm32fd.c:361
+#: eelf32lmip.c:577 eelf32loongarch.c:415 eelf32lppc.c:613
+#: eelf32lppclinux.c:613 eelf32lppcnto.c:613 eelf32lppcsim.c:613
+#: eelf32lr5900.c:495 eelf32lr5900n32.c:494 eelf32lriscv.c:444
+#: eelf32lriscv_ilp32.c:444 eelf32lriscv_ilp32f.c:444 eelf32lsmip.c:577
+#: eelf32ltsmip.c:577 eelf32ltsmip_fbsd.c:577 eelf32ltsmipn32.c:577
+#: eelf32ltsmipn32_fbsd.c:577 eelf32m32c.c:265 eelf32mb_linux.c:362
+#: eelf32mbel_linux.c:362 eelf32mcore.c:260 eelf32mep.c:239 eelf32metag.c:611
+#: eelf32microblaze.c:239 eelf32microblazeel.c:239 eelf32mipswindiss.c:469
+#: eelf32moxie.c:254 eelf32or1k.c:255 eelf32or1k_linux.c:362 eelf32ppc.c:613
 #: eelf32ppc_fbsd.c:613 eelf32ppchaiku.c:613 eelf32ppclinux.c:613
 #: eelf32ppcnto.c:613 eelf32ppcsim.c:613 eelf32ppcvxworks.c:587
 #: eelf32ppcwindiss.c:613 eelf32rl78.c:254 eelf32rx.c:282 eelf32rx_linux.c:267
-#: eelf32tilegx.c:362 eelf32tilegx_be.c:362 eelf32tilepro.c:362
-#: eelf32vax.c:336 eelf32visium.c:239 eelf32xstormy16.c:250
-#: eelf32xtensa.c:2275 eelf32z80.c:266 eelf64_aix.c:336 eelf64_ia64.c:393
-#: eelf64_ia64_fbsd.c:393 eelf64_s390.c:432 eelf64_sparc.c:362
-#: eelf64_sparc_fbsd.c:362 eelf64_sparc_sol2.c:494 eelf64alpha.c:455
-#: eelf64alpha_fbsd.c:455 eelf64alpha_nbsd.c:455 eelf64bmip.c:591
-#: eelf64bpf.c:239 eelf64briscv.c:444 eelf64briscv_lp64.c:444
+#: eelf32tilegx.c:362 eelf32tilegx_be.c:362 eelf32tilepro.c:362 eelf32vax.c:336
+#: eelf32visium.c:239 eelf32xstormy16.c:250 eelf32xtensa.c:2275 eelf32z80.c:266
+#: eelf64_aix.c:336 eelf64_ia64.c:393 eelf64_ia64_fbsd.c:393 eelf64_s390.c:432
+#: eelf64_sparc.c:362 eelf64_sparc_fbsd.c:362 eelf64_sparc_sol2.c:494
+#: eelf64alpha.c:455 eelf64alpha_fbsd.c:455 eelf64alpha_nbsd.c:455
+#: eelf64bmip.c:591 eelf64bpf.c:239 eelf64briscv.c:444 eelf64briscv_lp64.c:444
 #: eelf64briscv_lp64f.c:444 eelf64btsmip.c:577 eelf64btsmip_fbsd.c:577
 #: eelf64hppa.c:306 eelf64loongarch.c:415 eelf64lppc.c:1063
 #: eelf64lppc_fbsd.c:1063 eelf64lriscv.c:444 eelf64lriscv_lp64.c:444
@@ -4028,18 +4015,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:528 eh8300elf.c:254 eh8300elf_linux.c:254
 #: eh8300helf.c:254 eh8300helf_linux.c:254 eh8300hnelf.c:254 eh8300self.c:254
 #: eh8300self_linux.c:254 eh8300snelf.c:254 eh8300sxelf.c:254
-#: eh8300sxelf_linux.c:254 eh8300sxnelf.c:254 ehppa64linux.c:336
-#: ehppaelf.c:522 ehppalinux.c:645 ehppanbsd.c:645 ehppaobsd.c:645
-#: ei386lynx.c:351 ei386moss.c:351 ei386nto.c:351 em32relf.c:254
-#: em32relf_linux.c:361 em32rlelf.c:254 em32rlelf_linux.c:361
-#: em68hc11elf.c:524 em68hc11elfb.c:524 em68hc12elf.c:524 em68hc12elfb.c:524
-#: em68kelf.c:519 em68kelfnbsd.c:519 emn10300.c:336 ends32belf.c:375
-#: ends32belf16m.c:375 ends32belf_linux.c:449 ends32elf.c:375
-#: ends32elf16m.c:375 ends32elf_linux.c:449 enios2elf.c:541 enios2linux.c:623
-#: epruelf.c:260 escore3_elf.c:358 escore7_elf.c:358 eshelf.c:336
-#: eshelf_fd.c:362 eshelf_linux.c:362 eshelf_nbsd.c:336 eshelf_nto.c:336
-#: eshelf_uclinux.c:336 eshelf_vxworks.c:373 eshlelf.c:336 eshlelf_fd.c:362
-#: eshlelf_linux.c:362 eshlelf_nbsd.c:336 eshlelf_nto.c:336
+#: eh8300sxelf_linux.c:254 eh8300sxnelf.c:254 ehppa64linux.c:336 ehppaelf.c:522
+#: ehppalinux.c:645 ehppanbsd.c:645 ehppaobsd.c:645 ei386lynx.c:351
+#: ei386moss.c:351 ei386nto.c:351 em32relf.c:254 em32relf_linux.c:361
+#: em32rlelf.c:254 em32rlelf_linux.c:361 em68hc11elf.c:524 em68hc11elfb.c:524
+#: em68hc12elf.c:524 em68hc12elfb.c:524 em68kelf.c:519 em68kelfnbsd.c:519
+#: emn10300.c:336 ends32belf.c:375 ends32belf16m.c:375 ends32belf_linux.c:449
+#: ends32elf.c:375 ends32elf16m.c:375 ends32elf_linux.c:449 enios2elf.c:541
+#: enios2linux.c:623 epruelf.c:260 escore3_elf.c:358 escore7_elf.c:358
+#: eshelf.c:336 eshelf_fd.c:362 eshelf_linux.c:362 eshelf_nbsd.c:336
+#: eshelf_nto.c:336 eshelf_uclinux.c:336 eshelf_vxworks.c:373 eshlelf.c:336
+#: eshlelf_fd.c:362 eshlelf_linux.c:362 eshlelf_nbsd.c:336 eshlelf_nto.c:336
 #: eshlelf_vxworks.c:373 ev850.c:286 ev850_rh850.c:286
 msgid "%F%P: invalid common page size `%s'\n"
 msgstr ""
@@ -4057,42 +4043,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:924 earmelfb_linux.c:924 earmelfb_linux_eabi.c:924
 #: earmelfb_linux_fdpiceabi.c:924 earmelfb_nacl.c:924 earmelfb_nbsd.c:923
 #: earmnto.c:898 eavr1.c:472 eavr2.c:472 eavr25.c:472 eavr3.c:472 eavr31.c:472
-#: eavr35.c:472 eavr4.c:472 eavr5.c:472 eavr51.c:472 eavr6.c:472
-#: eavrtiny.c:472 eavrxmega1.c:472 eavrxmega2.c:472 eavrxmega3.c:472
-#: eavrxmega4.c:472 eavrxmega5.c:472 eavrxmega6.c:472 eavrxmega7.c:472
-#: ecriself.c:263 ecrislinux.c:346 ecskyelf.c:507 ecskyelf_linux.c:615
-#: ed10velf.c:248 eelf32_sparc.c:371 eelf32_sparc_sol2.c:503
-#: eelf32_sparc_vxworks.c:408 eelf32_spu.c:845 eelf32_tic6x_be.c:482
-#: eelf32_tic6x_elf_be.c:482 eelf32_tic6x_elf_le.c:482 eelf32_tic6x_le.c:482
-#: eelf32_tic6x_linux_be.c:482 eelf32_tic6x_linux_le.c:482 eelf32_x86_64.c:405
-#: eelf32am33lin.c:345 eelf32b4300.c:586 eelf32bfin.c:363 eelf32bfinfd.c:388
-#: eelf32bmip.c:586 eelf32bmipn32.c:600 eelf32briscv.c:453
-#: eelf32briscv_ilp32.c:453 eelf32briscv_ilp32f.c:453 eelf32bsmip.c:600
-#: eelf32btsmip.c:586 eelf32btsmip_fbsd.c:586 eelf32btsmipn32.c:586
-#: eelf32btsmipn32_fbsd.c:586 eelf32cr16.c:398 eelf32crx.c:285
-#: eelf32ebmip.c:586 eelf32ebmipvxworks.c:621 eelf32elmip.c:586
-#: eelf32elmipvxworks.c:621 eelf32epiphany.c:263 eelf32epiphany_4x4.c:250
-#: eelf32etca.c:2777 eelf32frvfd.c:370 eelf32ip2k.c:263 eelf32l4300.c:586
-#: eelf32lm32.c:263 eelf32lm32fd.c:370 eelf32lmip.c:586 eelf32loongarch.c:424
-#: eelf32lppc.c:622 eelf32lppclinux.c:622 eelf32lppcnto.c:622
-#: eelf32lppcsim.c:622 eelf32lr5900.c:504 eelf32lr5900n32.c:503
-#: eelf32lriscv.c:453 eelf32lriscv_ilp32.c:453 eelf32lriscv_ilp32f.c:453
-#: eelf32lsmip.c:586 eelf32ltsmip.c:586 eelf32ltsmip_fbsd.c:586
-#: eelf32ltsmipn32.c:586 eelf32ltsmipn32_fbsd.c:586 eelf32m32c.c:274
-#: eelf32mb_linux.c:371 eelf32mbel_linux.c:371 eelf32mcore.c:269
-#: eelf32mep.c:248 eelf32metag.c:620 eelf32microblaze.c:248
-#: eelf32microblazeel.c:248 eelf32mipswindiss.c:478 eelf32moxie.c:263
-#: eelf32or1k.c:264 eelf32or1k_linux.c:371 eelf32ppc.c:622
+#: eavr35.c:472 eavr4.c:472 eavr5.c:472 eavr51.c:472 eavr6.c:472 eavrtiny.c:472
+#: eavrxmega1.c:472 eavrxmega2.c:472 eavrxmega3.c:472 eavrxmega4.c:472
+#: eavrxmega5.c:472 eavrxmega6.c:472 eavrxmega7.c:472 ecriself.c:263
+#: ecrislinux.c:346 ecskyelf.c:507 ecskyelf_linux.c:615 ed10velf.c:248
+#: eelf32_sparc.c:371 eelf32_sparc_sol2.c:503 eelf32_sparc_vxworks.c:408
+#: eelf32_spu.c:845 eelf32_tic6x_be.c:482 eelf32_tic6x_elf_be.c:482
+#: eelf32_tic6x_elf_le.c:482 eelf32_tic6x_le.c:482 eelf32_tic6x_linux_be.c:482
+#: eelf32_tic6x_linux_le.c:482 eelf32_x86_64.c:405 eelf32am33lin.c:345
+#: eelf32b4300.c:586 eelf32bfin.c:363 eelf32bfinfd.c:388 eelf32bmip.c:586
+#: eelf32bmipn32.c:600 eelf32briscv.c:453 eelf32briscv_ilp32.c:453
+#: eelf32briscv_ilp32f.c:453 eelf32bsmip.c:600 eelf32btsmip.c:586
+#: eelf32btsmip_fbsd.c:586 eelf32btsmipn32.c:586 eelf32btsmipn32_fbsd.c:586
+#: eelf32cr16.c:398 eelf32crx.c:285 eelf32ebmip.c:586 eelf32ebmipvxworks.c:621
+#: eelf32elmip.c:586 eelf32elmipvxworks.c:621 eelf32epiphany.c:263
+#: eelf32epiphany_4x4.c:250 eelf32etca.c:2777 eelf32frvfd.c:370
+#: eelf32ip2k.c:263 eelf32l4300.c:586 eelf32lm32.c:263 eelf32lm32fd.c:370
+#: eelf32lmip.c:586 eelf32loongarch.c:424 eelf32lppc.c:622
+#: eelf32lppclinux.c:622 eelf32lppcnto.c:622 eelf32lppcsim.c:622
+#: eelf32lr5900.c:504 eelf32lr5900n32.c:503 eelf32lriscv.c:453
+#: eelf32lriscv_ilp32.c:453 eelf32lriscv_ilp32f.c:453 eelf32lsmip.c:586
+#: eelf32ltsmip.c:586 eelf32ltsmip_fbsd.c:586 eelf32ltsmipn32.c:586
+#: eelf32ltsmipn32_fbsd.c:586 eelf32m32c.c:274 eelf32mb_linux.c:371
+#: eelf32mbel_linux.c:371 eelf32mcore.c:269 eelf32mep.c:248 eelf32metag.c:620
+#: eelf32microblaze.c:248 eelf32microblazeel.c:248 eelf32mipswindiss.c:478
+#: eelf32moxie.c:263 eelf32or1k.c:264 eelf32or1k_linux.c:371 eelf32ppc.c:622
 #: eelf32ppc_fbsd.c:622 eelf32ppchaiku.c:622 eelf32ppclinux.c:622
 #: eelf32ppcnto.c:622 eelf32ppcsim.c:622 eelf32ppcvxworks.c:596
 #: eelf32ppcwindiss.c:622 eelf32rl78.c:263 eelf32rx.c:291 eelf32rx_linux.c:276
-#: eelf32tilegx.c:371 eelf32tilegx_be.c:371 eelf32tilepro.c:371
-#: eelf32vax.c:345 eelf32visium.c:248 eelf32xstormy16.c:259
-#: eelf32xtensa.c:2284 eelf32z80.c:275 eelf64_aix.c:345 eelf64_ia64.c:402
-#: eelf64_ia64_fbsd.c:402 eelf64_s390.c:441 eelf64_sparc.c:371
-#: eelf64_sparc_fbsd.c:371 eelf64_sparc_sol2.c:503 eelf64alpha.c:464
-#: eelf64alpha_fbsd.c:464 eelf64alpha_nbsd.c:464 eelf64bmip.c:600
-#: eelf64bpf.c:248 eelf64briscv.c:453 eelf64briscv_lp64.c:453
+#: eelf32tilegx.c:371 eelf32tilegx_be.c:371 eelf32tilepro.c:371 eelf32vax.c:345
+#: eelf32visium.c:248 eelf32xstormy16.c:259 eelf32xtensa.c:2284 eelf32z80.c:275
+#: eelf64_aix.c:345 eelf64_ia64.c:402 eelf64_ia64_fbsd.c:402 eelf64_s390.c:441
+#: eelf64_sparc.c:371 eelf64_sparc_fbsd.c:371 eelf64_sparc_sol2.c:503
+#: eelf64alpha.c:464 eelf64alpha_fbsd.c:464 eelf64alpha_nbsd.c:464
+#: eelf64bmip.c:600 eelf64bpf.c:248 eelf64briscv.c:453 eelf64briscv_lp64.c:453
 #: eelf64briscv_lp64f.c:453 eelf64btsmip.c:586 eelf64btsmip_fbsd.c:586
 #: eelf64hppa.c:315 eelf64loongarch.c:424 eelf64lppc.c:1072
 #: eelf64lppc_fbsd.c:1072 eelf64lriscv.c:453 eelf64lriscv_lp64.c:453
@@ -4106,18 +4090,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:537 eh8300elf.c:263 eh8300elf_linux.c:263
 #: eh8300helf.c:263 eh8300helf_linux.c:263 eh8300hnelf.c:263 eh8300self.c:263
 #: eh8300self_linux.c:263 eh8300snelf.c:263 eh8300sxelf.c:263
-#: eh8300sxelf_linux.c:263 eh8300sxnelf.c:263 ehppa64linux.c:345
-#: ehppaelf.c:531 ehppalinux.c:654 ehppanbsd.c:654 ehppaobsd.c:654
-#: ei386lynx.c:360 ei386moss.c:360 ei386nto.c:360 em32relf.c:263
-#: em32relf_linux.c:370 em32rlelf.c:263 em32rlelf_linux.c:370
-#: em68hc11elf.c:533 em68hc11elfb.c:533 em68hc12elf.c:533 em68hc12elfb.c:533
-#: em68kelf.c:528 em68kelfnbsd.c:528 emn10300.c:345 ends32belf.c:384
-#: ends32belf16m.c:384 ends32belf_linux.c:458 ends32elf.c:384
-#: ends32elf16m.c:384 ends32elf_linux.c:458 enios2elf.c:550 enios2linux.c:632
-#: epruelf.c:269 escore3_elf.c:367 escore7_elf.c:367 eshelf.c:345
-#: eshelf_fd.c:371 eshelf_linux.c:371 eshelf_nbsd.c:345 eshelf_nto.c:345
-#: eshelf_uclinux.c:345 eshelf_vxworks.c:382 eshlelf.c:345 eshlelf_fd.c:371
-#: eshlelf_linux.c:371 eshlelf_nbsd.c:345 eshlelf_nto.c:345
+#: eh8300sxelf_linux.c:263 eh8300sxnelf.c:263 ehppa64linux.c:345 ehppaelf.c:531
+#: ehppalinux.c:654 ehppanbsd.c:654 ehppaobsd.c:654 ei386lynx.c:360
+#: ei386moss.c:360 ei386nto.c:360 em32relf.c:263 em32relf_linux.c:370
+#: em32rlelf.c:263 em32rlelf_linux.c:370 em68hc11elf.c:533 em68hc11elfb.c:533
+#: em68hc12elf.c:533 em68hc12elfb.c:533 em68kelf.c:528 em68kelfnbsd.c:528
+#: emn10300.c:345 ends32belf.c:384 ends32belf16m.c:384 ends32belf_linux.c:458
+#: ends32elf.c:384 ends32elf16m.c:384 ends32elf_linux.c:458 enios2elf.c:550
+#: enios2linux.c:632 epruelf.c:269 escore3_elf.c:367 escore7_elf.c:367
+#: eshelf.c:345 eshelf_fd.c:371 eshelf_linux.c:371 eshelf_nbsd.c:345
+#: eshelf_nto.c:345 eshelf_uclinux.c:345 eshelf_vxworks.c:382 eshlelf.c:345
+#: eshlelf_fd.c:371 eshlelf_linux.c:371 eshlelf_nbsd.c:345 eshlelf_nto.c:345
 #: eshlelf_vxworks.c:382 ev850.c:295 ev850_rh850.c:295
 msgid "%F%P: invalid stack size `%s'\n"
 msgstr ""
@@ -4135,42 +4118,40 @@ msgstr ""
 #: earmelfb_fuchsia.c:963 earmelfb_linux.c:963 earmelfb_linux_eabi.c:963
 #: earmelfb_linux_fdpiceabi.c:963 earmelfb_nacl.c:963 earmelfb_nbsd.c:962
 #: earmnto.c:937 eavr1.c:511 eavr2.c:511 eavr25.c:511 eavr3.c:511 eavr31.c:511
-#: eavr35.c:511 eavr4.c:511 eavr5.c:511 eavr51.c:511 eavr6.c:511
-#: eavrtiny.c:511 eavrxmega1.c:511 eavrxmega2.c:511 eavrxmega3.c:511
-#: eavrxmega4.c:511 eavrxmega5.c:511 eavrxmega6.c:511 eavrxmega7.c:511
-#: ecriself.c:302 ecrislinux.c:385 ecskyelf.c:546 ecskyelf_linux.c:654
-#: ed10velf.c:287 eelf32_sparc.c:410 eelf32_sparc_sol2.c:542
-#: eelf32_sparc_vxworks.c:447 eelf32_spu.c:884 eelf32_tic6x_be.c:521
-#: eelf32_tic6x_elf_be.c:521 eelf32_tic6x_elf_le.c:521 eelf32_tic6x_le.c:521
-#: eelf32_tic6x_linux_be.c:521 eelf32_tic6x_linux_le.c:521 eelf32_x86_64.c:444
-#: eelf32am33lin.c:384 eelf32b4300.c:625 eelf32bfin.c:402 eelf32bfinfd.c:427
-#: eelf32bmip.c:625 eelf32bmipn32.c:639 eelf32briscv.c:492
-#: eelf32briscv_ilp32.c:492 eelf32briscv_ilp32f.c:492 eelf32bsmip.c:639
-#: eelf32btsmip.c:625 eelf32btsmip_fbsd.c:625 eelf32btsmipn32.c:625
-#: eelf32btsmipn32_fbsd.c:625 eelf32cr16.c:437 eelf32crx.c:324
-#: eelf32ebmip.c:625 eelf32ebmipvxworks.c:660 eelf32elmip.c:625
-#: eelf32elmipvxworks.c:660 eelf32epiphany.c:302 eelf32epiphany_4x4.c:289
-#: eelf32etca.c:2816 eelf32frvfd.c:409 eelf32ip2k.c:302 eelf32l4300.c:625
-#: eelf32lm32.c:302 eelf32lm32fd.c:409 eelf32lmip.c:625 eelf32loongarch.c:463
-#: eelf32lppc.c:661 eelf32lppclinux.c:661 eelf32lppcnto.c:661
-#: eelf32lppcsim.c:661 eelf32lr5900.c:543 eelf32lr5900n32.c:542
-#: eelf32lriscv.c:492 eelf32lriscv_ilp32.c:492 eelf32lriscv_ilp32f.c:492
-#: eelf32lsmip.c:625 eelf32ltsmip.c:625 eelf32ltsmip_fbsd.c:625
-#: eelf32ltsmipn32.c:625 eelf32ltsmipn32_fbsd.c:625 eelf32m32c.c:313
-#: eelf32mb_linux.c:410 eelf32mbel_linux.c:410 eelf32mcore.c:308
-#: eelf32mep.c:287 eelf32metag.c:659 eelf32microblaze.c:287
-#: eelf32microblazeel.c:287 eelf32mipswindiss.c:517 eelf32moxie.c:302
-#: eelf32or1k.c:303 eelf32or1k_linux.c:410 eelf32ppc.c:661
+#: eavr35.c:511 eavr4.c:511 eavr5.c:511 eavr51.c:511 eavr6.c:511 eavrtiny.c:511
+#: eavrxmega1.c:511 eavrxmega2.c:511 eavrxmega3.c:511 eavrxmega4.c:511
+#: eavrxmega5.c:511 eavrxmega6.c:511 eavrxmega7.c:511 ecriself.c:302
+#: ecrislinux.c:385 ecskyelf.c:546 ecskyelf_linux.c:654 ed10velf.c:287
+#: eelf32_sparc.c:410 eelf32_sparc_sol2.c:542 eelf32_sparc_vxworks.c:447
+#: eelf32_spu.c:884 eelf32_tic6x_be.c:521 eelf32_tic6x_elf_be.c:521
+#: eelf32_tic6x_elf_le.c:521 eelf32_tic6x_le.c:521 eelf32_tic6x_linux_be.c:521
+#: eelf32_tic6x_linux_le.c:521 eelf32_x86_64.c:444 eelf32am33lin.c:384
+#: eelf32b4300.c:625 eelf32bfin.c:402 eelf32bfinfd.c:427 eelf32bmip.c:625
+#: eelf32bmipn32.c:639 eelf32briscv.c:492 eelf32briscv_ilp32.c:492
+#: eelf32briscv_ilp32f.c:492 eelf32bsmip.c:639 eelf32btsmip.c:625
+#: eelf32btsmip_fbsd.c:625 eelf32btsmipn32.c:625 eelf32btsmipn32_fbsd.c:625
+#: eelf32cr16.c:437 eelf32crx.c:324 eelf32ebmip.c:625 eelf32ebmipvxworks.c:660
+#: eelf32elmip.c:625 eelf32elmipvxworks.c:660 eelf32epiphany.c:302
+#: eelf32epiphany_4x4.c:289 eelf32etca.c:2816 eelf32frvfd.c:409
+#: eelf32ip2k.c:302 eelf32l4300.c:625 eelf32lm32.c:302 eelf32lm32fd.c:409
+#: eelf32lmip.c:625 eelf32loongarch.c:463 eelf32lppc.c:661
+#: eelf32lppclinux.c:661 eelf32lppcnto.c:661 eelf32lppcsim.c:661
+#: eelf32lr5900.c:543 eelf32lr5900n32.c:542 eelf32lriscv.c:492
+#: eelf32lriscv_ilp32.c:492 eelf32lriscv_ilp32f.c:492 eelf32lsmip.c:625
+#: eelf32ltsmip.c:625 eelf32ltsmip_fbsd.c:625 eelf32ltsmipn32.c:625
+#: eelf32ltsmipn32_fbsd.c:625 eelf32m32c.c:313 eelf32mb_linux.c:410
+#: eelf32mbel_linux.c:410 eelf32mcore.c:308 eelf32mep.c:287 eelf32metag.c:659
+#: eelf32microblaze.c:287 eelf32microblazeel.c:287 eelf32mipswindiss.c:517
+#: eelf32moxie.c:302 eelf32or1k.c:303 eelf32or1k_linux.c:410 eelf32ppc.c:661
 #: eelf32ppc_fbsd.c:661 eelf32ppchaiku.c:661 eelf32ppclinux.c:661
 #: eelf32ppcnto.c:661 eelf32ppcsim.c:661 eelf32ppcvxworks.c:635
 #: eelf32ppcwindiss.c:661 eelf32rl78.c:302 eelf32rx.c:330 eelf32rx_linux.c:315
-#: eelf32tilegx.c:410 eelf32tilegx_be.c:410 eelf32tilepro.c:410
-#: eelf32vax.c:384 eelf32visium.c:287 eelf32xstormy16.c:298
-#: eelf32xtensa.c:2323 eelf32z80.c:314 eelf64_aix.c:384 eelf64_ia64.c:441
-#: eelf64_ia64_fbsd.c:441 eelf64_s390.c:480 eelf64_sparc.c:410
-#: eelf64_sparc_fbsd.c:410 eelf64_sparc_sol2.c:542 eelf64alpha.c:503
-#: eelf64alpha_fbsd.c:503 eelf64alpha_nbsd.c:503 eelf64bmip.c:639
-#: eelf64bpf.c:287 eelf64briscv.c:492 eelf64briscv_lp64.c:492
+#: eelf32tilegx.c:410 eelf32tilegx_be.c:410 eelf32tilepro.c:410 eelf32vax.c:384
+#: eelf32visium.c:287 eelf32xstormy16.c:298 eelf32xtensa.c:2323 eelf32z80.c:314
+#: eelf64_aix.c:384 eelf64_ia64.c:441 eelf64_ia64_fbsd.c:441 eelf64_s390.c:480
+#: eelf64_sparc.c:410 eelf64_sparc_fbsd.c:410 eelf64_sparc_sol2.c:542
+#: eelf64alpha.c:503 eelf64alpha_fbsd.c:503 eelf64alpha_nbsd.c:503
+#: eelf64bmip.c:639 eelf64bpf.c:287 eelf64briscv.c:492 eelf64briscv_lp64.c:492
 #: eelf64briscv_lp64f.c:492 eelf64btsmip.c:625 eelf64btsmip_fbsd.c:625
 #: eelf64hppa.c:354 eelf64loongarch.c:463 eelf64lppc.c:1111
 #: eelf64lppc_fbsd.c:1111 eelf64lriscv.c:492 eelf64lriscv_lp64.c:492
@@ -4184,18 +4165,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:576 eh8300elf.c:302 eh8300elf_linux.c:302
 #: eh8300helf.c:302 eh8300helf_linux.c:302 eh8300hnelf.c:302 eh8300self.c:302
 #: eh8300self_linux.c:302 eh8300snelf.c:302 eh8300sxelf.c:302
-#: eh8300sxelf_linux.c:302 eh8300sxnelf.c:302 ehppa64linux.c:384
-#: ehppaelf.c:570 ehppalinux.c:693 ehppanbsd.c:693 ehppaobsd.c:693
-#: ei386lynx.c:399 ei386moss.c:399 ei386nto.c:399 em32relf.c:302
-#: em32relf_linux.c:409 em32rlelf.c:302 em32rlelf_linux.c:409
-#: em68hc11elf.c:572 em68hc11elfb.c:572 em68hc12elf.c:572 em68hc12elfb.c:572
-#: em68kelf.c:567 em68kelfnbsd.c:567 emn10300.c:384 ends32belf.c:423
-#: ends32belf16m.c:423 ends32belf_linux.c:497 ends32elf.c:423
-#: ends32elf16m.c:423 ends32elf_linux.c:497 enios2elf.c:589 enios2linux.c:671
-#: epruelf.c:308 escore3_elf.c:406 escore7_elf.c:406 eshelf.c:384
-#: eshelf_fd.c:410 eshelf_linux.c:410 eshelf_nbsd.c:384 eshelf_nto.c:384
-#: eshelf_uclinux.c:384 eshelf_vxworks.c:421 eshlelf.c:384 eshlelf_fd.c:410
-#: eshlelf_linux.c:410 eshlelf_nbsd.c:384 eshlelf_nto.c:384
+#: eh8300sxelf_linux.c:302 eh8300sxnelf.c:302 ehppa64linux.c:384 ehppaelf.c:570
+#: ehppalinux.c:693 ehppanbsd.c:693 ehppaobsd.c:693 ei386lynx.c:399
+#: ei386moss.c:399 ei386nto.c:399 em32relf.c:302 em32relf_linux.c:409
+#: em32rlelf.c:302 em32rlelf_linux.c:409 em68hc11elf.c:572 em68hc11elfb.c:572
+#: em68hc12elf.c:572 em68hc12elfb.c:572 em68kelf.c:567 em68kelfnbsd.c:567
+#: emn10300.c:384 ends32belf.c:423 ends32belf16m.c:423 ends32belf_linux.c:497
+#: ends32elf.c:423 ends32elf16m.c:423 ends32elf_linux.c:497 enios2elf.c:589
+#: enios2linux.c:671 epruelf.c:308 escore3_elf.c:406 escore7_elf.c:406
+#: eshelf.c:384 eshelf_fd.c:410 eshelf_linux.c:410 eshelf_nbsd.c:384
+#: eshelf_nto.c:384 eshelf_uclinux.c:384 eshelf_vxworks.c:421 eshlelf.c:384
+#: eshlelf_fd.c:410 eshlelf_linux.c:410 eshlelf_nbsd.c:384 eshlelf_nto.c:384
 #: eshlelf_vxworks.c:421 ev850.c:334 ev850_rh850.c:334
 msgid ""
 "%F%P: invalid visibility in `-z %s'; must be default, internal, hidden, or "
@@ -4244,13 +4224,12 @@ msgstr ""
 #: eelf32ppc_fbsd.c:735 eelf32ppchaiku.c:735 eelf32ppclinux.c:735
 #: eelf32ppcnto.c:735 eelf32ppcsim.c:735 eelf32ppcvxworks.c:709
 #: eelf32ppcwindiss.c:735 eelf32rl78.c:311 eelf32rx.c:339 eelf32rx_linux.c:324
-#: eelf32tilegx.c:478 eelf32tilegx_be.c:478 eelf32tilepro.c:478
-#: eelf32vax.c:448 eelf32visium.c:296 eelf32xstormy16.c:307
-#: eelf32xtensa.c:2391 eelf32z80.c:323 eelf64_aix.c:448 eelf64_ia64.c:505
-#: eelf64_ia64_fbsd.c:505 eelf64_s390.c:548 eelf64_sparc.c:478
-#: eelf64_sparc_fbsd.c:478 eelf64_sparc_sol2.c:610 eelf64alpha.c:571
-#: eelf64alpha_fbsd.c:571 eelf64alpha_nbsd.c:571 eelf64bmip.c:707
-#: eelf64bpf.c:296 eelf64briscv.c:560 eelf64briscv_lp64.c:560
+#: eelf32tilegx.c:478 eelf32tilegx_be.c:478 eelf32tilepro.c:478 eelf32vax.c:448
+#: eelf32visium.c:296 eelf32xstormy16.c:307 eelf32xtensa.c:2391 eelf32z80.c:323
+#: eelf64_aix.c:448 eelf64_ia64.c:505 eelf64_ia64_fbsd.c:505 eelf64_s390.c:548
+#: eelf64_sparc.c:478 eelf64_sparc_fbsd.c:478 eelf64_sparc_sol2.c:610
+#: eelf64alpha.c:571 eelf64alpha_fbsd.c:571 eelf64alpha_nbsd.c:571
+#: eelf64bmip.c:707 eelf64bpf.c:296 eelf64briscv.c:560 eelf64briscv_lp64.c:560
 #: eelf64briscv_lp64f.c:560 eelf64btsmip.c:693 eelf64btsmip_fbsd.c:693
 #: eelf64hppa.c:418 eelf64loongarch.c:531 eelf64lppc.c:1190
 #: eelf64lppc_fbsd.c:1190 eelf64lriscv.c:560 eelf64lriscv_lp64.c:560
@@ -4264,18 +4243,17 @@ msgstr ""
 #: eelf_x86_64_sol2.c:786 eh8300elf.c:311 eh8300elf_linux.c:311
 #: eh8300helf.c:311 eh8300helf_linux.c:311 eh8300hnelf.c:311 eh8300self.c:311
 #: eh8300self_linux.c:311 eh8300snelf.c:311 eh8300sxelf.c:311
-#: eh8300sxelf_linux.c:311 eh8300sxnelf.c:311 ehppa64linux.c:448
-#: ehppaelf.c:579 ehppalinux.c:761 ehppanbsd.c:761 ehppaobsd.c:761
-#: ei386lynx.c:463 ei386moss.c:463 ei386nto.c:463 em32relf.c:311
-#: em32relf_linux.c:473 em32rlelf.c:311 em32rlelf_linux.c:473
-#: em68hc11elf.c:581 em68hc11elfb.c:581 em68hc12elf.c:581 em68hc12elfb.c:581
-#: em68kelf.c:635 em68kelfnbsd.c:635 emn10300.c:448 ends32belf.c:432
-#: ends32belf16m.c:432 ends32belf_linux.c:565 ends32elf.c:432
-#: ends32elf16m.c:432 ends32elf_linux.c:565 enios2elf.c:598 enios2linux.c:739
-#: epruelf.c:317 escore3_elf.c:470 escore7_elf.c:470 eshelf.c:448
-#: eshelf_fd.c:478 eshelf_linux.c:478 eshelf_nbsd.c:448 eshelf_nto.c:448
-#: eshelf_uclinux.c:448 eshelf_vxworks.c:485 eshlelf.c:448 eshlelf_fd.c:478
-#: eshlelf_linux.c:478 eshlelf_nbsd.c:448 eshlelf_nto.c:448
+#: eh8300sxelf_linux.c:311 eh8300sxnelf.c:311 ehppa64linux.c:448 ehppaelf.c:579
+#: ehppalinux.c:761 ehppanbsd.c:761 ehppaobsd.c:761 ei386lynx.c:463
+#: ei386moss.c:463 ei386nto.c:463 em32relf.c:311 em32relf_linux.c:473
+#: em32rlelf.c:311 em32rlelf_linux.c:473 em68hc11elf.c:581 em68hc11elfb.c:581
+#: em68hc12elf.c:581 em68hc12elfb.c:581 em68kelf.c:635 em68kelfnbsd.c:635
+#: emn10300.c:448 ends32belf.c:432 ends32belf16m.c:432 ends32belf_linux.c:565
+#: ends32elf.c:432 ends32elf16m.c:432 ends32elf_linux.c:565 enios2elf.c:598
+#: enios2linux.c:739 epruelf.c:317 escore3_elf.c:470 escore7_elf.c:470
+#: eshelf.c:448 eshelf_fd.c:478 eshelf_linux.c:478 eshelf_nbsd.c:448
+#: eshelf_nto.c:448 eshelf_uclinux.c:448 eshelf_vxworks.c:485 eshlelf.c:448
+#: eshlelf_fd.c:478 eshlelf_linux.c:478 eshlelf_nbsd.c:448 eshlelf_nto.c:448
 #: eshlelf_vxworks.c:485 ev850.c:343 ev850_rh850.c:343
 msgid "%P: warning: -z %s ignored\n"
 msgstr ""
@@ -4294,10 +4272,10 @@ msgstr ""
 #: eaarch64linux.c:863 eaarch64linux32.c:863 eaarch64linux32b.c:863
 #: eaarch64linuxb.c:863 eaarch64nto.c:976 earmelf.c:1163 earmelf_fbsd.c:1163
 #: earmelf_fuchsia.c:1168 earmelf_haiku.c:1168 earmelf_linux.c:1168
-#: earmelf_linux_eabi.c:1168 earmelf_linux_fdpiceabi.c:1168
-#: earmelf_nacl.c:1168 earmelf_nbsd.c:1163 earmelf_phoenix.c:1168
-#: earmelf_vxworks.c:1203 earmelfb.c:1163 earmelfb_fbsd.c:1163
-#: earmelfb_fuchsia.c:1168 earmelfb_linux.c:1168 earmelfb_linux_eabi.c:1168
+#: earmelf_linux_eabi.c:1168 earmelf_linux_fdpiceabi.c:1168 earmelf_nacl.c:1168
+#: earmelf_nbsd.c:1163 earmelf_phoenix.c:1168 earmelf_vxworks.c:1203
+#: earmelfb.c:1163 earmelfb_fbsd.c:1163 earmelfb_fuchsia.c:1168
+#: earmelfb_linux.c:1168 earmelfb_linux_eabi.c:1168
 #: earmelfb_linux_fdpiceabi.c:1168 earmelfb_nacl.c:1168 earmelfb_nbsd.c:1163
 #: earmnto.c:1138
 #, c-format
@@ -4312,10 +4290,10 @@ msgstr ""
 #: eaarch64linux.c:865 eaarch64linux32.c:865 eaarch64linux32b.c:865
 #: eaarch64linuxb.c:865 eaarch64nto.c:978 earmelf.c:1165 earmelf_fbsd.c:1165
 #: earmelf_fuchsia.c:1170 earmelf_haiku.c:1170 earmelf_linux.c:1170
-#: earmelf_linux_eabi.c:1170 earmelf_linux_fdpiceabi.c:1170
-#: earmelf_nacl.c:1170 earmelf_nbsd.c:1165 earmelf_phoenix.c:1170
-#: earmelf_vxworks.c:1205 earmelfb.c:1165 earmelfb_fbsd.c:1165
-#: earmelfb_fuchsia.c:1170 earmelfb_linux.c:1170 earmelfb_linux_eabi.c:1170
+#: earmelf_linux_eabi.c:1170 earmelf_linux_fdpiceabi.c:1170 earmelf_nacl.c:1170
+#: earmelf_nbsd.c:1165 earmelf_phoenix.c:1170 earmelf_vxworks.c:1205
+#: earmelfb.c:1165 earmelfb_fbsd.c:1165 earmelfb_fuchsia.c:1170
+#: earmelfb_linux.c:1170 earmelfb_linux_eabi.c:1170
 #: earmelfb_linux_fdpiceabi.c:1170 earmelfb_nacl.c:1170 earmelfb_nbsd.c:1165
 #: earmnto.c:1140
 #, c-format
@@ -4330,10 +4308,10 @@ msgstr ""
 #: eaarch64linux.c:867 eaarch64linux32.c:867 eaarch64linux32b.c:867
 #: eaarch64linuxb.c:867 eaarch64nto.c:980 earmelf.c:1167 earmelf_fbsd.c:1167
 #: earmelf_fuchsia.c:1172 earmelf_haiku.c:1172 earmelf_linux.c:1172
-#: earmelf_linux_eabi.c:1172 earmelf_linux_fdpiceabi.c:1172
-#: earmelf_nacl.c:1172 earmelf_nbsd.c:1167 earmelf_phoenix.c:1172
-#: earmelf_vxworks.c:1207 earmelfb.c:1167 earmelfb_fbsd.c:1167
-#: earmelfb_fuchsia.c:1172 earmelfb_linux.c:1172 earmelfb_linux_eabi.c:1172
+#: earmelf_linux_eabi.c:1172 earmelf_linux_fdpiceabi.c:1172 earmelf_nacl.c:1172
+#: earmelf_nbsd.c:1167 earmelf_phoenix.c:1172 earmelf_vxworks.c:1207
+#: earmelfb.c:1167 earmelfb_fbsd.c:1167 earmelfb_fuchsia.c:1172
+#: earmelfb_linux.c:1172 earmelfb_linux_eabi.c:1172
 #: earmelfb_linux_fdpiceabi.c:1172 earmelfb_nacl.c:1172 earmelfb_nbsd.c:1167
 #: earmnto.c:1142
 #, c-format
@@ -4347,10 +4325,10 @@ msgstr ""
 #: eaarch64linux.c:868 eaarch64linux32.c:868 eaarch64linux32b.c:868
 #: eaarch64linuxb.c:868 eaarch64nto.c:981 earmelf.c:1174 earmelf_fbsd.c:1174
 #: earmelf_fuchsia.c:1179 earmelf_haiku.c:1179 earmelf_linux.c:1179
-#: earmelf_linux_eabi.c:1179 earmelf_linux_fdpiceabi.c:1179
-#: earmelf_nacl.c:1179 earmelf_nbsd.c:1174 earmelf_phoenix.c:1179
-#: earmelf_vxworks.c:1214 earmelfb.c:1174 earmelfb_fbsd.c:1174
-#: earmelfb_fuchsia.c:1179 earmelfb_linux.c:1179 earmelfb_linux_eabi.c:1179
+#: earmelf_linux_eabi.c:1179 earmelf_linux_fdpiceabi.c:1179 earmelf_nacl.c:1179
+#: earmelf_nbsd.c:1174 earmelf_phoenix.c:1179 earmelf_vxworks.c:1214
+#: earmelfb.c:1174 earmelfb_fbsd.c:1174 earmelfb_fuchsia.c:1179
+#: earmelfb_linux.c:1179 earmelfb_linux_eabi.c:1179
 #: earmelfb_linux_fdpiceabi.c:1179 earmelfb_nacl.c:1179 earmelfb_nbsd.c:1174
 #: earmnto.c:1149
 #, c-format
@@ -5038,8 +5016,8 @@ msgid "%F%P: could not parse import path: %E\n"
 msgstr ""
 
 #: eaix5ppc.c:1397 eaix5ppc.c:1409 eaix5rs6.c:1397 eaix5rs6.c:1409
-#: eaixppc.c:1397 eaixppc.c:1409 eaixrs6.c:1397 eaixrs6.c:1409
-#: eppcmacos.c:1397 eppcmacos.c:1409
+#: eaixppc.c:1397 eaixppc.c:1409 eaixrs6.c:1397 eaixrs6.c:1409 eppcmacos.c:1397
+#: eppcmacos.c:1409
 msgid "%P:%s:%d: warning: syntax error in import file\n"
 msgstr ""
 
@@ -5219,9 +5197,9 @@ msgstr ""
 #: earmelf_linux_fdpiceabi.c:524 earmelf_nacl.c:524 earmelf_nbsd.c:523
 #: earmelf_phoenix.c:524 earmelf_vxworks.c:523 earmelfb.c:523
 #: earmelfb_fbsd.c:523 earmelfb_fuchsia.c:524 earmelfb_linux.c:524
-#: earmelfb_linux_eabi.c:524 earmelfb_linux_fdpiceabi.c:524
-#: earmelfb_nacl.c:524 earmelfb_nbsd.c:523 earmnto.c:523 earmpe.c:2046
-#: ei386pe.c:2046 ei386pe_posix.c:2046 emcorepe.c:2046 eshpe.c:2046
+#: earmelfb_linux_eabi.c:524 earmelfb_linux_fdpiceabi.c:524 earmelfb_nacl.c:524
+#: earmelfb_nbsd.c:523 earmnto.c:523 earmpe.c:2046 ei386pe.c:2046
+#: ei386pe_posix.c:2046 emcorepe.c:2046 eshpe.c:2046
 msgid "%P: warning: '--thumb-entry %s' is overriding '-e %s'\n"
 msgstr ""
 
@@ -5230,9 +5208,9 @@ msgstr ""
 #: earmelf_linux_fdpiceabi.c:529 earmelf_nacl.c:529 earmelf_nbsd.c:528
 #: earmelf_phoenix.c:529 earmelf_vxworks.c:528 earmelfb.c:528
 #: earmelfb_fbsd.c:528 earmelfb_fuchsia.c:529 earmelfb_linux.c:529
-#: earmelfb_linux_eabi.c:529 earmelfb_linux_fdpiceabi.c:529
-#: earmelfb_nacl.c:529 earmelfb_nbsd.c:528 earmnto.c:528 earmpe.c:2051
-#: ei386pe.c:2051 ei386pe_posix.c:2051 emcorepe.c:2051 eshpe.c:2051
+#: earmelfb_linux_eabi.c:529 earmelfb_linux_fdpiceabi.c:529 earmelfb_nacl.c:529
+#: earmelfb_nbsd.c:528 earmnto.c:528 earmpe.c:2051 ei386pe.c:2051
+#: ei386pe_posix.c:2051 emcorepe.c:2051 eshpe.c:2051
 msgid "%P: warning: cannot find thumb start symbol %s\n"
 msgstr ""
 
@@ -5905,11 +5883,11 @@ msgid ""
 msgstr ""
 
 #: eelf32_x86_64.c:643 eelf32lppc.c:835 eelf32lppclinux.c:835
-#: eelf32lppcnto.c:835 eelf32lppcsim.c:835 eelf32ppc.c:835
-#: eelf32ppc_fbsd.c:835 eelf32ppchaiku.c:835 eelf32ppclinux.c:835
-#: eelf32ppcnto.c:835 eelf32ppcsim.c:835 eelf32ppcvxworks.c:813
-#: eelf32ppcwindiss.c:835 eelf64lppc.c:1365 eelf64lppc_fbsd.c:1365
-#: eelf64ppc.c:1365 eelf64ppc_fbsd.c:1365 eelf_i386.c:640 eelf_i386_be.c:538
+#: eelf32lppcnto.c:835 eelf32lppcsim.c:835 eelf32ppc.c:835 eelf32ppc_fbsd.c:835
+#: eelf32ppchaiku.c:835 eelf32ppclinux.c:835 eelf32ppcnto.c:835
+#: eelf32ppcsim.c:835 eelf32ppcvxworks.c:813 eelf32ppcwindiss.c:835
+#: eelf64lppc.c:1365 eelf64lppc_fbsd.c:1365 eelf64ppc.c:1365
+#: eelf64ppc_fbsd.c:1365 eelf_i386.c:640 eelf_i386_be.c:538
 #: eelf_i386_fbsd.c:640 eelf_i386_haiku.c:640 eelf_i386_ldso.c:562
 #: eelf_i386_sol2.c:719 eelf_i386_vxworks.c:610 eelf_iamcu.c:587
 #: eelf_x86_64.c:693 eelf_x86_64_cloudabi.c:693 eelf_x86_64_fbsd.c:693
