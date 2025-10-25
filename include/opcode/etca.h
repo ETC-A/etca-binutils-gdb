@@ -102,9 +102,12 @@ enum etca_ext_index { /* This needs to match the order in the listing of instruc
 #define ETCA_CP1_ASP    (1ULL << 7)
 #define ETCA_CP2_ASP    0
 #define ETCA_FT_ASP     0
-#define ETCA_CP1_MO2    (1ULL << 13)
+#define ETCA_CP1_MO2    (1ULL << 12)
 #define ETCA_CP2_MO2    0
 #define ETCA_FT_MO2     0
+#define ETCA_CP1_PG16   (1ULL << 13)
+#define ETCA_CP2_PG16   0
+#define ETCA_FT_PG16    0
 #define ETCA_CP1_DW     (1ULL << 14)
 #define ETCA_CP2_DW     0
 #define ETCA_FT_DW      0
@@ -114,10 +117,7 @@ enum etca_ext_index { /* This needs to match the order in the listing of instruc
 #define ETCA_CP1_DWAS   (1ULL << 16)
 #define ETCA_CP2_DWAS   0
 #define ETCA_FT_DWAS    0
-#define ETCA_CP1_PG16   (1ULL << 17)
-#define ETCA_CP2_PG16   0
-#define ETCA_FT_PG16    0
-#define ETCA_CP1_PG32   (1ULL << 18)
+#define ETCA_CP1_PG32   (1ULL << 17)
 #define ETCA_CP2_PG32   0
 #define ETCA_FT_PG32    0
 #define ETCA_CP1_QWAS   (1ULL << 32)
