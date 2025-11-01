@@ -775,7 +775,8 @@ uint8_t number_of_needed_bits(int64_t value) {
     return 64 - __builtin_clrsbll(value);
 }
 
-#define SIGN_EXTEND(value, bit) (((value & ((1 << bit) -1)) ^ (1 << (bit - 1))) - (1 << (bit - 1)))
+#define EXTEND_MASK(bit)   	((bit) == 64 ? -1LL : ((1ULL << (bit)) - 1ULL))
+#define SIGN_EXTEND(value, bit) (((value & EXTEND_MASK(bit)) ^ (1ULL << (bit - 1))) - (1ULL << (bit - 1)))
 
 static uint8_t size_to_width[4] = {8, 16, 32, 64};
 #define GET_5B_SECTION(value, idx) (((value) >> ((idx) * 5)) & 0x1F)
@@ -792,6 +793,12 @@ etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t
     if (size < 0 || size > 3) {
 	abort();
     }
+
+    if (value_pointer) {
+	printf("immediate value: %ld\n", *value_pointer);
+    	printf("bits: %d\n", bits);
+    }
+
     enum elf_etca_reloc_type ret = R_ETCA_NONE;
     switch (size) {
 	case 0b00:
