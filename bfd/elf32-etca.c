@@ -829,7 +829,7 @@ etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t
 	}
 	ret = R_ETCA_MOV_FROM_INSTRUCTION_COUNT(insn);
     }
-    if (reg > 8) {
+    if (reg >= 8) {
 	ret = R_ETCA_MOV_TO_MOV_REX(ret);
     }
     return ret;
@@ -838,7 +838,7 @@ etca_calc_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t
 enum elf_etca_reloc_type
 etca_build_mov_ri(const struct etca_cpuid *current_cpuid ATTRIBUTE_UNUSED, int8_t size, reg_num reg,
 		  int64_t *value_pointer, enum elf_etca_reloc_type expected, char *output) {
-    const char need_rex = (reg > 8);
+    const char need_rex = (reg >= 8);
 
     const char rex_a = 0b11000100;
     const char movs = 0b01001001 | (size << 4);
