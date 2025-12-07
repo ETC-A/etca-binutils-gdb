@@ -325,9 +325,13 @@ struct etca_settings {
     to determine the operand size, as_bad is called and 1 is used. */
 static size_attr compute_operand_size(void);
 /* Validate the size of a (concrete) immediate operand. Before this
-    is called, you should have already set imm{5/8}{s/z} appropriately,
-    presumably in parse_immediate. You should also have already set
-    `ai.opcode_size', presumably in compute_operand_size.
+    is called, you should have already attempted to set imm{5/8}{s/z}
+    appropriately, presumably in parse_immediate. However now that we
+    know the operand size, we can do a more refined check to determine
+    if a 1-byte encoding is appropriate for this specific operand size,
+    and we do so. Therefore we might set imm8s if it wasn't set already.
+    You should also have already set `ai.opcode_size',
+    presumably in compute_operand_size.
     It is checked that if there is an immediate which is _not_ imm8
     of the appropriate signedness, that it is within the bounds
     for a full-sized immediate of the given operation width.
@@ -1989,6 +1993,21 @@ static void validate_conc_imm_size(void) {
     // one of the fits_in_bytesX functions
     bool(*fits_with_signage)(int64_t,uint8_t);
 
+    // When we read the imm, we didn't necessarily have operand size attribute
+    // yet. We have it now. We can use that to determine if a 1-byte signed
+    // immediate can correctly encode it for this operand size, even if it would
+    // would be wrong at quadword (e.g. 0xFFFFFF80 can be encoded as
+    // 8s:0x80 for a signed doubleword operation, but not a signed quadword one.)
+    if (!the_imm->kind.imm8s) {
+        // Only attempt a fix if don't already think it's OK. otherwise why bother?
+        // Detect if fix is possible by sign extending 64b value to match attr.
+        int64_t extended_val = sign_extend(imm_val, 8*nbytes);
+        if (-128 <= extended_val && extended_val < 128) {
+            // 8-bit will work for this operand size, yay!
+            the_imm->kind.imm8s = 1;
+        }
+    }
+
     // If the opcode is mov, then we're doing a validation before a demotion.
     // `mov''s arg has no signage, so needs a special case here.
     if (ai.opcode->format == ETCA_IF_SPECIAL && ai.opcode->opcode == ETCA_MOV) {
@@ -2422,7 +2441,6 @@ process_mov_pseudo(void) {
         if (CHECK_PAT(fi_pat)) {
             const char *selected_opcode;
             ai.params.kinds.ri = 1;
-            validate_conc_imm_size();
             if ((KIND(1).imm8z && !KIND(1).imm8s)
                 || (ai.opcode_size == 3
                     && fits_in_bytes_unsigned(ai.args[1].imm_expr.X_add_number, 4)
@@ -2434,6 +2452,7 @@ process_mov_pseudo(void) {
                 ai.imm_signed = true;
             }
             ai.opcode = str_hash_find(opcode_hash_control, selected_opcode);
+            validate_conc_imm_size();
             assemble_base_abm();
             return;
         }
