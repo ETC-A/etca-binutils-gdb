@@ -373,8 +373,7 @@ perform_relocation (const reloc_howto_type *howto,
    accordingly.  */
 
 static int
-etca_elf_relocate_section(bfd *output_bfd,
-			  struct bfd_link_info *info,
+etca_elf_relocate_section(struct bfd_link_info *info,
 			  bfd *input_bfd,
 			  asection *input_section,
 			  bfd_byte *contents,
@@ -413,7 +412,7 @@ etca_elf_relocate_section(bfd *output_bfd,
 	if (r_symndx < symtab_hdr->sh_info) {
 	    sym = local_syms + r_symndx;
 	    sec = local_sections[r_symndx];
-	    relocation = _bfd_elf_rela_local_sym(output_bfd, sym, &sec, rel);
+	    relocation = _bfd_elf_rela_local_sym(info->output_bfd, sym, &sec, rel);
 
 	    /* Relocate against local STT_GNU_IFUNC symbol.  */
 	    if (!bfd_link_relocatable(info)
@@ -449,7 +448,7 @@ etca_elf_relocate_section(bfd *output_bfd,
 	}
 
 	if (sec != NULL && discarded_section(sec)) RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-										    rel, 1, relend, howto, 0, contents);
+										    rel, 1, relend, BFD_RELOC_NONE, howto, 0, contents);
 
 	if (bfd_link_relocatable(info))
 	    continue;
@@ -762,7 +761,7 @@ etca_info_to_howto_rela (bfd *abfd,
 
 /* Determine what kind of values the object attriubte has. Currently we only have one, which takes a string*/
 static int
-etca_elf_obj_attrs_arg_type (int tag ATTRIBUTE_UNUSED)
+etca_elf_obj_attrs_arg_type (long unsigned int tag ATTRIBUTE_UNUSED)
 {
     return ATTR_TYPE_FLAG_STR_VAL;
 }

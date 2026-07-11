@@ -1458,7 +1458,7 @@ md_atof(int type, char *litP, int *sizeP) {
     return NULL;
 }
 
-const char *md_shortopts = "";
+const char md_shortopts[] = "";
 
 /* We provide the following possible ways to specify a specifc set of extensions.
  * This needs to be kept in sync with the gcc code manually.
@@ -1490,7 +1490,7 @@ enum options {
     OPTION_PEDANTIC,
 };
 
-struct option md_longopts[] =
+const struct option md_longopts[] =
 	{
 		{"march",       required_argument, NULL, OPTION_MARCH},
 		{"mextensions", required_argument, NULL, OPTION_MEXTENSIONS},
@@ -1501,7 +1501,7 @@ struct option md_longopts[] =
                 {"noprefix",    no_argument,       NULL, OPTION_NOPREFIX},
 		{NULL,          no_argument,       NULL, 0},
 	};
-size_t md_longopts_size = sizeof(md_longopts);
+const size_t md_longopts_size = sizeof(md_longopts);
 
 /* Parses a comma seperated list of extension abbreviations */
 static int parse_extension_list(const char *extensions, struct etca_cpuid *out) {
