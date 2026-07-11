@@ -1,5 +1,5 @@
 /* Target-dependent code for GNU/Linux on Alpha.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
+#include "solib-svr4-linux.h"
 #include "osabi.h"
 #include "solib-svr4.h"
 #include "symtab.h"
@@ -126,7 +126,7 @@ alpha_linux_pc_in_sigtramp (struct gdbarch *gdbarch,
 }
 
 static CORE_ADDR
-alpha_linux_sigcontext_addr (frame_info_ptr this_frame)
+alpha_linux_sigcontext_addr (const frame_info_ptr &this_frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   CORE_ADDR pc;
@@ -359,9 +359,6 @@ alpha_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   /* Hook into the DWARF CFI frame unwinder.  */
   alpha_dwarf2_init_abi (info, gdbarch);
 
-  /* Hook into the MDEBUG frame unwinder.  */
-  alpha_mdebug_init_abi (info, gdbarch);
-
   alpha_gdbarch_tdep *tdep = gdbarch_tdep<alpha_gdbarch_tdep> (gdbarch);
   tdep->dynamic_sigtramp_offset = alpha_linux_sigtramp_offset;
   tdep->sigcontext_addr = alpha_linux_sigcontext_addr;
@@ -370,9 +367,7 @@ alpha_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->jb_elt_size = 8;
 
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, linux_lp64_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_linux_lp64_svr4_solib_ops);
 
   /* Enable TLS support.  */
   set_gdbarch_fetch_tls_load_module_address (gdbarch,
@@ -387,9 +382,7 @@ alpha_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				    alpha_linux_gdb_signal_to_target);
 }
 
-void _initialize_alpha_linux_tdep ();
-void
-_initialize_alpha_linux_tdep ()
+INIT_GDB_FILE (alpha_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_alpha, 0, GDB_OSABI_LINUX,
 			  alpha_linux_init_abi);

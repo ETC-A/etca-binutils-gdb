@@ -1,6 +1,6 @@
 /* Python interface to inferior thread event registries.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "command.h"
 #include "py-events.h"
 
 events_object gdb_py_events;
 
-extern PyTypeObject eventregistry_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("eventregistry_object");
+extern PyTypeObject eventregistry_object_type;
 
 /* Implementation of EventRegistry.connect () -> NULL.
    Add FUNCTION to the list of listeners.  */
@@ -47,7 +45,7 @@ evregpy_connect (PyObject *self, PyObject *function)
   if (PyList_Append (callback_list, func) < 0)
     return NULL;
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implementation of EventRegistry.disconnect () -> NULL.
@@ -65,12 +63,12 @@ evregpy_disconnect (PyObject *self, PyObject *function)
 
   index = PySequence_Index (callback_list, func);
   if (index < 0)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   if (PySequence_DelItem (callback_list, index) < 0)
     return NULL;
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Create a new event registry.  This function uses PyObject_New
@@ -102,14 +100,10 @@ evregpy_dealloc (PyObject *self)
 
 /* Initialize the Python event registry code.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_eventregistry (void)
+static int
+gdbpy_initialize_eventregistry ()
 {
-  if (PyType_Ready (&eventregistry_object_type) < 0)
-    return -1;
-
-  return gdb_pymodule_addobject (gdb_module, "EventRegistry",
-				 (PyObject *) &eventregistry_object_type);
+  return gdbpy_type_ready (&eventregistry_object_type);
 }
 
 /* Return the number of listeners currently connected to this

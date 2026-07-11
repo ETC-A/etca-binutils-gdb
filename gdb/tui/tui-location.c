@@ -1,4 +1,4 @@
-/* Copyright (C) 2021-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,10 +15,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "tui/tui.h"
-#include "tui/tui-stack.h"
-#include "tui/tui-data.h"
+#include "tui/tui-status.h"
 #include "tui/tui-location.h"
 #include "symtab.h"
 #include "source.h"
@@ -32,23 +29,21 @@ tui_location_tracker tui_location;
 bool
 tui_location_tracker::set_location (struct gdbarch *gdbarch,
 				    const struct symtab_and_line &sal,
-				    const char *procname)
+				    std::string procname)
 {
-  gdb_assert (procname != nullptr);
-
   bool location_changed_p = set_fullname (sal.symtab);
   location_changed_p |= procname != m_proc_name;
   location_changed_p |= sal.line != m_line_no;
   location_changed_p |= sal.pc != m_addr;
   location_changed_p |= gdbarch != m_gdbarch;
 
-  m_proc_name = procname;
+  m_proc_name = std::move (procname);
   m_line_no = sal.line;
   m_addr = sal.pc;
   m_gdbarch = gdbarch;
 
   if (location_changed_p)
-    tui_show_locator_content ();
+    tui_show_status_content ();
 
   return location_changed_p;
 }
@@ -61,7 +56,7 @@ tui_location_tracker::set_location (struct symtab *symtab)
   bool location_changed_p = set_fullname (symtab);
 
   if (location_changed_p)
-    tui_show_locator_content ();
+    tui_show_status_content ();
 
   return location_changed_p;
 }

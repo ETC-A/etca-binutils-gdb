@@ -1,6 +1,6 @@
 /* Everything about vfork catchpoints, for GDB.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "annotate.h"
 #include "arch-utils.h"
@@ -222,7 +221,7 @@ catch_fork_command_1 (const char *arg, int from_tty,
      First, check if there's an if clause.  */
   cond_string = ep_parse_optional_if_clause (&arg);
 
-  if ((*arg != '\0') && !isspace (*arg))
+  if ((*arg != '\0') && !c_isspace (*arg))
     error (_("Junk at end of arguments."));
 
   /* If this target supports it, create a fork or vfork catchpoint
@@ -243,9 +242,7 @@ catch_fork_command_1 (const char *arg, int from_tty,
     }
 }
 
-void _initialize_break_catch_fork ();
-void
-_initialize_break_catch_fork ()
+INIT_GDB_FILE (break_catch_fork)
 {
   add_catch_command ("fork", _("Catch calls to fork."),
 		     catch_fork_command_1,

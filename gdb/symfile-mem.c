@@ -1,6 +1,6 @@
 /* Reading symbol files from memory.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -41,11 +41,11 @@
    entry point.  */
 
 
-#include "defs.h"
+#include "exceptions.h"
 #include "symtab.h"
 #include "gdbcore.h"
 #include "objfiles.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "target.h"
 #include "value.h"
 #include "symfile.h"
@@ -54,13 +54,14 @@
 #include "elf/common.h"
 #include "gdb_bfd.h"
 #include "inferior.h"
+#include "cli/cli-style.h"
 
 /* Verify parameters of target_read_memory_bfd and target_read_memory are
    compatible.  */
 
-gdb_static_assert (sizeof (CORE_ADDR) >= sizeof (bfd_vma));
-gdb_static_assert (sizeof (gdb_byte) == sizeof (bfd_byte));
-gdb_static_assert (sizeof (ssize_t) <= sizeof (bfd_size_type));
+static_assert (sizeof (CORE_ADDR) >= sizeof (bfd_vma));
+static_assert (sizeof (gdb_byte) == sizeof (bfd_byte));
+static_assert (sizeof (ssize_t) <= sizeof (bfd_size_type));
 
 /* Provide bfd/ compatible prototype for target_read_memory.  Casting would not
    be enough as LEN width may differ.  */
@@ -91,7 +92,9 @@ symbol_file_add_from_memory (struct bfd *templ, CORE_ADDR addr,
   symfile_add_flags add_flags = SYMFILE_NOT_FILENAME;
 
   if (bfd_get_flavour (templ) != bfd_target_elf_flavour)
-    error (_("add-symbol-file-from-memory not supported for this target"));
+    error (_("\"%ps\" not supported for this target"),
+	   styled_string (command_style.style (),
+			  "add-symbol-file-from-memory"));
 
   nbfd = bfd_elf_bfd_from_remote_memory (templ, addr, size, &loadbase,
 					 target_read_memory_bfd);
@@ -105,7 +108,7 @@ symbol_file_add_from_memory (struct bfd *templ, CORE_ADDR addr,
     name = "shared object read from target memory";
   bfd_set_filename (nbfd, name);
 
-  if (!bfd_check_format (nbfd, bfd_object))
+  if (!gdb_bfd_check_format (nbfd, bfd_object))
     error (_("Got object file from memory but can't read symbols: %s."),
 	   bfd_errmsg (bfd_get_error ()));
 
@@ -138,7 +141,9 @@ add_symbol_file_from_memory_command (const char *args, int from_tty)
   struct bfd *templ;
 
   if (args == NULL)
-    error (_("add-symbol-file-from-memory requires an expression argument"));
+    error (_("\"%ps\" requires an expression argument"),
+	   styled_string (command_style.style (),
+			  "add-symbol-file-from-memory"));
 
   addr = parse_and_eval_address (args);
 
@@ -148,8 +153,11 @@ add_symbol_file_from_memory_command (const char *args, int from_tty)
   else
     templ = current_program_space->exec_bfd ();
   if (templ == NULL)
-    error (_("Must use symbol-file or exec-file "
-	     "before add-symbol-file-from-memory."));
+    error (_("Must use \"%ps\" or \"%ps\" before \"%ps\"."),
+	   styled_string (command_style.style (), "symbol-file"),
+	   styled_string (command_style.style (), "exec-file"),
+	   styled_string (command_style.style (),
+			  "add-symbol-file-from-memory"));
 
   symbol_file_add_from_memory (templ, addr, 0, NULL, from_tty);
 }
@@ -162,13 +170,13 @@ add_vsyscall_page (inferior *inf)
 {
   struct mem_range vsyscall_range;
 
-  if (gdbarch_vsyscall_range (inf->gdbarch, &vsyscall_range))
+  if (gdbarch_vsyscall_range (inf->arch (), &vsyscall_range))
     {
       struct bfd *bfd;
 
-      if (core_bfd != NULL)
-	bfd = core_bfd;
-      else if (current_program_space->exec_bfd () != NULL)
+      if (get_inferior_core_bfd (current_inferior ()) != nullptr)
+	bfd = get_inferior_core_bfd (current_inferior ());
+      else if (current_program_space->exec_bfd () != nullptr)
 	bfd = current_program_space->exec_bfd ();
       else
        /* FIXME: cagney/2004-05-06: Should not require an existing
@@ -184,7 +192,7 @@ add_vsyscall_page (inferior *inf)
 	}
 
       std::string name = string_printf ("system-supplied DSO at %s",
-					paddress (target_gdbarch (),
+					paddress (current_inferior ()->arch (),
 						  vsyscall_range.start));
       try
 	{
@@ -204,9 +212,7 @@ add_vsyscall_page (inferior *inf)
     }
 }
 
-void _initialize_symfile_mem ();
-void
-_initialize_symfile_mem ()
+INIT_GDB_FILE (symfile_mem)
 {
   add_cmd ("add-symbol-file-from-memory", class_files,
 	   add_symbol_file_from_memory_command,

@@ -1,4 +1,4 @@
-/* Copyright (C) 2006-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_TDESC_H
-#define COMMON_TDESC_H
+#ifndef GDBSUPPORT_TDESC_H
+#define GDBSUPPORT_TDESC_H
+
+#include "gdbsupport/osabi.h"
 
 struct tdesc_feature;
 struct tdesc_type;
@@ -129,7 +131,7 @@ struct tdesc_reg : tdesc_element
   }
 };
 
-typedef std::unique_ptr<tdesc_reg> tdesc_reg_up;
+using tdesc_reg_up = std::unique_ptr<tdesc_reg>;
 
 /* Declaration of a structure that holds information about one
    "compatibility" entry within a target description.  */
@@ -138,7 +140,7 @@ struct tdesc_compatible_info;
 
 /* A pointer to a single piece of compatibility information.  */
 
-typedef std::unique_ptr<tdesc_compatible_info> tdesc_compatible_info_up;
+using tdesc_compatible_info_up = std::unique_ptr<tdesc_compatible_info>;
 
 /* Return a vector of compatibility information pointers from the target
    description TARGET_DESC.  */
@@ -210,7 +212,7 @@ struct tdesc_type : tdesc_element
   }
 };
 
-typedef std::unique_ptr<tdesc_type> tdesc_type_up;
+using tdesc_type_up = std::unique_ptr<tdesc_type>;
 
 struct tdesc_type_builtin : tdesc_type
 {
@@ -311,7 +313,7 @@ struct tdesc_feature : tdesc_element
   }
 };
 
-typedef std::unique_ptr<tdesc_feature> tdesc_feature_up;
+using tdesc_feature_up = std::unique_ptr<tdesc_feature>;
 
 /* A deleter adapter for a target_desc.  There are different
    implementations of this deleter class in gdb and gdbserver because even
@@ -320,12 +322,14 @@ typedef std::unique_ptr<tdesc_feature> tdesc_feature_up;
 
 struct target_desc_deleter
 {
-  void operator() (struct target_desc *desc) const;
+  void operator() (const target_desc *desc) const;
 };
 
 /* A unique pointer specialization that holds a target_desc.  */
 
-typedef std::unique_ptr<target_desc, target_desc_deleter> target_desc_up;
+using target_desc_up = std::unique_ptr<target_desc, target_desc_deleter>;
+using const_target_desc_up
+  = std::unique_ptr<const target_desc, target_desc_deleter>;
 
 /* Allocate a new target_desc.  */
 target_desc_up allocate_target_description (void);
@@ -338,8 +342,8 @@ void set_tdesc_architecture (target_desc *target_desc,
    or NULL if no architecture was specified.  */
 const char *tdesc_architecture_name (const struct target_desc *target_desc);
 
-/* Set TARGET_DESC's osabi by NAME.  */
-void set_tdesc_osabi (target_desc *target_desc, const char *name);
+/* Set TARGET_DESC's osabi to OSABI.  */
+void set_tdesc_osabi (target_desc *target_desc, enum gdb_osabi osabi);
 
 /* Return the osabi associated with this target description as a string,
    or NULL if no osabi was specified.  */
@@ -462,4 +466,4 @@ private:
   int m_depth;
 };
 
-#endif /* COMMON_TDESC_H */
+#endif /* GDBSUPPORT_TDESC_H */

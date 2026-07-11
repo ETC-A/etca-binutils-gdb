@@ -1,4 +1,4 @@
-/* Copyright (C) 2012-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,7 +15,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "osabi.h"
 #include "regcache.h"
 #include "gdbcore.h"
@@ -56,7 +56,7 @@ rs6000_lynx178_push_dummy_call (struct gdbarch *gdbarch,
      on PPC variants that lack them.  */
   gdb_assert (ppc_floating_point_unit_p (gdbarch));
 
-  /* The first eight words of ther arguments are passed in registers.
+  /* The first eight words of the arguments are passed in registers.
      Copy them appropriately.  */
   ii = 0;
 
@@ -407,9 +407,7 @@ rs6000_lynx178_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_long_double_bit (gdbarch, 8 * TARGET_CHAR_BIT);
 }
 
-void _initialize_rs6000_lynx178_tdep ();
-void
-_initialize_rs6000_lynx178_tdep ()
+INIT_GDB_FILE (rs6000_lynx178_tdep)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_rs6000,
 				  bfd_target_xcoff_flavour,
@@ -417,4 +415,3 @@ _initialize_rs6000_lynx178_tdep ()
   gdbarch_register_osabi (bfd_arch_rs6000, 0, GDB_OSABI_LYNXOS178,
 			  rs6000_lynx178_init_osabi);
 }
-

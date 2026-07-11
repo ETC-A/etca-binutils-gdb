@@ -1,5 +1,5 @@
 /* Thread management interface, for the remote server for GDB.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 
 #include "linux-low.h"
 
@@ -33,7 +32,6 @@
 #include <dlfcn.h>
 #endif
 #include <limits.h>
-#include <ctype.h>
 
 struct thread_db
 {
@@ -180,13 +178,13 @@ find_one_thread (ptid_t ptid)
   td_err_e err = thread_db->td_ta_map_lwp2thr_p (thread_db->thread_agent, lwpid,
 						 &th);
   if (err != TD_OK)
-    error ("Cannot get thread handle for LWP %d: %s",
+    error (_("Cannot get thread handle for LWP %d: %s"),
 	   lwpid, thread_db_err_str (err));
 
   td_thrinfo_t ti;
   err = thread_db->td_thr_get_info_p (&th, &ti);
   if (err != TD_OK)
-    error ("Cannot get thread info for LWP %d: %s",
+    error (_("Cannot get thread info for LWP %d: %s"),
 	   lwpid, thread_db_err_str (err));
 
   threads_debug_printf ("Found thread %ld (LWP %d)",
@@ -194,7 +192,7 @@ find_one_thread (ptid_t ptid)
 
   if (lwpid != ti.ti_lid)
     {
-      warning ("PID mismatch!  Expected %ld, got %ld",
+      warning (_("PID mismatch!  Expected %ld, got %ld"),
 	       (long) lwpid, (long) ti.ti_lid);
       return 0;
     }
@@ -217,7 +215,7 @@ static int
 attach_thread (const td_thrhandle_t *th_p, td_thrinfo_t *ti_p)
 {
   struct process_info *proc = current_process ();
-  int pid = pid_of (proc);
+  int pid = proc->pid;
   ptid_t ptid = ptid_t (pid, ti_p->ti_lid);
   struct lwp_info *lwp;
   int err;
@@ -229,7 +227,7 @@ attach_thread (const td_thrhandle_t *th_p, td_thrinfo_t *ti_p)
     {
       std::string reason = linux_ptrace_attach_fail_reason_string (ptid, err);
 
-      warning ("Could not attach to thread %ld (LWP %d): %s",
+      warning (_("Could not attach to thread %ld (LWP %d): %s"),
 	       (unsigned long) ti_p->ti_tid, ti_p->ti_lid, reason.c_str ());
 
       return 0;
@@ -276,7 +274,7 @@ find_new_threads_callback (const td_thrhandle_t *th_p, void *data)
 
   err = thread_db->td_thr_get_info_p (th_p, &ti);
   if (err != TD_OK)
-    error ("Cannot get thread info: %s", thread_db_err_str (err));
+    error (_("Cannot get thread info: %s"), thread_db_err_str (err));
 
   if (ti.ti_lid == -1)
     {
@@ -310,7 +308,7 @@ static void
 thread_db_find_new_threads (void)
 {
   td_err_e err;
-  ptid_t ptid = current_ptid;
+  ptid_t ptid = current_thread->id;
   struct thread_db *thread_db = current_process ()->priv->thread_db;
   int loop, iteration;
 
@@ -345,7 +343,7 @@ thread_db_find_new_threads (void)
 	}
     }
   if (err != TD_OK)
-    error ("Cannot find new threads: %s", thread_db_err_str (err));
+    error (_("Cannot find new threads: %s"), thread_db_err_str (err));
 }
 
 /* Cache all future symbols that thread_db might request.  We can not
@@ -383,16 +381,15 @@ thread_db_look_up_one_symbol (const char *name, CORE_ADDR *addrp)
 }
 
 int
-thread_db_get_tls_address (struct thread_info *thread, CORE_ADDR offset,
+thread_db_get_tls_address (thread_info *thread, CORE_ADDR offset,
 			   CORE_ADDR load_module, CORE_ADDR *address)
 {
   psaddr_t addr;
   td_err_e err;
   struct lwp_info *lwp;
-  struct process_info *proc;
   struct thread_db *thread_db;
+  process_info *proc = thread->process ();
 
-  proc = get_thread_process (thread);
   thread_db = proc->priv->thread_db;
 
   /* If the thread layer is not (yet) initialized, fail.  */
@@ -449,14 +446,13 @@ thread_db_get_tls_address (struct thread_info *thread, CORE_ADDR offset,
 bool
 thread_db_thread_handle (ptid_t ptid, gdb_byte **handle, int *handle_len)
 {
-  struct thread_db *thread_db;
   struct lwp_info *lwp;
   thread_info *thread = find_thread_ptid (ptid);
 
   if (thread == NULL)
     return false;
 
-  thread_db = get_thread_process (thread)->priv->thread_db;
+  thread_db *thread_db = thread->process ()->priv->thread_db;
 
   if (thread_db == NULL)
     return false;
@@ -700,7 +696,7 @@ thread_db_load_search (void)
 	     where libpthread lives.  We *could* fetch the info, but we don't
 	     do that yet.  Ignore it.  */
 	}
-      else if (strcmp (this_dir, "$sdir") == 0)
+      else if (streq (this_dir, "$sdir"))
 	{
 	  if (try_thread_db_load_from_sdir ())
 	    {
@@ -751,7 +747,7 @@ thread_db_init (void)
 	 find_one_thread then.  That uses thread_db entry points that
 	 do not walk libpthread's thread list, so should be safe, as
 	 well as more efficient.  */
-      if (!linux_proc_task_list_dir_exists (pid_of (proc)))
+      if (!linux_proc_task_list_dir_exists (proc->pid))
 	thread_db_find_new_threads ();
       thread_db_look_up_symbols ();
       return 1;
@@ -837,7 +833,7 @@ thread_db_mourn (struct process_info *proc)
    For any other command, return 0.  */
 
 int
-thread_db_handle_monitor_command (char *mon)
+thread_db_handle_monitor_command (const char *mon)
 {
   const char *cmd = "set libthread-db-search-path";
   size_t cmd_len = strlen (cmd);
@@ -852,7 +848,7 @@ thread_db_handle_monitor_command (char *mon)
 	free (libthread_db_search_path);
 
       /* Skip leading space (if any).  */
-      while (isspace (*cp))
+      while (c_isspace (*cp))
 	++cp;
 
       if (*cp == '\0')
@@ -872,10 +868,9 @@ thread_db_handle_monitor_command (char *mon)
 /* See linux-low.h.  */
 
 void
-thread_db_notice_clone (struct thread_info *parent_thr, ptid_t child_ptid)
+thread_db_notice_clone (thread_info *parent_thr, ptid_t child_ptid)
 {
-  process_info *parent_proc = get_thread_process (parent_thr);
-  struct thread_db *thread_db = parent_proc->priv->thread_db;
+  thread_db *thread_db = parent_thr->process ()->priv->thread_db;
 
   /* If the thread layer isn't initialized, return.  It may just
      be that the program uses clone, but does not use libthread_db.  */
@@ -889,5 +884,5 @@ thread_db_notice_clone (struct thread_info *parent_thr, ptid_t child_ptid)
   switch_to_thread (parent_thr);
 
   if (!find_one_thread (child_ptid))
-    warning ("Cannot find thread after clone.");
+    warning (_("Cannot find thread after clone."));
 }

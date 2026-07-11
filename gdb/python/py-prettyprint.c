@@ -1,6 +1,6 @@
 /* Python pretty-printing
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "objfiles.h"
 #include "symtab.h"
 #include "language.h"
@@ -26,6 +25,8 @@
 #include "python.h"
 #include "python-internal.h"
 #include "cli/cli-style.h"
+
+extern PyTypeObject printer_object_type;
 
 /* Return type of print_string_repr.  */
 
@@ -85,7 +86,7 @@ search_pp_list (PyObject *list, PyObject *value)
 	return printer;
     }
 
-  return gdbpy_ref<>::new_reference (Py_None);
+  return py_none ();
 }
 
 /* Subroutine of find_pretty_printer to simplify it.
@@ -97,9 +98,9 @@ search_pp_list (PyObject *list, PyObject *value)
 static PyObject *
 find_pretty_printer_from_objfiles (PyObject *value)
 {
-  for (objfile *obj : current_program_space->objfiles ())
+  for (objfile &obj : current_program_space->objfiles ())
     {
-      gdbpy_ref<> objf = objfile_to_objfile_object (obj);
+      gdbpy_ref<> objf = objfile_to_objfile_object (&obj);
       if (objf == NULL)
 	{
 	  /* Ignore the error and continue.  */
@@ -118,7 +119,7 @@ find_pretty_printer_from_objfiles (PyObject *value)
 	return function.release ();
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Subroutine of find_pretty_printer to simplify it.
@@ -150,11 +151,11 @@ find_pretty_printer_from_gdb (PyObject *value)
   /* Fetch the global pretty printer list.  */
   if (gdb_python_module == NULL
       || ! PyObject_HasAttrString (gdb_python_module, "pretty_printers"))
-    return gdbpy_ref<>::new_reference (Py_None);
+    return py_none ();
   gdbpy_ref<> pp_list (PyObject_GetAttrString (gdb_python_module,
 					       "pretty_printers"));
   if (pp_list == NULL || ! PyList_Check (pp_list.get ()))
-    return gdbpy_ref<>::new_reference (Py_None);
+    return py_none ();
 
   return search_pp_list (pp_list.get (), value);
 }
@@ -198,7 +199,7 @@ pretty_print_one_value (PyObject *printer, struct value **out_value)
   try
     {
       if (!PyObject_HasAttr (printer, gdbpy_to_string_cst))
-	result = gdbpy_ref<>::new_reference (Py_None);
+	result = py_none ();
       else
 	{
 	  result.reset (PyObject_CallMethodObjArgs (printer, gdbpy_to_string_cst,
@@ -317,11 +318,12 @@ print_string_repr (PyObject *printer, const char *hint,
 	      long length;
 	      struct type *type;
 
-	      output = PyBytes_AS_STRING (string.get ());
-	      length = PyBytes_GET_SIZE (string.get ());
+	      output = PyBytes_AsString (string.get ());
+	      gdb_assert (output != nullptr);
+	      length = PyBytes_Size (string.get ());
 	      type = builtin_type (gdbarch)->builtin_char;
 
-	      if (hint && !strcmp (hint, "string"))
+	      if (hint && streq (hint, "string"))
 		language->printstr (stream, type, (gdb_byte *) output,
 				    length, NULL, 0, options);
 	      else
@@ -368,8 +370,8 @@ print_children (PyObject *printer, const char *hint,
 
   /* If we are printing a map or an array, we want some special
      formatting.  */
-  is_map = hint && ! strcmp (hint, "map");
-  is_array = hint && ! strcmp (hint, "array");
+  is_map = hint && streq (hint, "map");
+  is_array = hint && streq (hint, "array");
 
   gdbpy_ref<> children (PyObject_CallMethodObjArgs (printer, gdbpy_children_cst,
 						    NULL));
@@ -411,7 +413,7 @@ print_children (PyObject *printer, const char *hint,
 	    print_stack_unless_memory_error (stream);
 	  /* Set a flag so we can know whether we printed all the
 	     available elements.  */
-	  else	
+	  else
 	    done_flag = 1;
 	  break;
 	}
@@ -590,7 +592,7 @@ gdbpy_apply_val_pretty_printer (const struct extension_language_defn *extlang,
 
   gdbpy_enter enter_py (gdbarch, language);
 
-  gdbpy_ref<> val_obj (value_to_value_object (value));
+  gdbpy_ref<> val_obj = value_to_value_object (value);
   if (val_obj == NULL)
     {
       print_stack_unless_memory_error (stream);
@@ -661,16 +663,7 @@ apply_varobj_pretty_printer (PyObject *printer_obj,
 gdbpy_ref<>
 gdbpy_get_varobj_pretty_printer (struct value *value)
 {
-  try
-    {
-      value = value->copy ();
-    }
-  catch (const gdb_exception &except)
-    {
-      GDB_PY_HANDLE_EXCEPTION (except);
-    }
-
-  gdbpy_ref<> val_obj (value_to_value_object (value));
+  gdbpy_ref<> val_obj = value_to_value_object (value);
   if (val_obj == NULL)
     return NULL;
 
@@ -687,15 +680,12 @@ gdbpy_default_visualizer (PyObject *self, PyObject *args)
   PyObject *val_obj;
   struct value *value;
 
-  if (! PyArg_ParseTuple (args, "O", &val_obj))
+  if (! PyArg_ParseTuple (args, "O!", &value_object_type, &val_obj))
     return NULL;
   value = value_object_to_value (val_obj);
-  if (! value)
-    {
-      PyErr_SetString (PyExc_TypeError,
-		       _("Argument must be a gdb.Value."));
-      return NULL;
-    }
+  /* This was ensured by the type-checking during argument
+     parsing.  */
+  gdb_assert (value != nullptr);
 
   return find_pretty_printer (val_obj).release ();
 }
@@ -788,3 +778,63 @@ gdbpy_get_print_options (value_print_options *opts)
   else
     get_user_print_options (opts);
 }
+
+/* A ValuePrinter is just a "tag", so it has no state other than that
+   required by Python.  */
+struct printer_object : public PyObject
+{};
+
+static_assert (gdb::is_python_allocatable_v<printer_object>);
+
+/* The ValuePrinter type object.  */
+PyTypeObject printer_object_type =
+{
+  PyVarObject_HEAD_INIT (NULL, 0)
+  "gdb.ValuePrinter",		/*tp_name*/
+  sizeof (printer_object),	  /*tp_basicsize*/
+  0,				  /*tp_itemsize*/
+  0,				  /*tp_dealloc*/
+  0,				  /*tp_print*/
+  0,				  /*tp_getattr*/
+  0,				  /*tp_setattr*/
+  0,				  /*tp_compare*/
+  0,				  /*tp_repr*/
+  0,				  /*tp_as_number*/
+  0,				  /*tp_as_sequence*/
+  0,				  /*tp_as_mapping*/
+  0,				  /*tp_hash*/
+  0,				  /*tp_call*/
+  0,				  /*tp_str*/
+  0,				  /*tp_getattro*/
+  0,				  /*tp_setattro*/
+  0,				  /*tp_as_buffer*/
+  Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
+  "GDB value printer object",	  /* tp_doc */
+  0,				  /* tp_traverse */
+  0,				  /* tp_clear */
+  0,				  /* tp_richcompare */
+  0,				  /* tp_weaklistoffset */
+  0,				  /* tp_iter */
+  0,				  /* tp_iternext */
+  0,				  /* tp_methods */
+  0,				  /* tp_members */
+  0,				  /* tp_getset */
+  0,				  /* tp_base */
+  0,				  /* tp_dict */
+  0,				  /* tp_descr_get */
+  0,				  /* tp_descr_set */
+  0,				  /* tp_dictoffset */
+  0,				  /* tp_init */
+  0,				  /* tp_alloc */
+  PyType_GenericNew,		  /* tp_new */
+};
+
+/* Set up the ValuePrinter type.  */
+
+static int
+gdbpy_initialize_prettyprint ()
+{
+  return gdbpy_type_ready (&printer_object_type);
+}
+
+GDBPY_INITIALIZE_FILE (gdbpy_initialize_prettyprint);

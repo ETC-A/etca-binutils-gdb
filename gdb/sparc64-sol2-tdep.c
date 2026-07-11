@@ -1,6 +1,6 @@
 /* Target-dependent code for Solaris UltraSPARC.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "gdbarch.h"
@@ -99,7 +98,7 @@ static const struct regset sparc64_sol2_fpregset =
 
 
 static struct sparc_frame_cache *
-sparc64_sol2_sigtramp_frame_cache (frame_info_ptr this_frame,
+sparc64_sol2_sigtramp_frame_cache (const frame_info_ptr &this_frame,
 				   void **this_cache)
 {
   struct sparc_frame_cache *cache;
@@ -154,7 +153,7 @@ sparc64_sol2_sigtramp_frame_cache (frame_info_ptr this_frame,
 }
 
 static void
-sparc64_sol2_sigtramp_frame_this_id (frame_info_ptr this_frame,
+sparc64_sol2_sigtramp_frame_this_id (const frame_info_ptr &this_frame,
 				     void **this_cache,
 				     struct frame_id *this_id)
 {
@@ -165,7 +164,7 @@ sparc64_sol2_sigtramp_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-sparc64_sol2_sigtramp_frame_prev_register (frame_info_ptr this_frame,
+sparc64_sol2_sigtramp_frame_prev_register (const frame_info_ptr &this_frame,
 					   void **this_cache,
 					   int regnum)
 {
@@ -177,22 +176,22 @@ sparc64_sol2_sigtramp_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 sparc64_sol2_sigtramp_frame_sniffer (const struct frame_unwind *self,
-				     frame_info_ptr this_frame,
+				     const frame_info_ptr &this_frame,
 				     void **this_cache)
 {
   return sol2_sigtramp_p (this_frame);
 }
 
-static const struct frame_unwind sparc64_sol2_sigtramp_frame_unwind =
-{
+static const struct frame_unwind_legacy sparc64_sol2_sigtramp_frame_unwind (
   "sparc64 solaris sigtramp",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   sparc64_sol2_sigtramp_frame_this_id,
   sparc64_sol2_sigtramp_frame_prev_register,
   NULL,
   sparc64_sol2_sigtramp_frame_sniffer
-};
+);
 
 
 
@@ -215,20 +214,17 @@ sparc64_sol2_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* Solaris has SVR4-style shared libraries...  */
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_lp64_solib_ops);
 
   /* ...which means that we need some special handling when doing
      prologue analysis.  */
   tdep->plt_entry_size = 16;
 
   /* Solaris has kernel-assisted single-stepping support.  */
-  set_gdbarch_software_single_step (gdbarch, NULL);
+  set_gdbarch_get_next_pcs (gdbarch, NULL);
 }
 
-void _initialize_sparc64_sol2_tdep ();
-void
-_initialize_sparc64_sol2_tdep ()
+INIT_GDB_FILE (sparc64_sol2_tdep)
 {
   gdbarch_register_osabi (bfd_arch_sparc, bfd_mach_sparc_v9,
 			  GDB_OSABI_SOLARIS, sparc64_sol2_init_abi);

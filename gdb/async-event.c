@@ -1,5 +1,5 @@
 /* Async events for the GDB event loop.
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "async-event.h"
 
 #include "ser-event.h"
@@ -128,9 +127,9 @@ initialize_async_signal_handlers (void)
 
 /* Create an asynchronous handler, allocating memory for it.
    Return a pointer to the newly created handler.
-   This pointer will be used to invoke the handler by 
+   This pointer will be used to invoke the handler by
    invoke_async_signal_handler.
-   PROC is the function to call with CLIENT_DATA argument 
+   PROC is the function to call with CLIENT_DATA argument
    whenever the handler is invoked.  */
 async_signal_handler *
 create_async_signal_handler (sig_handler_func * proc,

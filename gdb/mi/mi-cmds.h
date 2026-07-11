@@ -1,6 +1,6 @@
 /* MI Command Set for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -19,11 +19,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef MI_MI_CMDS_H
-#define MI_MI_CMDS_H
+#ifndef GDB_MI_MI_CMDS_H
+#define GDB_MI_MI_CMDS_H
 
 #include "gdbsupport/function-view.h"
-#include "gdbsupport/gdb_optional.h"
+#include <optional>
+#include "gdbsupport/scoped_restore.h"
 #include "mi/mi-main.h"
 
 enum print_values {
@@ -180,12 +181,12 @@ struct mi_command
 
   /* If this command was created with a suppress notifications pointer,
      then this function will set the suppress flag and return a
-     gdb::optional with its value set to an object that will restore the
+     std::optional with its value set to an object that will restore the
      previous value of the suppress notifications flag.
 
      If this command was created without a suppress notifications points,
-     then this function returns an empty gdb::optional.  */
-  gdb::optional<scoped_restore_tmpl<int>> do_suppress_notification () const;
+     then this function returns an empty std::optional.  */
+  std::optional<scoped_restore_tmpl<int>> do_suppress_notification () const;
 
 private:
 
@@ -237,4 +238,4 @@ extern void remove_mi_cmd_entries (remove_mi_cmd_entries_ftype callback);
 
 extern bool mi_simple_type_p (struct type *type);
 
-#endif /* MI_MI_CMDS_H */
+#endif /* GDB_MI_MI_CMDS_H */

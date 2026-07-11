@@ -1,6 +1,6 @@
 /* D language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "symtab.h"
 #include "language.h"
 #include "varobj.h"
@@ -39,9 +38,8 @@ static const char D_MAIN[] = "D main";
 const char *
 d_main_name (void)
 {
-  struct bound_minimal_symbol msym;
-
-  msym = lookup_minimal_symbol (D_MAIN, NULL, NULL);
+  bound_minimal_symbol msym
+    = lookup_minimal_symbol (current_program_space, D_MAIN);
   if (msym.minsym != NULL)
     return D_MAIN;
 
@@ -171,7 +169,7 @@ public:
 
   struct block_symbol lookup_symbol_nonlocal
 	(const char *name, const struct block *block,
-	 const domain_enum domain) const override
+	 const domain_search_flags domain) const override
   {
     return d_lookup_symbol_nonlocal (this, name, block, domain);
   }

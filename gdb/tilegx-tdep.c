@@ -1,6 +1,6 @@
 /* Target-dependent code for the Tilera TILE-Gx processor.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
@@ -25,7 +25,7 @@
 #include "trad-frame.h"
 #include "symtab.h"
 #include "gdbtypes.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "value.h"
 #include "dis-asm.h"
@@ -155,7 +155,7 @@ tilegx_register_name (struct gdbarch *gdbarch, int regnum)
       "pc",   "faultnum",
     };
 
-  gdb_static_assert (TILEGX_NUM_REGS == ARRAY_SIZE (register_names));
+  static_assert (TILEGX_NUM_REGS == ARRAY_SIZE (register_names));
   return register_names[regnum];
 }
 
@@ -362,7 +362,7 @@ static CORE_ADDR
 tilegx_analyze_prologue (struct gdbarch* gdbarch,
 			 CORE_ADDR start_addr, CORE_ADDR end_addr,
 			 struct tilegx_frame_cache *cache,
-			 frame_info_ptr next_frame)
+			 const frame_info_ptr &next_frame)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   CORE_ADDR next_addr;
@@ -456,9 +456,9 @@ tilegx_analyze_prologue (struct gdbarch* gdbarch,
 		    = (unsigned) reverse_frame[operands[1]].value;
 
 		  cache->saved_regs[saved_register].set_addr (saved_address);
-		} 
+		}
 	      else if (cache
-		       && (operands[0] == TILEGX_SP_REGNUM) 
+		       && (operands[0] == TILEGX_SP_REGNUM)
 		       && (operands[1] == TILEGX_LR_REGNUM))
 		lr_saved_on_stack_p = 1;
 	      break;
@@ -754,7 +754,7 @@ tilegx_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
 
 /* This is the implementation of gdbarch method stack_frame_destroyed_p.  */
 
-static int
+static bool
 tilegx_stack_frame_destroyed_p (struct gdbarch *gdbarch, CORE_ADDR pc)
 {
   CORE_ADDR func_addr = 0, func_end = 0;
@@ -766,15 +766,15 @@ tilegx_stack_frame_destroyed_p (struct gdbarch *gdbarch, CORE_ADDR pc)
       /* FIXME: Find the actual epilogue.  */
       /* HACK: Just assume the final bundle is the "ret" instruction".  */
       if (pc > addr)
-	return 1;
+	return true;
     }
-  return 0;
+  return false;
 }
 
 /* This is the implementation of gdbarch method get_longjmp_target.  */
 
-static int
-tilegx_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
+static bool
+tilegx_get_longjmp_target (const frame_info_ptr &frame, CORE_ADDR *pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -787,11 +787,11 @@ tilegx_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
      has a size of 8 bytes.  The return address is stored in the 25th
      slot.  */
   if (target_read_memory (jb_addr + 25 * 8, buf, 8))
-    return 0;
+    return false;
 
   *pc = extract_unsigned_integer (buf, 8, byte_order);
 
-  return 1;
+  return true;
 }
 
 /* by assigning the 'faultnum' reg in kernel pt_regs with this value,
@@ -828,21 +828,20 @@ tilegx_write_pc (struct regcache *regcache, CORE_ADDR pc)
 constexpr gdb_byte tilegx_break_insn[] =
   { 0x00, 0x50, 0x48, 0x51, 0xae, 0x44, 0x6a, 0x28 };
 
-typedef BP_MANIPULATION (tilegx_break_insn) tilegx_breakpoint;
+using tilegx_breakpoint = BP_MANIPULATION (tilegx_break_insn);
 
 /* Normal frames.  */
 
 static struct tilegx_frame_cache *
-tilegx_frame_cache (frame_info_ptr this_frame, void **this_cache)
+tilegx_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  struct tilegx_frame_cache *cache;
   CORE_ADDR current_pc;
 
   if (*this_cache)
     return (struct tilegx_frame_cache *) *this_cache;
 
-  cache = FRAME_OBSTACK_ZALLOC (struct tilegx_frame_cache);
+  auto *cache = frame_obstack_zalloc<struct tilegx_frame_cache> ();
   *this_cache = cache;
   cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
   cache->base = 0;
@@ -864,7 +863,7 @@ tilegx_frame_cache (frame_info_ptr this_frame, void **this_cache)
 /* Retrieve the value of REGNUM in FRAME.  */
 
 static struct value*
-tilegx_frame_prev_register (frame_info_ptr this_frame,
+tilegx_frame_prev_register (const frame_info_ptr &this_frame,
 			    void **this_cache,
 			    int regnum)
 {
@@ -878,7 +877,7 @@ tilegx_frame_prev_register (frame_info_ptr this_frame,
 /* Build frame id.  */
 
 static void
-tilegx_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+tilegx_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		      struct frame_id *this_id)
 {
   struct tilegx_frame_cache *info =
@@ -892,7 +891,7 @@ tilegx_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 }
 
 static CORE_ADDR
-tilegx_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+tilegx_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct tilegx_frame_cache *cache =
     tilegx_frame_cache (this_frame, this_cache);
@@ -900,16 +899,17 @@ tilegx_frame_base_address (frame_info_ptr this_frame, void **this_cache)
   return cache->base;
 }
 
-static const struct frame_unwind tilegx_frame_unwind = {
+static const struct frame_unwind_legacy tilegx_frame_unwind (
   "tilegx prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   tilegx_frame_this_id,
   tilegx_frame_prev_register,
   NULL,                        /* const struct frame_data *unwind_data  */
   default_frame_sniffer,       /* frame_sniffer_ftype *sniffer  */
   NULL                         /* frame_prev_pc_ftype *prev_pc  */
-};
+);
 
 static const struct frame_base tilegx_frame_base = {
   &tilegx_frame_unwind,
@@ -920,16 +920,16 @@ static const struct frame_base tilegx_frame_base = {
 
 /* We cannot read/write the "special" registers.  */
 
-static int
+static bool
 tilegx_cannot_reference_register (struct gdbarch *gdbarch, int regno)
 {
   if (regno >= 0 && regno < TILEGX_NUM_EASY_REGS)
-    return 0;
+    return false;
   else if (regno == TILEGX_PC_REGNUM
 	   || regno == TILEGX_FAULTNUM_REGNUM)
-    return 0;
+    return false;
   else
-    return 1;
+    return true;
 }
 
 static struct gdbarch *
@@ -1020,9 +1020,7 @@ tilegx_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_tilegx_tdep ();
-void
-_initialize_tilegx_tdep ()
+INIT_GDB_FILE (tilegx_tdep)
 {
   gdbarch_register (bfd_arch_tilegx, tilegx_gdbarch_init);
 }

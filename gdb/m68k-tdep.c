@@ -1,6 +1,6 @@
 /* Target-dependent code for the Motorola 68000 series.
 
-   Copyright (C) 1990-2023 Free Software Foundation, Inc.
+   Copyright (C) 1990-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "dwarf2/frame.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
@@ -63,7 +63,7 @@
 
 constexpr gdb_byte m68k_break_insn[] = {0x4e, (0x40 | BPT_VECTOR)};
 
-typedef BP_MANIPULATION (m68k_break_insn) m68k_breakpoint;
+using m68k_breakpoint = BP_MANIPULATION (m68k_break_insn);
 
 
 /* Construct types for ISA-specific registers.  */
@@ -176,7 +176,7 @@ m68k_register_name (struct gdbarch *gdbarch, int regnum)
 {
   m68k_gdbarch_tdep *tdep = gdbarch_tdep<m68k_gdbarch_tdep> (gdbarch);
 
-  gdb_static_assert (ARRAY_SIZE (m68k_register_names) == M68K_NUM_REGS);
+  static_assert (ARRAY_SIZE (m68k_register_names) == M68K_NUM_REGS);
   if (regnum >= M68K_FP0_REGNUM && regnum <= M68K_FPI_REGNUM
       && tdep->fpregs_present == 0)
     return "";
@@ -184,17 +184,17 @@ m68k_register_name (struct gdbarch *gdbarch, int regnum)
     return m68k_register_names[regnum];
 }
 
-/* Return nonzero if a value of type TYPE stored in register REGNUM
+/* Return true if a value of type TYPE stored in register REGNUM
    needs any special handling.  */
 
-static int
+static bool
 m68k_convert_register_p (struct gdbarch *gdbarch,
 			 int regnum, struct type *type)
 {
   m68k_gdbarch_tdep *tdep = gdbarch_tdep<m68k_gdbarch_tdep> (gdbarch);
 
   if (!tdep->fpregs_present)
-    return 0;
+    return false;
   return (regnum >= M68K_FP0_REGNUM && regnum <= M68K_FP0_REGNUM + 7
 	  /* We only support floating-point values.  */
 	  && type->code () == TYPE_CODE_FLT
@@ -204,10 +204,10 @@ m68k_convert_register_p (struct gdbarch *gdbarch,
 /* Read a value of type TYPE from register REGNUM in frame FRAME, and
    return its contents in TO.  */
 
-static int
-m68k_register_to_value (frame_info_ptr frame, int regnum,
+static bool
+m68k_register_to_value (const frame_info_ptr &frame, int regnum,
 			struct type *type, gdb_byte *to,
-			int *optimizedp, int *unavailablep)
+			bool *optimizedp, bool *unavailablep)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   gdb_byte from[M68K_MAX_REGISTER_SIZE];
@@ -216,28 +216,28 @@ m68k_register_to_value (frame_info_ptr frame, int regnum,
   gdb_assert (type->code () == TYPE_CODE_FLT);
 
   /* Convert to TYPE.  */
-  if (!get_frame_register_bytes (frame, regnum, 0,
-				 gdb::make_array_view (from,
-						       register_size (gdbarch,
-								      regnum)),
-				 optimizedp, unavailablep))
-    return 0;
+  auto from_view
+    = gdb::make_array_view (from, register_size (gdbarch, regnum));
+  frame_info_ptr next_frame = get_next_frame_sentinel_okay (frame);
+  if (!get_frame_register_bytes (next_frame, regnum, 0, from_view, optimizedp,
+				 unavailablep))
+    return false;
 
   target_float_convert (from, fpreg_type, to, type);
-  *optimizedp = *unavailablep = 0;
-  return 1;
+  *optimizedp = *unavailablep = false;
+  return true;
 }
 
 /* Write the contents FROM of a value of type TYPE into register
    REGNUM in frame FRAME.  */
 
 static void
-m68k_value_to_register (frame_info_ptr frame, int regnum,
+m68k_value_to_register (const frame_info_ptr &frame, int regnum,
 			struct type *type, const gdb_byte *from)
 {
   gdb_byte to[M68K_MAX_REGISTER_SIZE];
-  struct type *fpreg_type = register_type (get_frame_arch (frame),
-					   M68K_FP0_REGNUM);
+  gdbarch *arch = get_frame_arch (frame);
+  struct type *fpreg_type = register_type (arch, M68K_FP0_REGNUM);
 
   /* We only support floating-point values.  */
   if (type->code () != TYPE_CODE_FLT)
@@ -249,7 +249,8 @@ m68k_value_to_register (frame_info_ptr frame, int regnum,
 
   /* Convert from TYPE.  */
   target_float_convert (from, type, to, fpreg_type);
-  put_frame_register (frame, regnum, to);
+  auto to_view = gdb::make_array_view (to, fpreg_type->length ());
+  put_frame_register (get_next_frame_sentinel_okay (frame), regnum, to_view);
 }
 
 
@@ -633,10 +634,9 @@ struct m68k_frame_cache
 static struct m68k_frame_cache *
 m68k_alloc_frame_cache (void)
 {
-  struct m68k_frame_cache *cache;
   int i;
 
-  cache = FRAME_OBSTACK_ZALLOC (struct m68k_frame_cache);
+  auto *cache = frame_obstack_zalloc<m68k_frame_cache> ();
 
   /* Base address.  */
   cache->base = 0;
@@ -899,7 +899,7 @@ m68k_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
 }
 
 static CORE_ADDR
-m68k_unwind_pc (struct gdbarch *gdbarch, frame_info_ptr next_frame)
+m68k_unwind_pc (struct gdbarch *gdbarch, const frame_info_ptr &next_frame)
 {
   gdb_byte buf[8];
 
@@ -910,7 +910,7 @@ m68k_unwind_pc (struct gdbarch *gdbarch, frame_info_ptr next_frame)
 /* Normal frames.  */
 
 static struct m68k_frame_cache *
-m68k_frame_cache (frame_info_ptr this_frame, void **this_cache)
+m68k_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -975,7 +975,7 @@ m68k_frame_cache (frame_info_ptr this_frame, void **this_cache)
 }
 
 static void
-m68k_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+m68k_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		    struct frame_id *this_id)
 {
   struct m68k_frame_cache *cache = m68k_frame_cache (this_frame, this_cache);
@@ -989,7 +989,7 @@ m68k_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 }
 
 static struct value *
-m68k_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
+m68k_frame_prev_register (const frame_info_ptr &this_frame, void **this_cache,
 			  int regnum)
 {
   struct m68k_frame_cache *cache = m68k_frame_cache (this_frame, this_cache);
@@ -1006,19 +1006,19 @@ m68k_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
   return frame_unwind_got_register (this_frame, regnum, regnum);
 }
 
-static const struct frame_unwind m68k_frame_unwind =
-{
+static const struct frame_unwind_legacy m68k_frame_unwind (
   "m68k prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   m68k_frame_this_id,
   m68k_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 static CORE_ADDR
-m68k_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+m68k_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct m68k_frame_cache *cache = m68k_frame_cache (this_frame, this_cache);
 
@@ -1034,7 +1034,7 @@ static const struct frame_base m68k_frame_base =
 };
 
 static struct frame_id
-m68k_dummy_id (struct gdbarch *gdbarch, frame_info_ptr this_frame)
+m68k_dummy_id (struct gdbarch *gdbarch, const frame_info_ptr &this_frame)
 {
   CORE_ADDR fp;
 
@@ -1050,8 +1050,8 @@ m68k_dummy_id (struct gdbarch *gdbarch, frame_info_ptr this_frame)
    we extract the pc (JB_PC) that we will land at.  The pc is copied into PC.
    This routine returns true on success.  */
 
-static int
-m68k_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
+static bool
+m68k_get_longjmp_target (const frame_info_ptr &frame, CORE_ADDR *pc)
 {
   gdb_byte *buf;
   CORE_ADDR sp, jb_addr;
@@ -1062,7 +1062,7 @@ m68k_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
   if (tdep->jb_pc < 0)
     {
       internal_error (_("m68k_get_longjmp_target: not implemented"));
-      return 0;
+      return false;
     }
 
   buf = (gdb_byte *) alloca (gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT);
@@ -1070,7 +1070,7 @@ m68k_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
 
   if (target_read_memory (sp + SP_ARG0,	/* Offset of first arg on stack.  */
 			  buf, gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT))
-    return 0;
+    return false;
 
   jb_addr = extract_unsigned_integer (buf, gdbarch_ptr_bit (gdbarch)
 					     / TARGET_CHAR_BIT, byte_order);
@@ -1078,22 +1078,22 @@ m68k_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
   if (target_read_memory (jb_addr + tdep->jb_pc * tdep->jb_elt_size, buf,
 			  gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT),
 			  byte_order)
-    return 0;
+    return false;
 
   *pc = extract_unsigned_integer (buf, gdbarch_ptr_bit (gdbarch)
 					 / TARGET_CHAR_BIT, byte_order);
-  return 1;
+  return true;
 }
 
 
 /* This is the implementation of gdbarch method
    return_in_first_hidden_param_p.  */
 
-static int
+static bool
 m68k_return_in_first_hidden_param_p (struct gdbarch *gdbarch,
 				     struct type *type)
 {
-  return 0;
+  return false;
 }
 
 /* System V Release 4 (SVR4).  */
@@ -1200,15 +1200,15 @@ m68k_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   if (info.bfd_arch_info && info.bfd_arch_info->mach != 0)
     {
-      const bfd_arch_info_type *coldfire_arch = 
+      const bfd_arch_info_type *coldfire_arch =
 	bfd_lookup_arch (bfd_arch_m68k, bfd_mach_mcf_isa_a_nodiv);
 
       if (coldfire_arch
-	  && ((*info.bfd_arch_info->compatible) 
+	  && ((*info.bfd_arch_info->compatible)
 	      (info.bfd_arch_info, coldfire_arch)))
 	flavour = m68k_coldfire_flavour;
     }
-  
+
   /* Try to figure out if the arch uses floating registers to return
      floating point values from functions.  On ColdFire, floating
      point values are returned in D0.  */
@@ -1271,7 +1271,6 @@ m68k_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_inner_than (gdbarch, core_addr_lessthan);
   set_gdbarch_frame_align (gdbarch, m68k_frame_align);
 
-  set_gdbarch_believe_pcc_promotion (gdbarch, 1);
   if (flavour == m68k_coldfire_flavour || flavour == m68k_fido_flavour)
     set_gdbarch_decr_pc_after_break (gdbarch, 2);
 
@@ -1349,16 +1348,22 @@ static enum gdb_osabi
 m68k_osabi_sniffer (bfd *abfd)
 {
   unsigned int elfosabi = elf_elfheader (abfd)->e_ident[EI_OSABI];
+  enum gdb_osabi osabi = GDB_OSABI_UNKNOWN;
 
   if (elfosabi == ELFOSABI_NONE)
-    return GDB_OSABI_SVR4;
+    {
+      /* Check note sections.  */
+      for (asection *sect : gdb_bfd_sections (abfd))
+	generic_elf_osabi_sniff_abi_tag_sections (abfd, sect, &osabi);
 
-  return GDB_OSABI_UNKNOWN;
+      if (osabi == GDB_OSABI_UNKNOWN)
+	osabi = GDB_OSABI_SVR4;
+    }
+
+  return osabi;
 }
 
-void _initialize_m68k_tdep ();
-void
-_initialize_m68k_tdep ()
+INIT_GDB_FILE (m68k_tdep)
 {
   gdbarch_register (bfd_arch_m68k, m68k_gdbarch_init, m68k_dump_tdep);
 

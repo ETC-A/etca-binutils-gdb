@@ -1,6 +1,6 @@
 /* This is part of GDB, the GNU debugger.
 
-   Copyright 2011-2023 Free Software Foundation, Inc.
+   Copyright 2011-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 /* Default READMORE method.  */
 #define READMORE_METHOD_DEFAULT 2
 
-/* Default READMORE sleep time in miliseconds.  */
+/* Default READMORE sleep time in milliseconds.  */
 #define READMORE_SLEEP_DEFAULT 10
 
 /* Helper function.  Initialize *METHOD according to environment variable
@@ -62,7 +62,7 @@ init_readmore (int *method, unsigned int *sleep, FILE **log)
     *log = fopen (env, "w");
 }
 
-/* Wrap 'read', and modify it's behaviour using READ1 or READMORE style.  */
+/* Wrap 'read', and modify it's behavior using READ1 or READMORE style.  */
 
 ssize_t
 read (int fd, void *buf, size_t count)
@@ -80,7 +80,7 @@ read (int fd, void *buf, size_t count)
   if (read2 == NULL)
     {
       /* Use setenv (v, "", 1) rather than unsetenv (v) to work around
-         https://core.tcl-lang.org/tcl/tktview?name=67fd4f973a "incorrect
+	 https://core.tcl-lang.org/tcl/tktview?name=67fd4f973a "incorrect
 	 results of 'info exists' when unset env var in one interp and check
 	 for existence from another interp".  */
       setenv ("LD_PRELOAD", "", 1);
@@ -89,7 +89,7 @@ read (int fd, void *buf, size_t count)
 	init_readmore (&readmore_method, &readmore_sleep, &log);
     }
 
-  /* Only modify 'read' behaviour when reading from the terminal.  */
+  /* Only modify 'read' behavior when reading from the terminal.  */
   if (isatty (fd) == 0)
     goto fallback;
 

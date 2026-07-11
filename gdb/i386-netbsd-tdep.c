@@ -1,6 +1,6 @@
 /* Target-dependent code for NetBSD/i386.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "frame.h"
 #include "gdbcore.h"
@@ -97,7 +96,7 @@ static int i386nbsd_mc_reg_offset[] =
 };
 
 static void i386nbsd_sigtramp_cache_init (const struct tramp_frame *,
-					  frame_info_ptr,
+					  const frame_info_ptr &,
 					  struct trad_frame_cache *,
 					  CORE_ADDR);
 
@@ -329,7 +328,7 @@ static const struct tramp_frame i386nbsd_sigtramp_si4 =
 
 static void
 i386nbsd_sigtramp_cache_init (const struct tramp_frame *self,
-			      frame_info_ptr this_frame,
+			      const frame_info_ptr &this_frame,
 			      struct trad_frame_cache *this_cache,
 			      CORE_ADDR func)
 {
@@ -369,7 +368,7 @@ i386nbsd_sigtramp_cache_init (const struct tramp_frame *self,
 }
 
 
-static void 
+static void
 i386nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   i386_gdbarch_tdep *tdep = gdbarch_tdep<i386_gdbarch_tdep> (gdbarch);
@@ -416,16 +415,13 @@ i386nbsdelf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   i386_elf_init_abi (info, gdbarch);
 
   /* NetBSD ELF uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
 
   /* NetBSD ELF uses -fpcc-struct-return by default.  */
   tdep->struct_return = pcc_struct_return;
 }
 
-void _initialize_i386nbsd_tdep ();
-void
-_initialize_i386nbsd_tdep ()
+INIT_GDB_FILE (i386nbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_i386, 0, GDB_OSABI_NETBSD,
 			  i386nbsdelf_init_abi);

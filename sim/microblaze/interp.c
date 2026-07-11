@@ -1,5 +1,5 @@
 /* Simulator for Xilinx MicroBlaze processor
-   Copyright 2009-2023 Free Software Foundation, Inc.
+   Copyright 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB, the GNU debugger.
 
@@ -97,7 +97,6 @@ static void
 set_initial_gprs (SIM_CPU *cpu)
 {
   int i;
-  long space;
 
   /* Set up machine just out of reset.  */
   PC = 0;
@@ -120,19 +119,14 @@ sim_engine_run (SIM_DESC sd,
 		int siggnal) /* ignore  */
 {
   SIM_CPU *cpu = STATE_CPU (sd, 0);
-  int needfetch;
   signed_4 inst;
   enum microblaze_instr op;
   int memops;
   int bonus_cycles;
   int insts;
-  int w;
-  int cycs;
-  signed_4 WLhash;
   unsigned_1 carry;
   bool imm_unsigned;
   short ra, rb, rd;
-  long immword;
   unsigned_4 oldpc, newpc;
   short delay_slot_enable;
   short branch_taken;

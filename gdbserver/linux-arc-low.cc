@@ -1,6 +1,6 @@
 /* Target dependent code for the remote server for GNU/Linux ARC.
 
-   Copyright 2020-2023 Free Software Foundation, Inc.
+   Copyright 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "regdef.h"
 #include "linux-low.h"
 #include "tdesc.h"
@@ -104,7 +103,7 @@ arc_target::low_set_pc (regcache *regcache, CORE_ADDR pc)
   linux_set_pc_32bit (regcache, pc);
 }
 
-static const struct target_desc *
+static const_target_desc_up
 arc_linux_read_description (void)
 {
 #ifdef __ARC700__
@@ -115,15 +114,15 @@ arc_linux_read_description (void)
   target_desc_up tdesc = arc_create_target_description (features);
 
   static const char *expedite_regs[] = { "sp", "status32", nullptr };
-  init_target_desc (tdesc.get (), expedite_regs);
+  init_target_desc (tdesc.get (), expedite_regs, GDB_OSABI_LINUX);
 
-  return tdesc.release ();
+  return tdesc;
 }
 
 void
 arc_target::low_arch_setup ()
 {
-  current_process ()->tdesc = arc_linux_read_description ();
+  current_process ()->tdesc = arc_linux_read_description ().release ();
 }
 
 bool
@@ -219,7 +218,7 @@ arc_fill_gregset (struct regcache *regcache, void *buf)
   collect_register_by_name (regcache, "pc", &(regbuf->scratch.ret));
 
   /* Currently ARC Linux ptrace doesn't allow writes to status32 because
-     some of its bits are kernel mode-only and shoudn't be writable from
+     some of its bits are kernel mode-only and shouldn't be writable from
      user-space.  Writing status32 from debugger could be useful, though,
      so ability to write non-privileged bits will be added to kernel
      sooner or later.  */
@@ -283,7 +282,7 @@ arc_store_gregset (struct regcache *regcache, const void *buf)
   unsigned long pcl = regbuf->stop_pc & ~3L;
   supply_register_by_name (regcache, "pcl", &pcl);
 
-  /* Other auxilliary registers.  */
+  /* Other auxiliary registers.  */
   supply_register_by_name (regcache, "status32", &(regbuf->scratch.status32));
 
   /* BTA.  */
@@ -300,7 +299,7 @@ is_reg_name_available_p (const struct target_desc *tdesc,
 			 const char *name)
 {
   for (const gdb::reg &reg : tdesc->reg_defs)
-    if (strcmp (name, reg.name) == 0)
+    if (streq (name, reg.name))
       return true;
   return false;
 }

@@ -1,6 +1,6 @@
 /* varobj support for C and C++.
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,7 +15,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "value.h"
 #include "varobj.h"
 #include "gdbthread.h"
@@ -73,7 +72,7 @@ adjust_value_for_child_access (struct value **value,
     *was_ptr = 0;
 
   *type = check_typedef (*type);
-  
+
   /* The type of value stored in varobj, that is passed
      to us, is already supposed to be
      reference-stripped.  */
@@ -192,7 +191,7 @@ c_number_of_children (const struct varobj *var)
     {
     case TYPE_CODE_ARRAY:
       if (type->length () > 0 && target->length () > 0
-	  && (type->bounds ()->high.kind () != PROP_UNDEFINED))
+	  && type->bounds ()->high.is_available ())
 	children = type->length () / target->length ();
       else
 	/* If we don't know how many elements there are, don't display
@@ -212,7 +211,7 @@ c_number_of_children (const struct varobj *var)
 
 	 We can show char* so we allow it to be dereferenced.  If you decide
 	 to test for it, please mind that a little magic is necessary to
-	 properly identify it: char* has TYPE_CODE == TYPE_CODE_INT and 
+	 properly identify it: char* has TYPE_CODE == TYPE_CODE_INT and
 	 TYPE_NAME == "char".  */
       if (target->code () == TYPE_CODE_FUNC
 	  || target->code () == TYPE_CODE_VOID)
@@ -278,7 +277,7 @@ value_struct_element_index (struct value *value, int type_index)
    information cannot be determined, set *CNAME, *CVALUE, or *CTYPE
    to empty.  */
 
-static void 
+static void
 c_describe_child (const struct varobj *parent, int index,
 		  std::string *cname, struct value **cvalue,
 		  struct type **ctype, std::string *cfull_expression)
@@ -433,7 +432,7 @@ c_path_expr_of_child (const struct varobj *child)
 {
   std::string path_expr;
 
-  c_describe_child (child->parent, child->index, NULL, NULL, NULL, 
+  c_describe_child (child->parent, child->index, NULL, NULL, NULL,
 		    &path_expr);
   return path_expr;
 }
@@ -514,7 +513,7 @@ c_value_of_variable (const struct varobj *var,
 
 	    gdb_assert (varobj_value_is_changeable_p (var));
 	    gdb_assert (!var->value->lazy ());
-	    
+
 	    /* If the specified format is the current one,
 	       we can reuse print_value.  */
 	    if (format == var->format)
@@ -647,16 +646,18 @@ cplus_class_num_children (struct type *type, int children[3])
   vptr_fieldno = get_vptr_fieldno (type, &basetype);
   for (i = TYPE_N_BASECLASSES (type); i < type->num_fields (); i++)
     {
+      field &fld = type->field (i);
+
       /* If we have a virtual table pointer, omit it.  Even if virtual
 	 table pointers are not specifically marked in the debug info,
 	 they should be artificial.  */
       if ((type == basetype && i == vptr_fieldno)
-	  || TYPE_FIELD_ARTIFICIAL (type, i))
+	  || fld.is_artificial ())
 	continue;
 
-      if (TYPE_FIELD_PROTECTED (type, i))
+      if (fld.is_protected ())
 	children[v_protected]++;
-      else if (TYPE_FIELD_PRIVATE (type, i))
+      else if (fld.is_private ())
 	children[v_private]++;
       else
 	children[v_public]++;
@@ -667,25 +668,6 @@ static std::string
 cplus_name_of_variable (const struct varobj *parent)
 {
   return c_name_of_variable (parent);
-}
-
-enum accessibility { private_field, protected_field, public_field };
-
-/* Check if field INDEX of TYPE has the specified accessibility.
-   Return 0 if so and 1 otherwise.  */
-
-static int 
-match_accessibility (struct type *type, int index, enum accessibility acc)
-{
-  if (acc == private_field && TYPE_FIELD_PRIVATE (type, index))
-    return 1;
-  else if (acc == protected_field && TYPE_FIELD_PROTECTED (type, index))
-    return 1;
-  else if (acc == public_field && !TYPE_FIELD_PRIVATE (type, index)
-	   && !TYPE_FIELD_PROTECTED (type, index))
-    return 1;
-  else
-    return 0;
 }
 
 static void
@@ -737,25 +719,25 @@ cplus_describe_child (const struct varobj *parent, int index,
 	     have the access control we are looking for to properly
 	     find the indexed field.  */
 	  int type_index = TYPE_N_BASECLASSES (type);
-	  enum accessibility acc = public_field;
+	  enum accessibility acc = accessibility::PUBLIC;
 	  int vptr_fieldno;
 	  struct type *basetype = NULL;
 	  const char *field_name;
 
 	  vptr_fieldno = get_vptr_fieldno (type, &basetype);
 	  if (parent->name == "private")
-	    acc = private_field;
+	    acc = accessibility::PRIVATE;
 	  else if (parent->name == "protected")
-	    acc = protected_field;
+	    acc = accessibility::PROTECTED;
 
 	  while (index >= 0)
 	    {
 	      if ((type == basetype && type_index == vptr_fieldno)
-		  || TYPE_FIELD_ARTIFICIAL (type, type_index))
+		  || type->field (type_index).is_artificial ())
 		; /* ignore vptr */
-	      else if (match_accessibility (type, type_index, acc))
-		    --index;
-		  ++type_index;
+	      else if (type->field (type_index).accessibility () == acc)
+		--index;
+	      ++type_index;
 	    }
 	  --type_index;
 
@@ -813,7 +795,7 @@ cplus_describe_child (const struct varobj *parent, int index,
 	      const char *ptr = was_ptr ? "*" : "";
 
 	      /* Cast the parent to the base' type.  Note that in gdb,
-		 expression like 
+		 expression like
 			 (Base1)d
 		 will create an lvalue, for all appearances, so we don't
 		 need to use more fancy:
@@ -849,11 +831,11 @@ cplus_describe_child (const struct varobj *parent, int index,
 	    {
 	    case 0:
 	      if (children[v_public] > 0)
-	 	access = "public";
+		access = "public";
 	      else if (children[v_private] > 0)
-	 	access = "private";
-	      else 
-	 	access = "protected";
+		access = "private";
+	      else
+		access = "protected";
 	      break;
 	    case 1:
 	      if (children[v_public] > 0)
@@ -864,7 +846,7 @@ cplus_describe_child (const struct varobj *parent, int index,
 		    access = "protected";
 		}
 	      else if (children[v_private] > 0)
-	 	access = "protected";
+		access = "protected";
 	      break;
 	    case 2:
 	      /* Must be protected.  */
@@ -885,7 +867,7 @@ cplus_describe_child (const struct varobj *parent, int index,
   else
     {
       c_describe_child (parent, index, cname, cvalue, ctype, cfull_expression);
-    }  
+    }
 }
 
 static std::string
@@ -902,7 +884,7 @@ cplus_path_expr_of_child (const struct varobj *child)
 {
   std::string path_expr;
 
-  cplus_describe_child (child->parent, child->index, NULL, NULL, NULL, 
+  cplus_describe_child (child->parent, child->index, NULL, NULL, NULL,
 			&path_expr);
   return path_expr;
 }

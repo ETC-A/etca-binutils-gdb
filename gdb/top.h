@@ -1,6 +1,6 @@
 /* Top level stuff for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef TOP_H
-#define TOP_H
+#ifndef GDB_TOP_H
+#define GDB_TOP_H
 
 #include "gdbsupport/event-loop.h"
 #include "gdbsupport/next-iterator.h"
@@ -36,16 +36,44 @@ extern auto_boolean interactive_mode;
    mentioned.  */
 extern void print_gdb_version (struct ui_file *stream, bool interactive);
 
+/* Print some hints for an inexperienced user on how to get more
+   information about using GDB.  */
+extern void print_gdb_hints (struct ui_file *stream);
+
 extern void print_gdb_configuration (struct ui_file *);
 
 extern void read_command_file (FILE *);
 extern void init_history (void);
 extern void command_loop (void);
 extern int quit_confirm (void);
-extern void quit_force (int *, int) ATTRIBUTE_NORETURN;
+[[noreturn]] extern void quit_force (int *, int);
 extern void quit_command (const char *, int);
 extern void quit_cover (void);
 extern void execute_command (const char *, int);
+
+/* Run FN.  Capture its output into the returned string, do not display it
+   to the screen.  The global BATCH_FLAG will temporarily be set to true.
+   When TERM_OUT is true the output is collected with terminal behavior
+   (e.g. with styling).  When TERM_OUT is false raw output will be collected
+   (e.g. no styling).  */
+
+extern void execute_fn_to_string (std::string &res,
+				  std::function<void(void)> fn, bool term_out);
+
+/* As execute_fn_to_ui_file, but run execute_command for P and FROM_TTY.  */
+
+extern void execute_command_to_ui_file (struct ui_file *file,
+					const char *p, int from_tty);
+
+/* As execute_fn_to_string, but run execute_command for P and FROM_TTY.  */
+
+extern void execute_command_to_string (std::string &res, const char *p,
+				       int from_tty, bool term_out);
+
+/* Same as the above, but ignore resulting string.  */
+
+extern void execute_command_to_string (const char *p,
+				       int from_tty, bool term_out);
 
 /* If the interpreter is in sync mode (we're running a user command's
    list, running command hooks or similars), and we just ran a
@@ -109,4 +137,8 @@ extern bool check_quiet_mode ();
 
 extern void unbuffer_stream (FILE *stream);
 
+#ifdef __MINGW32__
+extern void mingw_deinitialize_console ();
 #endif
+
+#endif /* GDB_TOP_H */

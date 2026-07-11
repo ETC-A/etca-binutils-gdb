@@ -1,6 +1,6 @@
 /* Frame unwinder for frames with DWARF Call Frame Information.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    Contributed by Mark Kettenis.
 
@@ -19,26 +19,26 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "dwarf2/expr.h"
 #include "dwarf2.h"
 #include "dwarf2/leb.h"
 #include "frame.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
-#include "gdbcore.h"
 #include "gdbtypes.h"
 #include "symtab.h"
 #include "objfiles.h"
 #include "regcache.h"
 #include "value.h"
 #include "record.h"
+#include "extract-store-integer.h"
+#include "producer.h"
+#include "cli/cli-style.h"
 
 #include "complaints.h"
 #include "dwarf2/frame.h"
 #include "dwarf2/read.h"
 #include "dwarf2/public.h"
-#include "ax.h"
 #include "dwarf2/loc.h"
 #include "dwarf2/frame-tailcall.h"
 #include "gdbsupport/gdb_binary_search.h"
@@ -46,7 +46,6 @@
 #include "gdbsupport/selftest.h"
 #include "selftest-arch.h"
 #endif
-#include <unordered_map>
 
 #include <algorithm>
 
@@ -106,7 +105,7 @@ struct dwarf2_cie
 
 /* The CIE table is used to find CIEs during parsing, but then
    discarded.  It maps from the CIE's offset to the CIE.  */
-typedef std::unordered_map<ULONGEST, dwarf2_cie *> dwarf2_cie_table;
+using dwarf2_cie_table = gdb::unordered_map<ULONGEST, dwarf2_cie *>;
 
 /* Frame Description Entry (FDE).  */
 
@@ -184,14 +183,6 @@ static ULONGEST read_encoded_value (struct comp_unit *unit, gdb_byte encoding,
 				    int ptr_len, const gdb_byte *buf,
 				    unsigned int *bytes_read_ptr,
 				    unrelocated_addr func_base);
-
-
-/* See dwarf2/frame.h.  */
-bool dwarf2_frame_unwinders_enabled_p = true;
-
-/* Store the length the expression for the CFA in the `cfa_reg' field,
-   which is unused in that case.  */
-#define cfa_exp_len cfa_reg
 
 dwarf2_frame_state::dwarf2_frame_state (CORE_ADDR pc_, struct dwarf2_cie *cie)
   : pc (pc_), data_align (cie->data_alignment_factor),
@@ -232,15 +223,15 @@ register %s (#%d) at %s"),
 }
 
 static CORE_ADDR
-execute_stack_op (const gdb_byte *exp, ULONGEST len, int addr_size,
-		  frame_info_ptr this_frame, CORE_ADDR initial,
+execute_stack_op (gdb::array_view<const gdb_byte> expr, int addr_size,
+		  const frame_info_ptr &this_frame, CORE_ADDR initial,
 		  int initial_in_stack_memory, dwarf2_per_objfile *per_objfile)
 {
   dwarf_expr_context ctx (per_objfile, addr_size);
   scoped_value_mark free_values;
 
   ctx.push_address (initial, initial_in_stack_memory);
-  value *result_val = ctx.evaluate (exp, len, true, nullptr, this_frame);
+  value *result_val = ctx.evaluate (expr, true, nullptr, this_frame);
 
   if (result_val->lval () == lval_memory)
     return result_val->address ();
@@ -412,10 +403,9 @@ bad CFI data; mismatched DW_CFA_restore_state at %s"),
 
 	    case DW_CFA_def_cfa_expression:
 	      insn_ptr = safe_read_uleb128 (insn_ptr, insn_end, &utmp);
-	      fs->regs.cfa_exp_len = utmp;
-	      fs->regs.cfa_exp = insn_ptr;
+	      fs->regs.cfa_exp = gdb::make_array_view (insn_ptr, utmp);
 	      fs->regs.cfa_how = CFA_EXP;
-	      insn_ptr += fs->regs.cfa_exp_len;
+	      insn_ptr += utmp;
 	      break;
 
 	    case DW_CFA_expression:
@@ -575,11 +565,11 @@ execute_cfa_program_test (struct gdbarch *gdbarch)
   SELF_CHECK (fs.regs.cfa_reg == 1);
   SELF_CHECK (fs.regs.cfa_offset == 4);
   SELF_CHECK (fs.regs.cfa_how == CFA_REG_OFFSET);
-  SELF_CHECK (fs.regs.cfa_exp == NULL);
+  SELF_CHECK (fs.regs.cfa_exp.empty ());
   SELF_CHECK (fs.regs.prev == NULL);
 }
 
-} // namespace selftests
+} /* namespace selftests */
 #endif /* GDB_SELF_TEST */
 
 
@@ -589,21 +579,19 @@ execute_cfa_program_test (struct gdbarch *gdbarch)
 static void dwarf2_frame_default_init_reg (struct gdbarch *gdbarch,
 					   int regnum,
 					   struct dwarf2_frame_state_reg *reg,
-					   frame_info_ptr this_frame);
+					   const frame_info_ptr &this_frame);
 
 struct dwarf2_frame_ops
 {
   /* Pre-initialize the register state REG for register REGNUM.  */
-  void (*init_reg) (struct gdbarch *, int, struct dwarf2_frame_state_reg *,
-		    frame_info_ptr)
-    = dwarf2_frame_default_init_reg;
+  init_reg_ftype *init_reg = dwarf2_frame_default_init_reg;
 
   /* Check whether the THIS_FRAME is a signal trampoline.  */
-  int (*signal_frame_p) (struct gdbarch *, frame_info_ptr) = nullptr;
+  signal_frame_p_ftype *signal_frame_p = nullptr;
 
   /* Convert .eh_frame register number to DWARF register number, or
      adjust .debug_frame register number.  */
-  int (*adjust_regnum) (struct gdbarch *, int, int) = nullptr;
+  adjust_regnum_ftype *adjust_regnum = nullptr;
 };
 
 /* Per-architecture data key.  */
@@ -613,10 +601,7 @@ static const registry<gdbarch>::key<dwarf2_frame_ops> dwarf2_frame_data;
 static dwarf2_frame_ops *
 get_frame_ops (struct gdbarch *gdbarch)
 {
-  dwarf2_frame_ops *result = dwarf2_frame_data.get (gdbarch);
-  if (result == nullptr)
-    result = dwarf2_frame_data.emplace (gdbarch);
-  return result;
+  return &dwarf2_frame_data.try_emplace (gdbarch);
 }
 
 /* Default architecture-specific register state initialization
@@ -625,7 +610,7 @@ get_frame_ops (struct gdbarch *gdbarch)
 static void
 dwarf2_frame_default_init_reg (struct gdbarch *gdbarch, int regnum,
 			       struct dwarf2_frame_state_reg *reg,
-			       frame_info_ptr this_frame)
+			       const frame_info_ptr &this_frame)
 {
   /* If we have a register that acts as a program counter, mark it as
      a destination for the return address.  If we have a register that
@@ -663,14 +648,9 @@ dwarf2_frame_default_init_reg (struct gdbarch *gdbarch, int regnum,
    function for GDBARCH to INIT_REG.  */
 
 void
-dwarf2_frame_set_init_reg (struct gdbarch *gdbarch,
-			   void (*init_reg) (struct gdbarch *, int,
-					     struct dwarf2_frame_state_reg *,
-					     frame_info_ptr))
+dwarf2_frame_set_init_reg (gdbarch *gdbarch, init_reg_ftype *init_reg)
 {
-  struct dwarf2_frame_ops *ops = get_frame_ops (gdbarch);
-
-  ops->init_reg = init_reg;
+  get_frame_ops (gdbarch)->init_reg = init_reg;
 }
 
 /* Pre-initialize the register state REG for register REGNUM.  */
@@ -678,37 +658,33 @@ dwarf2_frame_set_init_reg (struct gdbarch *gdbarch,
 static void
 dwarf2_frame_init_reg (struct gdbarch *gdbarch, int regnum,
 		       struct dwarf2_frame_state_reg *reg,
-		       frame_info_ptr this_frame)
+		       const frame_info_ptr &this_frame)
 {
-  struct dwarf2_frame_ops *ops = get_frame_ops (gdbarch);
-
-  ops->init_reg (gdbarch, regnum, reg, this_frame);
+  get_frame_ops (gdbarch)->init_reg (gdbarch, regnum, reg, this_frame);
 }
 
 /* Set the architecture-specific signal trampoline recognition
    function for GDBARCH to SIGNAL_FRAME_P.  */
 
 void
-dwarf2_frame_set_signal_frame_p (struct gdbarch *gdbarch,
-				 int (*signal_frame_p) (struct gdbarch *,
-							frame_info_ptr))
+dwarf2_frame_set_signal_frame_p (gdbarch *gdbarch,
+				 signal_frame_p_ftype *signal_frame_p)
 {
-  struct dwarf2_frame_ops *ops = get_frame_ops (gdbarch);
-
-  ops->signal_frame_p = signal_frame_p;
+  get_frame_ops (gdbarch)->signal_frame_p = signal_frame_p;
 }
 
 /* Query the architecture-specific signal frame recognizer for
    THIS_FRAME.  */
 
-static int
+static bool
 dwarf2_frame_signal_frame_p (struct gdbarch *gdbarch,
-			     frame_info_ptr this_frame)
+			     const frame_info_ptr &this_frame)
 {
   struct dwarf2_frame_ops *ops = get_frame_ops (gdbarch);
 
   if (ops->signal_frame_p == NULL)
-    return 0;
+    return false;
+
   return ops->signal_frame_p (gdbarch, this_frame);
 }
 
@@ -716,13 +692,10 @@ dwarf2_frame_signal_frame_p (struct gdbarch *gdbarch,
    register numbers.  */
 
 void
-dwarf2_frame_set_adjust_regnum (struct gdbarch *gdbarch,
-				int (*adjust_regnum) (struct gdbarch *,
-						      int, int))
+dwarf2_frame_set_adjust_regnum (gdbarch *gdbarch,
+				adjust_regnum_ftype *adjust_regnum)
 {
-  struct dwarf2_frame_ops *ops = get_frame_ops (gdbarch);
-
-  ops->adjust_regnum = adjust_regnum;
+  get_frame_ops (gdbarch)->adjust_regnum = adjust_regnum;
 }
 
 /* Translate a .eh_frame register to DWARF register, or adjust a .debug_frame
@@ -736,6 +709,7 @@ dwarf2_frame_adjust_regnum (struct gdbarch *gdbarch,
 
   if (ops->adjust_regnum == NULL)
     return regnum;
+
   return ops->adjust_regnum (gdbarch, regnum, eh_frame_p);
 }
 
@@ -745,7 +719,7 @@ dwarf2_frame_find_quirks (struct dwarf2_frame_state *fs,
 {
   struct compunit_symtab *cust;
 
-  cust = find_pc_compunit_symtab (fs->pc);
+  cust = find_compunit_symtab_for_pc (fs->pc);
   if (cust == NULL)
     return;
 
@@ -775,13 +749,11 @@ dwarf2_frame_find_quirks (struct dwarf2_frame_state *fs,
 
 /* See dwarf2/frame.h.  */
 
-int
+bool
 dwarf2_fetch_cfa_info (struct gdbarch *gdbarch, CORE_ADDR pc,
-		       struct dwarf2_per_cu_data *data,
-		       int *regnum_out, LONGEST *offset_out,
-		       CORE_ADDR *text_offset_out,
-		       const gdb_byte **cfa_start_out,
-		       const gdb_byte **cfa_end_out)
+		       dwarf2_per_cu *data, int *regnum_out,
+		       LONGEST *offset_out, CORE_ADDR *text_offset_out,
+		       gdb::array_view<const gdb_byte> &cfa_expr_out)
 {
   struct dwarf2_fde *fde;
   dwarf2_per_objfile *per_objfile;
@@ -814,6 +786,9 @@ dwarf2_fetch_cfa_info (struct gdbarch *gdbarch, CORE_ADDR pc,
   /* Calculate the CFA.  */
   switch (fs.regs.cfa_how)
     {
+    case CFA_UNSET:
+      error (_("Could not compute CFA; needed to translate this expression"));
+
     case CFA_REG_OFFSET:
       {
 	int regnum = dwarf_reg_to_regnum_or_error (gdbarch, fs.regs.cfa_reg);
@@ -823,14 +798,14 @@ dwarf2_fetch_cfa_info (struct gdbarch *gdbarch, CORE_ADDR pc,
 	  *offset_out = -fs.regs.cfa_offset;
 	else
 	  *offset_out = fs.regs.cfa_offset;
-	return 1;
+
+	return true;
       }
 
     case CFA_EXP:
       *text_offset_out = per_objfile->objfile->text_section_offset ();
-      *cfa_start_out = fs.regs.cfa_exp;
-      *cfa_end_out = fs.regs.cfa_exp + fs.regs.cfa_exp_len;
-      return 0;
+      cfa_expr_out = fs.regs.cfa_exp;
+      return false;
 
     default:
       internal_error (_("Unknown CFA rule."));
@@ -861,10 +836,10 @@ struct dwarf2_frame_cache
 
   /* Set if the return address column was marked as unavailable
      (required non-collected memory or registers to compute).  */
-  int unavailable_retaddr;
+  bool unavailable_retaddr;
 
   /* Set if the return address column was marked as undefined.  */
-  int undefined_retaddr;
+  bool undefined_retaddr;
 
   /* Saved registers, indexed by GDB register number, not by DWARF
      register number.  */
@@ -890,11 +865,10 @@ struct dwarf2_frame_cache
 };
 
 static struct dwarf2_frame_cache *
-dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
+dwarf2_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   const int num_regs = gdbarch_num_cooked_regs (gdbarch);
-  struct dwarf2_frame_cache *cache;
   struct dwarf2_fde *fde;
   CORE_ADDR entry_pc;
   const gdb_byte *instr;
@@ -903,8 +877,8 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
     return (struct dwarf2_frame_cache *) *this_cache;
 
   /* Allocate a new cache.  */
-  cache = FRAME_OBSTACK_ZALLOC (struct dwarf2_frame_cache);
-  cache->reg = FRAME_OBSTACK_CALLOC (num_regs, struct dwarf2_frame_state_reg);
+  auto *cache = frame_obstack_zalloc<struct dwarf2_frame_cache> ();
+  cache->reg = frame_obstack_calloc<dwarf2_frame_state_reg> (num_regs);
   *this_cache = cache;
 
   /* Unwind the PC.
@@ -914,7 +888,7 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
      its return address.  As a result the return address will
      point at some random instruction, and the CFI for that
      instruction is probably worthless to us.  GCC's unwinder solves
-     this problem by substracting 1 from the return address to get an
+     this problem by subtracting 1 from the return address to get an
      address in the middle of a presumed call instruction (or the
      instruction in the associated delay slot).  This should only be
      done for "normal" frames and not for resume-type frames (signal
@@ -983,6 +957,10 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
       /* Calculate the CFA.  */
       switch (fs.regs.cfa_how)
 	{
+	case CFA_UNSET:
+	  cache->undefined_retaddr = true;
+	  return cache;
+
 	case CFA_REG_OFFSET:
 	  cache->cfa = read_addr_from_reg (this_frame, fs.regs.cfa_reg);
 	  if (fs.armcc_cfa_offsets_reversed)
@@ -992,10 +970,8 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
 	  break;
 
 	case CFA_EXP:
-	  cache->cfa =
-	    execute_stack_op (fs.regs.cfa_exp, fs.regs.cfa_exp_len,
-			      cache->addr_size, this_frame, 0, 0,
-			      cache->per_objfile);
+	  cache->cfa = execute_stack_op (fs.regs.cfa_exp, cache->addr_size,
+					 this_frame, 0, 0, cache->per_objfile);
 	  break;
 
 	default:
@@ -1006,7 +982,7 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
     {
       if (ex.error == NOT_AVAILABLE_ERROR)
 	{
-	  cache->unavailable_retaddr = 1;
+	  cache->unavailable_retaddr = true;
 	  return cache;
 	}
 
@@ -1014,103 +990,90 @@ dwarf2_frame_cache (frame_info_ptr this_frame, void **this_cache)
     }
 
   /* Initialize the register state.  */
-  {
-    int regnum;
-
-    for (regnum = 0; regnum < num_regs; regnum++)
-      dwarf2_frame_init_reg (gdbarch, regnum, &cache->reg[regnum], this_frame);
-  }
+  for (int regnum = 0; regnum < num_regs; regnum++)
+    dwarf2_frame_init_reg (gdbarch, regnum, &cache->reg[regnum], this_frame);
 
   /* Go through the DWARF2 CFI generated table and save its register
      location information in the cache.  Note that we don't skip the
      return address column; it's perfectly all right for it to
      correspond to a real register.  */
-  {
-    int column;		/* CFI speak for "register number".  */
+  for (int column = 0; column < fs.regs.reg.size (); column++)
+    {
+      /* Use the GDB register number as the destination index.  */
+      int regnum = dwarf_reg_to_regnum (gdbarch, column);
 
-    for (column = 0; column < fs.regs.reg.size (); column++)
-      {
-	/* Use the GDB register number as the destination index.  */
-	int regnum = dwarf_reg_to_regnum (gdbarch, column);
+      /* Protect against a target returning a bad register.  */
+      if (regnum < 0 || regnum >= num_regs)
+	continue;
 
-	/* Protect against a target returning a bad register.  */
-	if (regnum < 0 || regnum >= num_regs)
-	  continue;
-
-	/* NOTE: cagney/2003-09-05: CFI should specify the disposition
-	   of all debug info registers.  If it doesn't, complain (but
-	   not too loudly).  It turns out that GCC assumes that an
-	   unspecified register implies "same value" when CFI (draft
-	   7) specifies nothing at all.  Such a register could equally
-	   be interpreted as "undefined".  Also note that this check
-	   isn't sufficient; it only checks that all registers in the
-	   range [0 .. max column] are specified, and won't detect
-	   problems when a debug info register falls outside of the
-	   table.  We need a way of iterating through all the valid
-	   DWARF2 register numbers.  */
-	if (fs.regs.reg[column].how == DWARF2_FRAME_REG_UNSPECIFIED)
-	  {
-	    if (cache->reg[regnum].how == DWARF2_FRAME_REG_UNSPECIFIED)
-	      complaint (_("\
+      /* NOTE: cagney/2003-09-05: CFI should specify the disposition
+	 of all debug info registers.  If it doesn't, complain (but
+	 not too loudly).  It turns out that GCC assumes that an
+	 unspecified register implies "same value" when CFI (draft
+	 7) specifies nothing at all.  Such a register could equally
+	 be interpreted as "undefined".  Also note that this check
+	 isn't sufficient; it only checks that all registers in the
+	 range [0 .. max column] are specified, and won't detect
+	 problems when a debug info register falls outside of the
+	 table.  We need a way of iterating through all the valid
+	 DWARF2 register numbers.  */
+      if (fs.regs.reg[column].how == DWARF2_FRAME_REG_UNSPECIFIED)
+	{
+	  if (cache->reg[regnum].how == DWARF2_FRAME_REG_UNSPECIFIED)
+	    complaint (_("\
 incomplete CFI data; unspecified registers (e.g., %s) at %s"),
-			 gdbarch_register_name (gdbarch, regnum),
-			 paddress (gdbarch, fs.pc));
-	  }
-	else
-	  cache->reg[regnum] = fs.regs.reg[column];
-      }
-  }
+		       gdbarch_register_name (gdbarch, regnum),
+		       paddress (gdbarch, fs.pc));
+	}
+      else
+	cache->reg[regnum] = fs.regs.reg[column];
+    }
 
   /* Eliminate any DWARF2_FRAME_REG_RA rules, and save the information
      we need for evaluating DWARF2_FRAME_REG_RA_OFFSET rules.  */
-  {
-    int regnum;
+  for (int regnum = 0; regnum < num_regs; regnum++)
+    {
+      if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA
+	  || cache->reg[regnum].how == DWARF2_FRAME_REG_RA_OFFSET)
+	{
+	  const std::vector<struct dwarf2_frame_state_reg> &regs = fs.regs.reg;
+	  ULONGEST retaddr_column = fs.retaddr_column;
 
-    for (regnum = 0; regnum < num_regs; regnum++)
-      {
-	if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA
-	    || cache->reg[regnum].how == DWARF2_FRAME_REG_RA_OFFSET)
-	  {
-	    const std::vector<struct dwarf2_frame_state_reg> &regs
-	      = fs.regs.reg;
-	    ULONGEST retaddr_column = fs.retaddr_column;
-
-	    /* It seems rather bizarre to specify an "empty" column as
-	       the return adress column.  However, this is exactly
-	       what GCC does on some targets.  It turns out that GCC
-	       assumes that the return address can be found in the
-	       register corresponding to the return address column.
-	       Incidentally, that's how we should treat a return
-	       address column specifying "same value" too.  */
-	    if (fs.retaddr_column < fs.regs.reg.size ()
-		&& regs[retaddr_column].how != DWARF2_FRAME_REG_UNSPECIFIED
-		&& regs[retaddr_column].how != DWARF2_FRAME_REG_SAME_VALUE)
-	      {
-		if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA)
-		  cache->reg[regnum] = regs[retaddr_column];
-		else
-		  cache->retaddr_reg = regs[retaddr_column];
-	      }
-	    else
-	      {
-		if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA)
-		  {
-		    cache->reg[regnum].loc.reg = fs.retaddr_column;
-		    cache->reg[regnum].how = DWARF2_FRAME_REG_SAVED_REG;
-		  }
-		else
-		  {
-		    cache->retaddr_reg.loc.reg = fs.retaddr_column;
-		    cache->retaddr_reg.how = DWARF2_FRAME_REG_SAVED_REG;
-		  }
-	      }
-	  }
-      }
-  }
+	  /* It seems rather bizarre to specify an "empty" column as
+	     the return address column.  However, this is exactly
+	     what GCC does on some targets.  It turns out that GCC
+	     assumes that the return address can be found in the
+	     register corresponding to the return address column.
+	     Incidentally, that's how we should treat a return
+	     address column specifying "same value" too.  */
+	  if (fs.retaddr_column < fs.regs.reg.size ()
+	      && regs[retaddr_column].how != DWARF2_FRAME_REG_UNSPECIFIED
+	      && regs[retaddr_column].how != DWARF2_FRAME_REG_SAME_VALUE)
+	    {
+	      if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA)
+		cache->reg[regnum] = regs[retaddr_column];
+	      else
+		cache->retaddr_reg = regs[retaddr_column];
+	    }
+	  else
+	    {
+	      if (cache->reg[regnum].how == DWARF2_FRAME_REG_RA)
+		{
+		  cache->reg[regnum].loc.reg = fs.retaddr_column;
+		  cache->reg[regnum].how = DWARF2_FRAME_REG_SAVED_REG;
+		}
+	      else
+		{
+		  cache->retaddr_reg.loc.reg = fs.retaddr_column;
+		  cache->retaddr_reg.how = DWARF2_FRAME_REG_SAVED_REG;
+		}
+	    }
+	}
+    }
 
   if (fs.retaddr_column < fs.regs.reg.size ()
       && fs.regs.reg[fs.retaddr_column].how == DWARF2_FRAME_REG_UNDEFINED)
-    cache->undefined_retaddr = 1;
+    cache->undefined_retaddr = true;
 
   dwarf2_tailcall_sniffer_first (this_frame, &cache->tailcall_cache,
 				 (entry_cfa_sp_offset_p
@@ -1120,7 +1083,7 @@ incomplete CFI data; unspecified registers (e.g., %s) at %s"),
 }
 
 static enum unwind_stop_reason
-dwarf2_frame_unwind_stop_reason (frame_info_ptr this_frame,
+dwarf2_frame_unwind_stop_reason (const frame_info_ptr &this_frame,
 				 void **this_cache)
 {
   struct dwarf2_frame_cache *cache
@@ -1136,7 +1099,7 @@ dwarf2_frame_unwind_stop_reason (frame_info_ptr this_frame,
 }
 
 static void
-dwarf2_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+dwarf2_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		      struct frame_id *this_id)
 {
   struct dwarf2_frame_cache *cache =
@@ -1151,7 +1114,7 @@ dwarf2_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 }
 
 static struct value *
-dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
+dwarf2_frame_prev_register (const frame_info_ptr &this_frame, void **this_cache,
 			    int regnum)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -1168,7 +1131,7 @@ dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
   if (cache->tailcall_cache)
     {
       struct value *val;
-      
+
       val = dwarf2_tailcall_prev_register_first (this_frame,
 						 &cache->tailcall_cache,
 						 regnum);
@@ -1193,10 +1156,8 @@ dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
       return frame_unwind_got_register (this_frame, regnum, realnum);
 
     case DWARF2_FRAME_REG_SAVED_EXP:
-      addr = execute_stack_op (cache->reg[regnum].loc.exp.start,
-			       cache->reg[regnum].loc.exp.len,
-			       cache->addr_size,
-			       this_frame, cache->cfa, 1,
+      addr = execute_stack_op (cache->reg[regnum].loc.exp.view (),
+			       cache->addr_size, this_frame, cache->cfa, 1,
 			       cache->per_objfile);
       return frame_unwind_got_memory (this_frame, regnum, addr);
 
@@ -1205,10 +1166,8 @@ dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
       return frame_unwind_got_constant (this_frame, regnum, addr);
 
     case DWARF2_FRAME_REG_SAVED_VAL_EXP:
-      addr = execute_stack_op (cache->reg[regnum].loc.exp.start,
-			       cache->reg[regnum].loc.exp.len,
-			       cache->addr_size,
-			       this_frame, cache->cfa, 1,
+      addr = execute_stack_op (cache->reg[regnum].loc.exp.view (),
+			       cache->addr_size, this_frame, cache->cfa, 1,
 			       cache->per_objfile);
       return frame_unwind_got_constant (this_frame, regnum, addr);
 
@@ -1220,7 +1179,10 @@ dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
 	 "undefined").  Code above issues a complaint about this.
 	 Here just fudge the books, assume GCC, and that the value is
 	 more inner on the stack.  */
-      return frame_unwind_got_register (this_frame, regnum, regnum);
+      if (regnum < gdbarch_num_regs (gdbarch))
+	return frame_unwind_got_register (this_frame, regnum, regnum);
+      else
+	return nullptr;
 
     case DWARF2_FRAME_REG_SAME_VALUE:
       return frame_unwind_got_register (this_frame, regnum, regnum);
@@ -1250,7 +1212,7 @@ dwarf2_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
 /* See frame.h.  */
 
 void *
-dwarf2_frame_get_fn_data (frame_info_ptr this_frame, void **this_cache,
+dwarf2_frame_get_fn_data (const frame_info_ptr &this_frame, void **this_cache,
 			  fn_prev_register cookie)
 {
   struct dwarf2_frame_fn_data *fn_data = nullptr;
@@ -1268,10 +1230,9 @@ dwarf2_frame_get_fn_data (frame_info_ptr this_frame, void **this_cache,
 /* See frame.h.  */
 
 void *
-dwarf2_frame_allocate_fn_data (frame_info_ptr this_frame, void **this_cache,
+dwarf2_frame_allocate_fn_data (const frame_info_ptr &this_frame, void **this_cache,
 			       fn_prev_register cookie, unsigned long size)
 {
-  struct dwarf2_frame_fn_data *fn_data = nullptr;
   struct dwarf2_frame_cache *cache
     = dwarf2_frame_cache (this_frame, this_cache);
 
@@ -1280,7 +1241,7 @@ dwarf2_frame_allocate_fn_data (frame_info_ptr this_frame, void **this_cache,
   gdb_assert (data == nullptr);
 
   /* No object found, lets create a new instance.  */
-  fn_data = FRAME_OBSTACK_ZALLOC (struct dwarf2_frame_fn_data);
+  auto *fn_data = frame_obstack_zalloc<dwarf2_frame_fn_data> ();
   fn_data->cookie = cookie;
   fn_data->data = frame_obstack_zalloc (size);
   fn_data->next = cache->fn_data;
@@ -1304,11 +1265,8 @@ dwarf2_frame_dealloc_cache (frame_info *self, void *this_cache)
 
 static int
 dwarf2_frame_sniffer (const struct frame_unwind *self,
-		      frame_info_ptr this_frame, void **this_cache)
+		      const frame_info_ptr &this_frame, void **this_cache)
 {
-  if (!dwarf2_frame_unwinders_enabled_p)
-    return 0;
-
   /* Grab an address that is guaranteed to reside somewhere within the
      function.  get_frame_pc(), with a no-return next function, can
      end up returning something past the end of this function's body.
@@ -1329,30 +1287,30 @@ dwarf2_frame_sniffer (const struct frame_unwind *self,
   if (fde->cie->signal_frame
       || dwarf2_frame_signal_frame_p (get_frame_arch (this_frame),
 				      this_frame))
-    return self->type == SIGTRAMP_FRAME;
+    return self->type () == SIGTRAMP_FRAME;
 
-  if (self->type != NORMAL_FRAME)
+  if (self->type () != NORMAL_FRAME)
     return 0;
 
   return 1;
 }
 
-static const struct frame_unwind dwarf2_frame_unwind =
-{
+static const struct frame_unwind_legacy dwarf2_frame_unwind (
   "dwarf2",
   NORMAL_FRAME,
+  FRAME_UNWIND_DEBUGINFO,
   dwarf2_frame_unwind_stop_reason,
   dwarf2_frame_this_id,
   dwarf2_frame_prev_register,
   NULL,
   dwarf2_frame_sniffer,
   dwarf2_frame_dealloc_cache
-};
+);
 
-static const struct frame_unwind dwarf2_signal_frame_unwind =
-{
+static const struct frame_unwind_legacy dwarf2_signal_frame_unwind (
   "dwarf2 signal",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_DEBUGINFO,
   dwarf2_frame_unwind_stop_reason,
   dwarf2_frame_this_id,
   dwarf2_frame_prev_register,
@@ -1361,7 +1319,7 @@ static const struct frame_unwind dwarf2_signal_frame_unwind =
 
   /* TAILCALL_CACHE can never be in such frame to need dealloc_cache.  */
   NULL
-};
+);
 
 /* Append the DWARF-2 frame unwinders to GDBARCH's list.  */
 
@@ -1380,7 +1338,7 @@ dwarf2_append_unwinders (struct gdbarch *gdbarch)
    response to the "info frame" command.  */
 
 static CORE_ADDR
-dwarf2_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+dwarf2_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct dwarf2_frame_cache *cache =
     dwarf2_frame_cache (this_frame, this_cache);
@@ -1397,7 +1355,7 @@ static const struct frame_base dwarf2_frame_base =
 };
 
 const struct frame_base *
-dwarf2_frame_base_sniffer (frame_info_ptr this_frame)
+dwarf2_frame_base_sniffer (const frame_info_ptr &this_frame)
 {
   CORE_ADDR block_addr = get_frame_address_in_block (this_frame);
 
@@ -1412,15 +1370,17 @@ dwarf2_frame_base_sniffer (frame_info_ptr this_frame)
    DW_OP_call_frame_cfa.  */
 
 CORE_ADDR
-dwarf2_frame_cfa (frame_info_ptr this_frame)
+dwarf2_frame_cfa (const frame_info_ptr &initial_this_frame)
 {
+  frame_info_ptr this_frame = initial_this_frame;
+
   if (frame_unwinder_is (this_frame, &record_btrace_tailcall_frame_unwind)
       || frame_unwinder_is (this_frame, &record_btrace_frame_unwind))
     throw_error (NOT_AVAILABLE_ERROR,
 		 _("cfa not available for record btrace target"));
 
   while (get_frame_type (this_frame) == INLINE_FRAME)
-    this_frame = get_prev_frame (this_frame);
+    this_frame = get_prev_frame_always (this_frame);
   if (get_frame_unwind_stop_reason (this_frame) == UNWIND_UNAVAILABLE)
     throw_error (NOT_AVAILABLE_ERROR,
 		_("can't compute CFA for this frame: "
@@ -1451,7 +1411,7 @@ static const registry<objfile>::key<comp_unit> dwarf2_frame_objfile_data;
    way.  Several "pointer encodings" are supported.  The encoding
    that's used for a particular FDE is determined by the 'R'
    augmentation in the associated CIE.  The argument of this
-   augmentation is a single byte.  
+   augmentation is a single byte.
 
    The address can be encoded as 2 bytes, 4 bytes, 8 bytes, or as a
    LEB128.  This is encoded in bits 0, 1 and 2.  Bit 3 encodes whether
@@ -1623,18 +1583,18 @@ set_comp_unit (struct objfile *objfile, struct comp_unit *unit)
 static struct dwarf2_fde *
 dwarf2_frame_find_fde (CORE_ADDR *pc, dwarf2_per_objfile **out_per_objfile)
 {
-  for (objfile *objfile : current_program_space->objfiles ())
+  for (objfile &objfile : current_program_space->objfiles ())
     {
       CORE_ADDR offset;
 
-      if (objfile->obfd == nullptr)
+      if (objfile.obfd == nullptr)
 	continue;
 
-      comp_unit *unit = find_comp_unit (objfile);
+      comp_unit *unit = find_comp_unit (&objfile);
       if (unit == NULL)
 	{
-	  dwarf2_build_frame_info (objfile);
-	  unit = find_comp_unit (objfile);
+	  dwarf2_build_frame_info (&objfile);
+	  unit = find_comp_unit (&objfile);
 	}
       gdb_assert (unit != NULL);
 
@@ -1642,8 +1602,8 @@ dwarf2_frame_find_fde (CORE_ADDR *pc, dwarf2_per_objfile **out_per_objfile)
       if (fde_table->empty ())
 	continue;
 
-      gdb_assert (!objfile->section_offsets.empty ());
-      offset = objfile->text_section_offset ();
+      gdb_assert (!objfile.section_offsets.empty ());
+      offset = objfile.text_section_offset ();
 
       gdb_assert (!fde_table->empty ());
       unrelocated_addr seek_pc = (unrelocated_addr) (*pc - offset);
@@ -1656,7 +1616,7 @@ dwarf2_frame_find_fde (CORE_ADDR *pc, dwarf2_per_objfile **out_per_objfile)
 	{
 	  *pc = (CORE_ADDR) (*it)->initial_location + offset;
 	  if (out_per_objfile != nullptr)
-	    *out_per_objfile = get_dwarf2_per_objfile (objfile);
+	    *out_per_objfile = get_dwarf2_per_objfile (&objfile);
 
 	  return *it;
 	}
@@ -2038,10 +1998,10 @@ decode_frame_entry (struct gdbarch *gdbarch,
 
 	 This becomes a problem when you have some other producer that
 	 creates frame sections that are not as strictly aligned.  That
-	 produces a hole in the frame info that gets filled by the 
+	 produces a hole in the frame info that gets filled by the
 	 linker with zeros.
 
-	 The GCC behaviour is arguably a bug, but it's effectively now
+	 The GCC behavior is arguably a bug, but it's effectively now
 	 part of the ABI, so we're now stuck with it, at least at the
 	 object file level.  A smart linker may decide, in the process
 	 of compressing duplicate CIE information, that it can rewrite
@@ -2126,7 +2086,7 @@ dwarf2_build_frame_info (struct objfile *objfile)
   struct gdbarch *gdbarch = objfile->arch ();
 
   /* Build a minimal decoding of the DWARF2 compilation unit.  */
-  std::unique_ptr<comp_unit> unit (new comp_unit (objfile));
+  auto unit = std::make_unique<comp_unit> (objfile);
 
   if (objfile->separate_debug_objfile_backlink == NULL)
     {
@@ -2166,8 +2126,10 @@ dwarf2_build_frame_info (struct objfile *objfile)
 
 	  catch (const gdb_exception_error &e)
 	    {
-	      warning (_("skipping .eh_frame info of %s: %s"),
-		       objfile_name (objfile), e.what ());
+	      warning (_("skipping .eh_frame info of %ps: %s"),
+		       styled_string (file_name_style.style (),
+				      objfile_name (objfile)),
+		       e.what ());
 
 	      fde_table.clear ();
 	      /* The cie_table is discarded below.  */
@@ -2195,8 +2157,10 @@ dwarf2_build_frame_info (struct objfile *objfile)
 	}
       catch (const gdb_exception_error &e)
 	{
-	  warning (_("skipping .debug_frame info of %s: %s"),
-		   objfile_name (objfile), e.what ());
+	  warning (_("skipping .debug_frame info of %ps: %s"),
+		   styled_string (file_name_style.style (),
+				  objfile_name (objfile)),
+		   e.what ());
 
 	  fde_table.resize (num_old_fde_entries);
 	}
@@ -2251,34 +2215,8 @@ dwarf2_build_frame_info (struct objfile *objfile)
   set_comp_unit (objfile, unit.release ());
 }
 
-/* Handle 'maintenance show dwarf unwinders'.  */
-
-static void
-show_dwarf_unwinders_enabled_p (struct ui_file *file, int from_tty,
-				struct cmd_list_element *c,
-				const char *value)
+INIT_GDB_FILE (dwarf2_frame)
 {
-  gdb_printf (file,
-	      _("The DWARF stack unwinders are currently %s.\n"),
-	      value);
-}
-
-void _initialize_dwarf2_frame ();
-void
-_initialize_dwarf2_frame ()
-{
-  add_setshow_boolean_cmd ("unwinders", class_obscure,
-			   &dwarf2_frame_unwinders_enabled_p , _("\
-Set whether the DWARF stack frame unwinders are used."), _("\
-Show whether the DWARF stack frame unwinders are used."), _("\
-When enabled the DWARF stack frame unwinders can be used for architectures\n\
-that support the DWARF unwinders.  Enabling the DWARF unwinders for an\n\
-architecture that doesn't support them will have no effect."),
-			   NULL,
-			   show_dwarf_unwinders_enabled_p,
-			   &set_dwarf_cmdlist,
-			   &show_dwarf_cmdlist);
-
 #if GDB_SELF_TEST
   selftests::register_test_foreach_arch ("execute_cfa_program",
 					 selftests::execute_cfa_program_test);

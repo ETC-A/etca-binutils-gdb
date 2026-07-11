@@ -1,6 +1,6 @@
 /* Shared general utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_COMMON_UTILS_H
-#define COMMON_COMMON_UTILS_H
+#ifndef GDBSUPPORT_COMMON_UTILS_H
+#define GDBSUPPORT_COMMON_UTILS_H
 
 #include <string>
 #include <vector>
@@ -26,7 +26,7 @@
 #include "gdbsupport/gdb_unique_ptr.h"
 #include "gdbsupport/array-view.h"
 #include "poison.h"
-#include "gdb_string_view.h"
+#include <string_view>
 
 #if defined HAVE_LIBXXHASH
 #  include <xxhash.h>
@@ -84,6 +84,11 @@ char *savestring (const char *ptr, size_t len);
 
 std::string extract_string_maybe_quoted (const char **arg);
 
+/* Return a copy of STR, but with any white space, single quote, or
+   double quote characters escaped with a backslash.  */
+
+std::string make_quoted_string (const char *str);
+
 /* The strerror() function can return NULL for errno values that are
    out of range.  Provide a "safe" version that always returns a
    printable string.  This version is also thread-safe.  */
@@ -94,10 +99,32 @@ extern const char *safe_strerror (int);
    true if the start of STRING matches PATTERN, false otherwise.  */
 
 static inline bool
-startswith (gdb::string_view string, gdb::string_view pattern)
+startswith (std::string_view string, std::string_view pattern)
 {
   return (string.length () >= pattern.length ()
 	  && strncmp (string.data (), pattern.data (), pattern.length ()) == 0);
+}
+
+/* Version of startswith that takes a string_view for only one of its
+   arguments.  Return true if STR starts with PREFIX, otherwise return
+   false.  */
+
+static inline bool
+startswith (const char *str, const std::string_view &prefix)
+{
+  return strncmp (str, prefix.data (), prefix.length ()) == 0;
+}
+
+/* Return true if the end of STR matches PATTERN, false otherwise.
+
+   This can be replaced with std::string_view::ends_with when we require
+   C++20.  */
+
+static inline bool
+endswith (std::string_view str, std::string_view pattern)
+{
+  return (str.length () >= pattern.length ()
+	  && str.substr (str.length () - pattern.length ()) == pattern);
 }
 
 /* Return true if the strings are equal.  */
@@ -181,6 +208,16 @@ in_inclusive_range (T value, T low, T high)
 extern ULONGEST align_up (ULONGEST v, int n);
 extern ULONGEST align_down (ULONGEST v, int n);
 
+/* Sign-extend the value V, using N as the number of valid bits.  That
+   is, bit N-1 is the sign bit.  The higher-order bits (those outside
+   0..N-1) must be zero.  */
+static inline ULONGEST
+sign_extend (ULONGEST v, int n)
+{
+  ULONGEST mask = (ULONGEST) 1 << (n - 1);
+  return (v ^ mask) - mask;
+}
+
 /* Convert hex digit A to a number, or throw an exception.  */
 extern int fromhex (int a);
 
@@ -228,7 +265,7 @@ fast_hash (const void *ptr, size_t len, unsigned int start_value = 0)
 namespace gdb
 {
 
-/* Hash type for gdb::string_view.
+/* Hash type for std::string_view.
 
    Even after we switch to C++17 and dump our string_view implementation, we
    might want to keep this hash implementation if it's faster than std::hash
@@ -236,10 +273,10 @@ namespace gdb
 
 struct string_view_hash
 {
-  std::size_t operator() (gdb::string_view view) const
+  std::size_t operator() (std::string_view view) const
   {  return fast_hash (view.data (), view.length ()); }
 };
 
 } /* namespace gdb */
 
-#endif /* COMMON_COMMON_UTILS_H */
+#endif /* GDBSUPPORT_COMMON_UTILS_H */

@@ -1,6 +1,6 @@
 /* Support for GDB maintenance commands.
 
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    Written by Fred Fish at Cygnus Support.
 
@@ -20,19 +20,14 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "arch-utils.h"
-#include <ctype.h>
 #include <cmath>
 #include <signal.h>
 #include "command.h"
-#include "gdbcmd.h"
 #include "symtab.h"
 #include "block.h"
 #include "gdbtypes.h"
-#include "demangle.h"
-#include "gdbcore.h"
-#include "expression.h"		/* For language.h */
+#include "expression.h"
 #include "language.h"
 #include "symfile.h"
 #include "objfiles.h"
@@ -42,10 +37,14 @@
 #include "gdbsupport/selftest.h"
 #include "inferior.h"
 #include "gdbsupport/thread-pool.h"
+#include "event-top.h"
+#include "cp-support.h"
+#include "gdbcore.h"
 
 #include "cli/cli-decode.h"
 #include "cli/cli-utils.h"
 #include "cli/cli-setshow.h"
+#include "cli/cli-style.h"
 #include "cli/cli-cmds.h"
 
 static void maintenance_do_deprecate (const char *, int);
@@ -106,14 +105,28 @@ maintenance_demangler_warning (const char *args, int from_tty)
 static void
 maintenance_demangle (const char *args, int from_tty)
 {
-  gdb_printf (_("This command has been moved to \"demangle\".\n"));
+  gdb_printf (_("This command has been moved to \"%ps\".\n"),
+	      styled_string (command_style.style (), "demangle"));
+}
+
+/* Print the canonical form of a name.  */
+
+static void
+maintenance_canonicalize (const char *args, int from_tty)
+{
+  gdb::unique_xmalloc_ptr<char> canon = cp_canonicalize_string (args);
+  if (canon == nullptr)
+    gdb_printf ("No change.\n");
+  else
+    gdb_printf ("canonical = %s\n", canon.get ());
 }
 
 static void
 maintenance_time_display (const char *args, int from_tty)
 {
   if (args == NULL || *args == '\0')
-    gdb_printf (_("\"maintenance time\" takes a numeric argument.\n"));
+    gdb_printf (_("\"%ps\" takes a numeric argument.\n"),
+		styled_string (command_style.style (), "maintenance time"));
   else
     set_per_command_time (strtol (args, NULL, 10));
 }
@@ -122,7 +135,8 @@ static void
 maintenance_space_display (const char *args, int from_tty)
 {
   if (args == NULL || *args == '\0')
-    gdb_printf ("\"maintenance space\" takes a numeric argument.\n");
+    gdb_printf ("\"%ps\" takes a numeric argument.\n",
+		styled_string (command_style.style (), "maintenance space"));
   else
     set_per_command_space (strtol (args, NULL, 10));
 }
@@ -371,6 +385,8 @@ maint_print_all_sections (const char *header, bfd *abfd, objfile *objfile,
 
   for (asection *sect : gdb_bfd_sections (abfd))
     {
+      QUIT;
+
       obj_section *osect = nullptr;
 
       if (objfile != nullptr)
@@ -449,18 +465,19 @@ maintenance_info_sections (const char *arg, int from_tty)
   gdb::option::process_options
     (&arg, gdb::option::PROCESS_OPTIONS_UNKNOWN_IS_ERROR, group);
 
-  for (objfile *ofile : current_program_space->objfiles ())
+  for (objfile &ofile : current_program_space->objfiles ())
     {
-      if (ofile->obfd == current_program_space->exec_bfd ())
-	maint_print_all_sections (_("Exec file: "), ofile->obfd.get (),
-				  ofile, arg);
+      if (ofile.obfd == current_program_space->exec_bfd ())
+	maint_print_all_sections (_("Exec file: "), ofile.obfd.get (),
+				  &ofile, arg);
       else if (opts.all_objects)
-	maint_print_all_sections (_("Object file: "), ofile->obfd.get (),
-				  ofile, arg);
+	maint_print_all_sections (_("Object file: "), ofile.obfd.get (),
+				  &ofile, arg);
     }
 
-  if (core_bfd)
-    maint_print_all_sections (_("Core file: "), core_bfd, nullptr, arg);
+  bfd *cbfd = get_inferior_core_bfd (current_inferior ());
+  if (cbfd != nullptr)
+    maint_print_all_sections (_("Core file: "), cbfd, nullptr, arg);
 }
 
 /* Implement the "maintenance info target-sections" command.  */
@@ -470,7 +487,7 @@ maintenance_info_target_sections (const char *arg, int from_tty)
 {
   bfd *abfd = nullptr;
   int digits = 0;
-  const target_section_table *table
+  const std::vector<target_section> *table
     = target_get_section_table (current_inferior ()->top_target ());
   if (table == nullptr)
     return;
@@ -509,7 +526,7 @@ maintenance_info_target_sections (const char *arg, int from_tty)
 		  (8 + digits), "",
 		  hex_string_custom (sec.addr, addr_size),
 		  hex_string_custom (sec.endaddr, addr_size),
-		  sec.owner);
+		  sec.owner.v ());
     }
 }
 
@@ -547,7 +564,6 @@ maintenance_translate_address (const char *arg, int from_tty)
   CORE_ADDR address;
   struct obj_section *sect;
   const char *p;
-  struct bound_minimal_symbol sym;
 
   if (arg == NULL || *arg == 0)
     error (_("requires argument (address or section + address)"));
@@ -555,9 +571,9 @@ maintenance_translate_address (const char *arg, int from_tty)
   sect = NULL;
   p = arg;
 
-  if (!isdigit (*p))
+  if (!c_isdigit (*p))
     {				/* See if we have a valid section name.  */
-      while (*p && !isspace (*p))	/* Find end of section name.  */
+      while (*p && !c_isspace (*p))	/* Find end of section name.  */
 	p++;
       if (*p == '\000')		/* End of command?  */
 	error (_("Need to specify section name and address"));
@@ -565,10 +581,10 @@ maintenance_translate_address (const char *arg, int from_tty)
       int arg_len = p - arg;
       p = skip_spaces (p + 1);
 
-      for (objfile *objfile : current_program_space->objfiles ())
-	for (obj_section *iter : objfile->sections ())
+      for (objfile &objfile : current_program_space->objfiles ())
+	for (obj_section &iter : objfile.sections ())
 	  {
-	    if (strncmp (iter->the_bfd_section->name, arg, arg_len) == 0)
+	    if (strncmp (iter.the_bfd_section->name, arg, arg_len) == 0)
 	      goto found;
 	  }
 
@@ -578,6 +594,7 @@ maintenance_translate_address (const char *arg, int from_tty)
 
   address = parse_and_eval_address (p);
 
+  bound_minimal_symbol sym;
   if (sect)
     sym = lookup_minimal_symbol_by_pc_section (address, sect);
   else
@@ -631,9 +648,11 @@ maintenance_deprecate (const char *args, int from_tty)
 {
   if (args == NULL || *args == '\0')
     {
-      gdb_printf (_("\"maintenance deprecate\" takes an argument,\n\
+      gdb_printf (_("\"%ps\" takes an argument,\n\
 the command you want to deprecate, and optionally the replacement command\n\
-enclosed in quotes.\n"));
+enclosed in quotes.\n"),
+		  styled_string (command_style.style (),
+				 "maintenance deprecate"));
     }
 
   maintenance_do_deprecate (args, 1);
@@ -645,8 +664,10 @@ maintenance_undeprecate (const char *args, int from_tty)
 {
   if (args == NULL || *args == '\0')
     {
-      gdb_printf (_("\"maintenance undeprecate\" takes an argument, \n\
-the command you want to undeprecate.\n"));
+      gdb_printf (_("\"%ps\" takes an argument, \n\
+the command you want to undeprecate.\n"),
+		  styled_string (command_style.style (),
+				 "maintenance undeprecate"));
     }
 
   maintenance_do_deprecate (args, 0);
@@ -791,7 +812,7 @@ extern char etext;
 
 static int profiling_state;
 
-EXTERN_C void _mcleanup (void);
+extern "C" void _mcleanup (void);
 
 static void
 mcleanup_wrapper (void)
@@ -800,7 +821,7 @@ mcleanup_wrapper (void)
     _mcleanup ();
 }
 
-EXTERN_C void monstartup (unsigned long, unsigned long);
+extern "C" void monstartup (unsigned long, unsigned long);
 extern int main (int, char **);
 
 static void
@@ -844,15 +865,24 @@ maintenance_set_profile_cmd (const char *args, int from_tty,
 
 static int n_worker_threads = -1;
 
-/* Update the thread pool for the desired number of threads.  */
-static void
+/* See maint.h.  */
+
+void
 update_thread_pool_size ()
 {
 #if CXX_STD_THREAD
   int n_threads = n_worker_threads;
 
   if (n_threads < 0)
-    n_threads = std::thread::hardware_concurrency ();
+    {
+      const int hardware_threads = std::thread::hardware_concurrency ();
+      /* Testing in PR gdb/29959 indicates that parallel efficiency drops
+	 between n_threads=5 to 8.  Therefore, use no more than 8 threads
+	 to avoid an excessive number of threads in the pool on many-core
+	 systems.  */
+      const int max_thread_count = 8;
+      n_threads = std::min (hardware_threads, max_thread_count);
+    }
 
   gdb::thread_pool::g_thread_pool->set_thread_count (n_threads);
 #endif
@@ -874,7 +904,7 @@ maintenance_show_worker_threads (struct ui_file *file, int from_tty,
   if (n_worker_threads == -1)
     {
       gdb_printf (file, _("The number of worker threads GDB "
-			  "can use is unlimited (currently %zu).\n"),
+			  "can use is the default (currently %zu).\n"),
 		  gdb::thread_pool::g_thread_pool->thread_count ());
       return;
     }
@@ -890,9 +920,9 @@ maintenance_show_worker_threads (struct ui_file *file, int from_tty,
 }
 
 
-/* If true, display time usage both at startup and for each command.  */
+/* See maint.h.  */
 
-static bool per_command_time;
+bool per_command_time;
 
 /* If true, display space usage both at startup and for each command.  */
 
@@ -940,14 +970,14 @@ count_symtabs_and_blocks (int *nr_symtabs_ptr, int *nr_compunit_symtabs_ptr,
      current_program_space may be NULL.  */
   if (current_program_space != NULL)
     {
-      for (objfile *o : current_program_space->objfiles ())
+      for (objfile &o : current_program_space->objfiles ())
 	{
-	  for (compunit_symtab *cu : o->compunits ())
+	  for (compunit_symtab &cu : o.compunits ())
 	    {
 	      ++nr_compunit_symtabs;
-	      nr_blocks += cu->blockvector ()->num_blocks ();
-	      nr_symtabs += std::distance (cu->filetabs ().begin (),
-					   cu->filetabs ().end ());
+	      nr_blocks += cu.blockvector ()->num_blocks ();
+	      nr_symtabs += std::distance (cu.filetabs ().begin (),
+					   cu.filetabs ().end ());
 	    }
 	}
     }
@@ -1111,7 +1141,8 @@ set_per_command_cmd (const char *args, int from_tty)
 
   val = parse_cli_boolean_value (args);
   if (val < 0)
-    error (_("Bad value for 'mt set per-command no'."));
+    error (_("Bad value for \"%ps\"."),
+	   styled_string (command_style.style (), "mt set per-command no"));
 
   for (list = per_command_setlist; list != NULL; list = list->next)
     if (list->var->type () == var_boolean)
@@ -1119,6 +1150,72 @@ set_per_command_cmd (const char *args, int from_tty)
 	gdb_assert (list->type == set_cmd);
 	do_set_command (args, from_tty, list);
       }
+}
+
+/* Handle "mt set per-command time".  Warn if per-thread run time
+   information is not possible.  */
+
+static void
+maintenance_set_command_time_cmd (const char *args, int from_tty,
+				  cmd_list_element *c)
+{
+  /* No point warning if this platform can't use multiple threads at
+     all.  */
+#if CXX_STD_THREAD
+  static bool already_warned = false;
+  if (per_command_time
+      && !get_run_time_thread_scope_available ()
+      && !already_warned)
+    {
+      warning (_("\
+per-thread run time information not available on this platform"));
+      already_warned = true;
+    }
+#endif
+}
+
+/* See maint.h.  */
+
+scoped_time_it::scoped_time_it (const char *what, bool enabled)
+  : m_enabled (enabled),
+    m_what (what),
+    m_start_wall (m_enabled
+		  ? std::chrono::steady_clock::now ()
+		  : std::chrono::steady_clock::time_point ())
+{
+  if (m_enabled)
+    get_run_time (m_start_user, m_start_sys, run_time_scope::thread);
+}
+
+/* See maint.h.  */
+
+scoped_time_it::~scoped_time_it ()
+{
+  if (!m_enabled)
+    return;
+
+  namespace chr = std::chrono;
+  auto end_wall = chr::steady_clock::now ();
+
+  user_cpu_time_clock::time_point end_user;
+  system_cpu_time_clock::time_point end_sys;
+  get_run_time (end_user, end_sys, run_time_scope::thread);
+
+  auto user = end_user - m_start_user;
+  auto sys = end_sys - m_start_sys;
+  auto wall = end_wall - m_start_wall;
+  auto user_ms = chr::duration_cast<chr::milliseconds> (user).count ();
+  auto sys_ms = chr::duration_cast<chr::milliseconds> (sys).count ();
+  auto wall_ms = chr::duration_cast<chr::milliseconds> (wall).count ();
+  auto user_plus_sys_ms = user_ms + sys_ms;
+
+  auto str
+    = string_printf ("Time for \"%s\": wall %.03f, user %.03f, sys %.03f, "
+		     "user+sys %.03f, %.01f %% CPU\n",
+		     m_what, wall_ms / 1000.0, user_ms / 1000.0,
+		     sys_ms / 1000.0, user_plus_sys_ms / 1000.0,
+		     user_plus_sys_ms * 100.0 / wall_ms);
+  gdb_stdlog->write_async_safe (str.data (), str.size ());
 }
 
 /* Options affecting the "maintenance selftest" command.  */
@@ -1205,9 +1302,7 @@ Selftests have been disabled for this build.\n"));
 }
 
 
-void _initialize_maint_cmds ();
-void
-_initialize_maint_cmds ()
+INIT_GDB_FILE (maint_cmds)
 {
   struct cmd_list_element *cmd;
 
@@ -1326,6 +1421,12 @@ This command has been moved to \"demangle\"."),
 		 &maintenancelist);
   deprecate_cmd (cmd, "demangle");
 
+  cmd = add_cmd ("canonicalize", class_maintenance, maintenance_canonicalize,
+		 _("\
+Show the canonical form of a C++ name.\n\
+Usage: maintenance canonicalize NAME"),
+		 &maintenancelist);
+
   add_prefix_cmd ("per-command", class_maintenance, set_per_command_cmd, _("\
 Per-command statistics settings."),
 		    &per_command_setlist,
@@ -1343,7 +1444,7 @@ Show whether to display per-command execution time."),
 			   _("\
 If enabled, the execution time for each command will be\n\
 displayed following the command's output."),
-			   NULL, NULL,
+			   maintenance_set_command_time_cmd, NULL,
 			   &per_command_setlist, &per_command_showlist);
 
   add_setshow_boolean_cmd ("space", class_maintenance,
@@ -1474,6 +1575,4 @@ such as demangling symbol names."),
 					     maintenance_selftest_option_defs,
 					     &set_selftest_cmdlist,
 					     &show_selftest_cmdlist);
-
-  update_thread_pool_size ();
 }

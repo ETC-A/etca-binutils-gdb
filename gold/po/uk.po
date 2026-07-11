@@ -2,13 +2,13 @@
 # Copyright (C) 2012 Free Software Foundation, Inc.
 # This file is distributed under the same license as the binutils package.
 #
-# Yuri Chornoivan <yurchor@ukr.net>, 2012, 2014, 2018, 2019, 2020, 2021, 2022, 2023.
+# Yuri Chornoivan <yurchor@ukr.net>, 2012, 2014, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025.
 msgid ""
 msgstr ""
-"Project-Id-Version: gold 2.40.90\n"
+"Project-Id-Version: gold 2.43.90\n"
 "Report-Msgid-Bugs-To: https://sourceware.org/bugzilla/\n"
-"POT-Creation-Date: 2023-07-03 11:34+0100\n"
-"PO-Revision-Date: 2023-07-03 21:20+0300\n"
+"POT-Creation-Date: 2025-01-19 12:20+0000\n"
+"PO-Revision-Date: 2025-01-19 17:50+0200\n"
 "Last-Translator: Yuri Chornoivan <yurchor@ukr.net>\n"
 "Language-Team: Ukrainian <trans-uk@lists.fedoraproject.org>\n"
 "Language: uk\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Bugs: Report translation errors to the Language-Team address.\n"
 "Plural-Forms: nplurals=4; plural=n==1 ? 3 : n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;\n"
-"X-Generator: Lokalize 20.12.0\n"
+"X-Generator: Lokalize 23.04.3\n"
 
 #: aarch64-reloc-property.cc:173 arm-reloc-property.cc:303
 #, c-format
@@ -41,12 +41,12 @@ msgstr "динамічне пересування "
 msgid "Invalid/unrecognized reloc reloc %d."
 msgstr "Некоректне або нерозпізнане пересування %d."
 
-#: aarch64.cc:511 arm.cc:7391 mips.cc:6685
+#: aarch64.cc:511 arm.cc:7391 mips.cc:6723
 #, c-format
 msgid "undefined or discarded local symbol %u from  object %s in GOT"
 msgstr "невизначений або відкинутий локальний символ %u від об'єкта %s у GOT"
 
-#: aarch64.cc:532 arm.cc:7413 mips.cc:6704
+#: aarch64.cc:532 arm.cc:7413 mips.cc:6742
 #, c-format
 msgid "undefined or discarded symbol %s in GOT"
 msgstr "невизначений або відкинутий символ %s у GOT"
@@ -61,112 +61,112 @@ msgstr "некоректний індекс назви таблиці симво
 msgid "symbol table name section has wrong type: %u"
 msgstr "розділ назви таблиці символів належить до помилкового типу: %u"
 
-#: aarch64.cc:3832 arm.cc:10905 mips.cc:9608 powerpc.cc:2935 target.cc:94
+#: aarch64.cc:3833 arm.cc:10905 mips.cc:9646 powerpc.cc:2935 target.cc:94
 #, c-format
 msgid "%s: unsupported ELF file type %d"
 msgstr "%s: непідтримуваний тип файлів ELF %d"
 
-#: aarch64.cc:4014 arm.cc:12181
+#: aarch64.cc:4015 arm.cc:12181
 #, c-format
 msgid "cannot handle branch to local %u in a merged section %s"
 msgstr "не вдалося обробити гілку до локального символу %u у об'єднаному розділі %s"
 
-#: aarch64.cc:4379 arm.cc:7593 i386.cc:193 s390.cc:216 sparc.cc:1366
+#: aarch64.cc:4380 arm.cc:7593 i386.cc:193 s390.cc:216 sparc.cc:1366
 #: tilegx.cc:182 x86_64.cc:314
 msgid "** PLT"
 msgstr "** PLT"
 
-#: aarch64.cc:5554
+#: aarch64.cc:5555
 #, c-format
 msgid "Stub is too far away, try a smaller value for '--stub-group-size'. The current value is 0x%lx."
 msgstr "Заглушка надто далеко. Спробуйте вказати менше значення для --stub-group-size. Поточним значенням є 0x%lx."
 
-#: aarch64.cc:6016 arm.cc:8477 i386.cc:1772 mips.cc:12461 powerpc.cc:7845
+#: aarch64.cc:6017 arm.cc:8477 i386.cc:1772 mips.cc:12507 powerpc.cc:7848
 #: s390.cc:2185 s390.cc:2633 sparc.cc:2134 tilegx.cc:3137 tilegx.cc:3589
-#: x86_64.cc:3012 x86_64.cc:3459
+#: x86_64.cc:3034 x86_64.cc:3506
 #, c-format
 msgid "%s: unsupported reloc %u against local symbol"
 msgstr "%s: непідтримуване пересування %u щодо локального символу"
 
-#: aarch64.cc:6057 powerpc.cc:7950 s390.cc:2259 sparc.cc:2230
+#: aarch64.cc:6058 powerpc.cc:7953 s390.cc:2259 sparc.cc:2230
 msgid "requires unsupported dynamic reloc; recompile with -fPIC"
 msgstr "потребує непідтримуваного динамічного пересування; зберіть повторно з -fPIC"
 
-#: aarch64.cc:6079
+#: aarch64.cc:6080
 #, c-format
 msgid "%s: unsupported TLS reloc %s for IFUNC symbol"
 msgstr "%s: непідтримуване пересування TLS %s для символу IFUNC"
 
-#: aarch64.cc:6123 aarch64.cc:6187 aarch64.cc:6497
+#: aarch64.cc:6124 aarch64.cc:6188 aarch64.cc:6498
 #, c-format
 msgid "%s: unsupported reloc %u in pos independent link."
 msgstr "%s: непідтримуване пересування %u у незалежному від позиції посиланні."
 
-#: aarch64.cc:6288
+#: aarch64.cc:6289
 #, c-format
 msgid "%s: unsupported TLSLE reloc %u in shared code."
 msgstr "%s: непідтримуване пересування TLSLE %u у коді спільного використання."
 
-#: aarch64.cc:6373 arm.cc:8885 i386.cc:2127 mips.cc:12474 powerpc.cc:8785
+#: aarch64.cc:6374 arm.cc:8885 i386.cc:2127 mips.cc:12520 powerpc.cc:8788
 #: s390.cc:3064 s390.cc:3081 sparc.cc:2572 tilegx.cc:3605 tilegx.cc:4144
-#: x86_64.cc:3475 x86_64.cc:3979
+#: x86_64.cc:3522 x86_64.cc:4050
 #, c-format
 msgid "%s: unsupported reloc %u against global symbol %s"
 msgstr "%s: непідтримуване пересування %u щодо загального символу %s"
 
-#: aarch64.cc:6723
+#: aarch64.cc:6724
 #, c-format
 msgid "%s: unsupported TLSLE reloc type %u in shared objects."
 msgstr "%s: непідтримуваний тип пересування TLSLE %u у об'єктах спільного використання."
 
-#: aarch64.cc:6768
+#: aarch64.cc:6769
 #, c-format
 msgid "%s: unsupported reloc type in global scan"
 msgstr "%s: непідтримуваний тип пересування у загальному скануванні"
 
-#: aarch64.cc:6908 powerpc.cc:9922 s390.cc:4014 sparc.cc:3164 tilegx.cc:4211
-#: x86_64.cc:4044
+#: aarch64.cc:6909 powerpc.cc:9925 s390.cc:4014 sparc.cc:3164 tilegx.cc:4211
+#: x86_64.cc:4115
 #, c-format
 msgid "%s: unsupported REL reloc section"
 msgstr "%s: непідтримуваний розділ пересування REL"
 
-#: aarch64.cc:7071 arm.cc:9615
+#: aarch64.cc:7072 arm.cc:9615
 #, c-format
 msgid "cannot relocate %s in object file"
 msgstr "пересування %s у об'єктному файлі неможливе"
 
-#: aarch64.cc:7344 i386.cc:2987 i386.cc:3753 mips.cc:10076 powerpc.cc:12279
-#: s390.cc:3465 sparc.cc:3695 tilegx.cc:4726 x86_64.cc:4537
+#: aarch64.cc:7345 i386.cc:2987 i386.cc:3753 mips.cc:10114 powerpc.cc:12282
+#: s390.cc:3465 sparc.cc:3695 tilegx.cc:4726 x86_64.cc:4609
 #, c-format
 msgid "unexpected reloc %u in object file"
 msgstr "неочікуване пересування %u у об'єктному файлі"
 
-#: aarch64.cc:7350
+#: aarch64.cc:7351
 #, c-format
 msgid "unsupported reloc %s"
 msgstr "непідтримуване пересування %s"
 
-#: aarch64.cc:7362 arm.cc:10095 arm.cc:10713
+#: aarch64.cc:7363 arm.cc:10095 arm.cc:10713
 #, c-format
 msgid "relocation overflow in %s"
 msgstr "переповнення пересування у %s"
 
-#: aarch64.cc:7370 arm.cc:10103 arm.cc:10718
+#: aarch64.cc:7371 arm.cc:10103 arm.cc:10718
 #, c-format
 msgid "unexpected opcode while processing relocation %s"
 msgstr "неочікуваний код операції під час обробки пересування %s"
 
-#: aarch64.cc:7466
+#: aarch64.cc:7467
 #, c-format
 msgid "unsupported gd_to_ie relaxation on %u"
 msgstr "непідтримувана оптимізація gd_to_ie у %u"
 
-#: aarch64.cc:7638
+#: aarch64.cc:7639
 #, c-format
 msgid "%s: unsupported reloc %u in non-static TLSLE mode."
 msgstr "%s: непідтримуване пересування %u у нестатичному режимі TLSLE."
 
-#: aarch64.cc:7723
+#: aarch64.cc:7724
 #, c-format
 msgid "%s: unsupported TLS reloc %u."
 msgstr "%s: непідтримуване пересування TLS %u."
@@ -179,32 +179,32 @@ msgstr "%s: непідтримуване пересування TLS %u."
 #. However the gd_to_le relaxation decision has been made early
 #. in the scan stage, where we did not allocate a GOT entry for
 #. this symbol. Therefore we have to exit and report an error now.
-#: aarch64.cc:7780 aarch64.cc:7880
+#: aarch64.cc:7781 aarch64.cc:7881
 #, c-format
 msgid "unexpected reloc insn sequence while relaxing tls gd to le for reloc %u."
 msgstr "неочікувана послідовність інструкцій пересування під час оптимізації gd у le tls для пересування %u."
 
-#: aarch64.cc:7955
+#: aarch64.cc:7956
 #, c-format
 msgid "TLS variable referred by reloc %u is too far from TP."
 msgstr "змінна TLS, на яку посилається пересування %u, перебуває надто далеко від TP."
 
-#: aarch64.cc:8025
+#: aarch64.cc:8026
 #, c-format
 msgid "TLS variable referred by reloc %u is too far from TP. We Can't do gd_to_le relaxation.\n"
 msgstr "змінна TLS, на яку посилається пересування %u, перебуває надто далеко від TP. Нам не вдасться виконати оптимізацію gd_to_le.\n"
 
-#: aarch64.cc:8049
+#: aarch64.cc:8050
 #, c-format
 msgid "unsupported tlsdesc gd_to_le optimization on reloc %u"
 msgstr "непідтримувана оптимізація gd_to_le tlsdesc при пересуванні %u"
 
-#: aarch64.cc:8121
+#: aarch64.cc:8122
 #, c-format
 msgid "Don't support tlsdesc gd_to_ie optimization on reloc %u"
 msgstr "не підтримувати оптимізацію tlsdesc gd_to_ie для пересування %u"
 
-#: aarch64.cc:8456
+#: aarch64.cc:8478
 #, c-format
 msgid "Erratum 835769 found and fixed at \"%s\", section %d, offset 0x%08x."
 msgstr "Виявлено наслідки помилки 835769, які усунуто у «%s», розділ %d, зсув 0x%08x."
@@ -385,27 +385,27 @@ msgid "requires unsupported dynamic reloc %s; recompile with -fPIC"
 msgstr "потребує непідтримуваного динамічного пересування %s; повторно зберіть з -fPIC"
 
 #: arm.cc:8547 i386.cc:1786 s390.cc:2276 sparc.cc:2247 tilegx.cc:3223
-#: x86_64.cc:3118
+#: x86_64.cc:3140
 #, c-format
 msgid "%s: unsupported TLS reloc %u for IFUNC symbol"
 msgstr "%s: непідтримуване пересування TLS %u для символу IFUNC"
 
-#: arm.cc:8643 i386.cc:1862 powerpc.cc:8254 s390.cc:2369 x86_64.cc:3216
+#: arm.cc:8643 i386.cc:1862 powerpc.cc:8257 s390.cc:2369 x86_64.cc:3240
 #, c-format
 msgid "section symbol %u has bad shndx %u"
 msgstr "символ розділу %u має помилковий shndx %u"
 
 #. These are relocations which should only be seen by the
 #. dynamic linker, and should never be seen here.
-#: arm.cc:8752 arm.cc:9233 i386.cc:1950 i386.cc:2436 mips.cc:11258
-#: s390.cc:2468 s390.cc:2902 sparc.cc:2553 sparc.cc:3033 tilegx.cc:3584
-#: tilegx.cc:4139 x86_64.cc:3331 x86_64.cc:3852
+#: arm.cc:8752 arm.cc:9233 i386.cc:1950 i386.cc:2436 mips.cc:11296 s390.cc:2468
+#: s390.cc:2902 sparc.cc:2553 sparc.cc:3033 tilegx.cc:3584 tilegx.cc:4139
+#: x86_64.cc:3365 x86_64.cc:3907
 #, c-format
 msgid "%s: unexpected reloc %u in object file"
 msgstr "%s: неочікуване пересування %u у об'єктному файлі"
 
-#: arm.cc:8784 i386.cc:1984 mips.cc:10707 s390.cc:2512 sparc.cc:2452
-#: tilegx.cc:3488 x86_64.cc:3363
+#: arm.cc:8784 i386.cc:1984 mips.cc:10745 s390.cc:2512 sparc.cc:2452
+#: tilegx.cc:3488 x86_64.cc:3407
 #, c-format
 msgid "local symbol %u has bad shndx %u"
 msgstr "локальний символ %u має помилковий shndx %u"
@@ -420,10 +420,10 @@ msgid "unable to provide V4BX reloc interworking fix up; the target profile does
 msgstr "не вдалося вказати належного виправлення взаємодії пересувань V4BX; у профілі призначення не передбачено підтримки інструкції BX"
 
 #: arm.cc:10247 i386.cc:3019 i386.cc:3101 i386.cc:3166 i386.cc:3202
-#: i386.cc:3274 mips.cc:12296 powerpc.cc:12393 s390.cc:3471 s390.cc:3542
+#: i386.cc:3274 mips.cc:12342 powerpc.cc:12396 s390.cc:3471 s390.cc:3542
 #: s390.cc:3579 s390.cc:3601 s390.cc:3626 sparc.cc:3701 sparc.cc:3892
-#: sparc.cc:3953 sparc.cc:4060 tilegx.cc:4732 x86_64.cc:4558 x86_64.cc:4684
-#: x86_64.cc:4756 x86_64.cc:4790
+#: sparc.cc:3953 sparc.cc:4060 tilegx.cc:4732 x86_64.cc:4633 x86_64.cc:4761
+#: x86_64.cc:4836 x86_64.cc:4870
 #, c-format
 msgid "unsupported reloc %u"
 msgstr "непідтримуване пересування %u"
@@ -540,7 +540,7 @@ msgstr "** атрибути"
 msgid "cannot open %s: %s:"
 msgstr "не вдалося відкрити %s: %s:"
 
-#: common.cc:351 output.cc:2469 output.cc:2568
+#: common.cc:351 output.cc:2470 output.cc:2569
 #, c-format
 msgid "out of patch space in section %s; relink with --incremental-full"
 msgstr "вихід за межі латки у розділі %s; виконайте повторне компонування за допомогою --incremental-full"
@@ -913,38 +913,38 @@ msgstr "не вдалося знайти %s"
 msgid "cannot open %s: %s"
 msgstr "не вдалося відкрити %s: %s"
 
-#: gdb-index.cc:378
+#: gdb-index.cc:395
 #, c-format
 msgid "%s: --gdb-index currently supports only C and C++ languages"
 msgstr "%s: у поточній версії --gdb-index передбачено підтримку лише мов C та C++"
 
 #. The top level DIE should be one of the above.
-#: gdb-index.cc:392
+#: gdb-index.cc:409
 #, c-format
 msgid "%s: top level DIE is not DW_TAG_compile_unit or DW_TAG_type_unit"
 msgstr "%s: DIE верхнього рівня не є DW_TAG_compile_unit або DW_TAG_type_unit"
 
-#: gdb-index.cc:845
+#: gdb-index.cc:862
 #, c-format
 msgid "%s: DWARF info may be corrupt; low_pc and high_pc are in different sections"
 msgstr "%s: інформацію DWARF могло бути пошкоджено; low_pc та high_pc перебувають у різних розділах"
 
-#: gdb-index.cc:971
+#: gdb-index.cc:988
 #, c-format
 msgid "%s: DWARF CUs: %u\n"
 msgstr "%s: CU DWARF: %u\n"
 
-#: gdb-index.cc:973
+#: gdb-index.cc:990
 #, c-format
 msgid "%s: DWARF CUs without pubnames/pubtypes: %u\n"
 msgstr "%s: CU DWARF без відкритих назв або відкритих типів: %u\n"
 
-#: gdb-index.cc:975
+#: gdb-index.cc:992
 #, c-format
 msgid "%s: DWARF TUs: %u\n"
 msgstr "%s: TU DWARF: %u\n"
 
-#: gdb-index.cc:977
+#: gdb-index.cc:994
 #, c-format
 msgid "%s: DWARF TUs without pubnames/pubtypes: %u\n"
 msgstr "%s: TU DWARF без відкритих назв або відкритих типів: %u\n"
@@ -1061,7 +1061,7 @@ msgstr "не можна одночасно використовувати роз
 
 #. FIXME: This needs to specify the location somehow.
 #: i386.cc:639 i386.cc:2800 sparc.cc:324 sparc.cc:3296 x86_64.cc:962
-#: x86_64.cc:4238
+#: x86_64.cc:4309
 msgid "missing expected TLS relocation"
 msgstr "не вистачає очікуваного пересування TLS"
 
@@ -1094,12 +1094,12 @@ msgstr "неочікуване пересування %u щодо локальн
 msgid "both SUN and GNU model TLS relocations"
 msgstr "TLS-пересування обох моделей, SUN і GNU"
 
-#: i386.cc:3767 mips.cc:10080
+#: i386.cc:3767 mips.cc:10118
 #, c-format
 msgid "unsupported reloc %u in object file"
 msgstr "непідтримуване пересування %u у об'єктному файлі"
 
-#: i386.cc:4036 powerpc.cc:9876 s390.cc:4886 x86_64.cc:5642
+#: i386.cc:4036 powerpc.cc:9879 s390.cc:4886 x86_64.cc:5782
 #, c-format
 msgid "failed to match split-stack sequence at section %u offset %0zx"
 msgstr "не вдалося знайти відповідник послідовності поділу стека у розділі %u, зсув %0zx"
@@ -1155,7 +1155,7 @@ msgstr "%s: файл скрипту змінено"
 msgid "unsupported ELF machine number %d"
 msgstr "непідтримуваний номер архітектури ELF, %d"
 
-#: incremental.cc:871 object.cc:3403
+#: incremental.cc:871 object.cc:3432
 #, c-format
 msgid "%s: incompatible target"
 msgstr "%s: несумісне з програмою призначення"
@@ -1303,12 +1303,12 @@ msgstr "помилка: --package-metadata=%s не містить коректн
 msgid "load segment overlap [0x%llx -> 0x%llx] and [0x%llx -> 0x%llx]"
 msgstr "перекриття сегментів завантаження [0x%llx -> 0x%llx] і [0x%llx -> 0x%llx]"
 
-#: layout.cc:4311 output.cc:4549
+#: layout.cc:4311 output.cc:4550
 #, c-format
 msgid "out of patch space for section %s; relink with --incremental-full"
 msgstr "вихід за межі латки для розділу %s; виконайте повторне компонування за допомогою --incremental-full"
 
-#: layout.cc:4320 output.cc:4557
+#: layout.cc:4320 output.cc:4558
 #, c-format
 msgid "%s: section changed size; relink with --incremental-full"
 msgstr "%s: зміна розміру розділу; виконайте повторне компонування з параметром --incremental-full"
@@ -1445,165 +1445,165 @@ msgstr ".reginfo"
 msgid ".MIPS.abiflags"
 msgstr ".MIPS.abiflags"
 
-#: mips.cc:4632
+#: mips.cc:4634
 msgid "JALX to a non-word-aligned address"
 msgstr "JALX до не вирівняної за словом адреси"
 
-#: mips.cc:4686
+#: mips.cc:4688
 msgid "Unsupported jump between ISA modes; consider recompiling with interlinking enabled."
 msgstr "непідтримуваний перехід між режимами ISA; спробуйте повторно зібрати з увімкненим взаємним компонуванням."
 
-#: mips.cc:5486
-msgid "small-data section exceeds 64KB; lower small-data size limit (see option -G)"
-msgstr "розділ малих даних перевищує 64 кБ; нижчий за обмеження розміру малих даних (див. параметр -G)"
+#: mips.cc:5481 mips.cc:5524
+msgid "small-data section too large; lower small-data size limit (see option -G)"
+msgstr "розділ малих даних є надто великим; зробіть нижчим обмеження розміру малих даних (див. параметр -G)"
 
-#: mips.cc:6907
+#: mips.cc:6945
 #, c-format
 msgid "%s: .MIPS.abiflags section has unsupported version %u"
 msgstr "%s: непідтримувана версія розділу .MIPS.abiflags, %u"
 
-#: mips.cc:6970
+#: mips.cc:7008
 #, c-format
 msgid "%s: Warning: bad `%s' option size %u smaller than its header"
 msgstr "%s: попередження: помилковий розмір «%s», %u, менший за його заголовок"
 
-#: mips.cc:7050
+#: mips.cc:7088
 #, c-format
 msgid "no relocation found in mips16 stub section '%s'"
 msgstr "не виявлено пересувань у розділі-заглушці mips16 «%s»"
 
-#: mips.cc:7552 mips.cc:7715
+#: mips.cc:7590 mips.cc:7753
 #, c-format
 msgid ".got.plt offset of %ld from .plt beyond the range of ADDIUPC"
 msgstr "зсув .got.plt %ld з .plt перебуває поза межами діапазону ADDIUPC"
 
-#: mips.cc:8263
+#: mips.cc:8301
 #, c-format
 msgid "Warning: bad `%s' option size %u smaller than its header in output section"
 msgstr "попередження: помилковий розмір «%s», %u, менший за його заголовок у розділі виведення"
 
-#: mips.cc:9103
+#: mips.cc:9141
 #, c-format
 msgid "%s: Unknown architecture %s"
 msgstr "%s: невідома архітектура %s"
 
-#: mips.cc:9204
+#: mips.cc:9242
 #, c-format
 msgid "%s: Inconsistent ISA between e_flags and .MIPS.abiflags"
 msgstr "%s: несумісність ISA між e_flags і .MIPS.abiflags"
 
-#: mips.cc:9208
+#: mips.cc:9246
 #, c-format
 msgid "%s: Inconsistent FP ABI between .gnu.attributes and .MIPS.abiflags"
 msgstr "%s: несумісність ABI FP між .gnu.attributes і .MIPS.abiflags"
 
-#: mips.cc:9211
+#: mips.cc:9249
 #, c-format
 msgid "%s: Inconsistent ASEs between e_flags and .MIPS.abiflags"
 msgstr "%s: несумісність ASE між e_flags і .MIPS.abiflags"
 
-#: mips.cc:9217
+#: mips.cc:9255
 #, c-format
 msgid "%s: Inconsistent ISA extensions between e_flags and .MIPS.abiflags"
 msgstr "%s: несумісність розширень ISA між e_flags і .MIPS.abiflags"
 
-#: mips.cc:9220
+#: mips.cc:9258
 #, c-format
 msgid "%s: Unexpected flag in the flags2 field of .MIPS.abiflags (0x%x)"
 msgstr "%s: неочікуваний прапорець у полі flags2 .MIPS.abiflags (0x%x)"
 
-#: mips.cc:9242
+#: mips.cc:9280
 msgid "-mips32r2 -mfp64 (12 callee-saved)"
 msgstr "-mips32r2 -mfp64 (12 безпечних для викликів регістрів)"
 
-#: mips.cc:9283
+#: mips.cc:9321
 #, c-format
 msgid "%s: FP ABI %s is incompatible with %s"
 msgstr "%s: ABI для дій з числами з рухомою крапкою, %s, є несумісним із %s"
 
-#: mips.cc:9418
+#: mips.cc:9456
 #, c-format
 msgid "%s: linking abicalls files with non-abicalls files"
 msgstr "%s: компонування файлів abicalls з файлами без abicalls"
 
-#: mips.cc:9431
+#: mips.cc:9469
 #, c-format
 msgid "%s: linking 32-bit code with 64-bit code"
 msgstr "%s: компонування 32-бітового коду з 64-бітовим кодом"
 
 #. The ISAs aren't compatible.
-#: mips.cc:9457 mips.cc:9509 mips.cc:9523
+#: mips.cc:9495 mips.cc:9547 mips.cc:9561
 #, c-format
 msgid "%s: linking %s module with previous %s modules"
 msgstr "%s: компонуємо модуль %s з попередніми модулями %s"
 
-#: mips.cc:9473
+#: mips.cc:9511
 #, c-format
 msgid "%s: ABI mismatch: linking %s module with previous %s modules"
 msgstr "%s: невідповідність ABI: компонування модуля %s з попередніми модулями %s"
 
-#: mips.cc:9495
+#: mips.cc:9533
 #, c-format
 msgid "%s: ASE mismatch: linking %s module with previous %s modules"
 msgstr "%s: невідповідність ASE: компонування модуля %s з попередніми модулями %s"
 
-#: mips.cc:9536
+#: mips.cc:9574
 #, c-format
 msgid "%s: uses different e_flags (0x%x) fields than previous modules (0x%x)"
 msgstr "%s: використовуються інші поля e_flags (0x%x) ніж у попередніх модулях (0x%x)"
 
-#: mips.cc:9944
+#: mips.cc:9982
 #, c-format
 msgid "Unknown dynamic tag 0x%x"
 msgstr "Невідома динамічна мітка 0x%x"
 
-#: mips.cc:10385 mips.cc:12322
+#: mips.cc:10423 mips.cc:12368
 #, c-format
 msgid "relocation overflow: %u against local symbol %u in %s"
 msgstr "переповнення пересування: %u щодо локального символу %u у %s"
 
-#: mips.cc:10391 mips.cc:12338
+#: mips.cc:10429 mips.cc:12384
 msgid "unexpected opcode while processing relocation"
 msgstr "неочікуваний код операції під час обробки пересування"
 
-#: mips.cc:10539
+#: mips.cc:10577
 #, c-format
 msgid "CALL16 reloc at 0x%lx not against global symbol "
 msgstr "пересування CALL16 у 0x%lx не відносно загального символу "
 
-#: mips.cc:10791 mips.cc:11296
+#: mips.cc:10829 mips.cc:11334
 #, c-format
 msgid "%s: relocation %u against `%s' can not be used when making a shared object; recompile with -fPIC"
 msgstr "%s: пересування %u щодо «%s» не можна використовувати під час створення об'єкта спільного використання; повторно зберіть з -fPIC"
 
-#: mips.cc:11107
+#: mips.cc:11145
 #, c-format
 msgid "non-dynamic relocations refer to dynamic symbol %s"
 msgstr "нединамічні пересування посилаються на динамічний символ, %s"
 
-#: mips.cc:11584
+#: mips.cc:11622
 msgid "relocations against _gp_disp are permitted only with R_MIPS_HI16 and R_MIPS_LO16 relocations."
 msgstr "пересування щодо _gp_disp дозволено лише з пересуваннями R_MIPS_HI16 і R_MIPS_LO16."
 
-#: mips.cc:11719
+#: mips.cc:11757
 msgid "MIPS16 and microMIPS functions cannot call each other"
 msgstr "Функції MIPS16 і microMIPS не можуть викликати одна одну"
 
-#: mips.cc:12327
+#: mips.cc:12373
 #, c-format
 msgid "relocation overflow: %u against '%s' defined in %s"
 msgstr "переповнення пересування: %u щодо «%s», визначеного у %s"
 
-#: mips.cc:12333
+#: mips.cc:12379
 #, c-format
 msgid "relocation overflow: %u against '%s'"
 msgstr "переповнення пересування: %u щодо «%s»"
 
-#: mips.cc:12342
+#: mips.cc:12388
 msgid "unaligned PC-relative relocation"
 msgstr "невирівняне пересування щодо PC"
 
-#: nacl.cc:43 object.cc:174 object.cc:3451 output.cc:5191
+#: nacl.cc:43 object.cc:174 object.cc:3480 output.cc:5192
 #, c-format
 msgid "%s: %s"
 msgstr "%s: %s"
@@ -1691,7 +1691,7 @@ msgstr "%s: ICF-згортання розділу «%s» у файлі «%s» д
 msgid "size of symbols is not multiple of symbol size"
 msgstr "розмір символів не є кратним до розміру одного символу"
 
-#: object.cc:2142 symtab.cc:1217
+#: object.cc:2142 symtab.cc:1280
 #, c-format
 msgid "%s: plugin needed to handle lto object"
 msgstr "%s: для обробки об'єкта lto потрібен додаток"
@@ -1711,41 +1711,41 @@ msgstr "невідомий індекс розділу %u для локальн�
 msgid "local symbol %u section index %u out of range"
 msgstr "індекс %u розділу локальних символів %u лежить поза межами діапазону"
 
-#: object.cc:3156 reloc.cc:833
+#: object.cc:3185 reloc.cc:833
 #, c-format
 msgid "could not decompress section %s"
 msgstr "не вдалося розпакувати розділ %s"
 
-#: object.cc:3282
+#: object.cc:3311
 #, c-format
 msgid "%s is not supported but is required for %s in %s"
 msgstr "%s не підтримується але потрібен для %s у %s"
 
-#: object.cc:3359
+#: object.cc:3388
 msgid "function "
 msgstr "функція "
 
-#: object.cc:3393
+#: object.cc:3422
 #, c-format
 msgid "%s: unsupported ELF machine number %d"
 msgstr "%s: непідтримуваний номер архітектури ELF, %d"
 
-#: object.cc:3467 plugin.cc:2279
+#: object.cc:3496 plugin.cc:2279
 #, c-format
 msgid "%s: not configured to support 32-bit big-endian object"
 msgstr "%s: не налаштовано на підтримку 32-бітових об'єктів зі зворотним порядком байтів"
 
-#: object.cc:3483 plugin.cc:2288
+#: object.cc:3512 plugin.cc:2288
 #, c-format
 msgid "%s: not configured to support 32-bit little-endian object"
 msgstr "%s: не налаштовано на підтримку 32-бітових об'єктів з прямим порядком байтів"
 
-#: object.cc:3502 plugin.cc:2300
+#: object.cc:3531 plugin.cc:2300
 #, c-format
 msgid "%s: not configured to support 64-bit big-endian object"
 msgstr "%s: не налаштовано на підтримку 64-бітових об'єктів зі зворотним порядком байтів"
 
-#: object.cc:3518 plugin.cc:2309
+#: object.cc:3547 plugin.cc:2309
 #, c-format
 msgid "%s: not configured to support 64-bit little-endian object"
 msgstr "%s: не налаштовано на підтримку 64-бітових об'єктів з прямим порядком байтів"
@@ -3282,94 +3282,94 @@ msgstr "Зберегти .text.hot, .text.startup, .text.exit і .text.unlikely 
 msgid "Merge all .text.* prefix sections."
 msgstr "Об'єднати усіх розділи з префіксом .text.*."
 
-#: output.cc:1346
+#: output.cc:1347
 msgid "section group retained but group element discarded"
 msgstr "групування розділів збережено, але елемент групи відкинуто"
 
-#: output.cc:1733 output.cc:1765
+#: output.cc:1734 output.cc:1766
 msgid "out of patch space (GOT); relink with --incremental-full"
 msgstr "вихід за межі латки (GOT); виконайте повторне компонування за допомогою --incremental-full"
 
-#: output.cc:2414
+#: output.cc:2415
 #, c-format
 msgid "invalid alignment %lu for section \"%s\""
 msgstr "некоректне вирівнювання %lu для розділу «%s»"
 
-#: output.cc:4577
+#: output.cc:4578
 msgid "script places BSS section in the middle of a LOAD segment; space will be allocated in the file"
 msgstr "скрипт розташовує розділ BSS посередині сегмента LOAD; місце для цих даних буде розміщено у файлі"
 
-#: output.cc:4599
+#: output.cc:4600
 #, c-format
 msgid "dot moves backward in linker script from 0x%llx to 0x%llx"
 msgstr "крапка пересуває назад у скрипті компонувальника з 0x%llx до 0x%llx"
 
-#: output.cc:4602
+#: output.cc:4603
 #, c-format
 msgid "address of section '%s' moves backward from 0x%llx to 0x%llx"
 msgstr "адреса розділу «%s» пересуває назад з 0x%llx до 0x%llx"
 
-#: output.cc:4971
+#: output.cc:4972
 #, c-format
 msgid "%s: incremental base and output file name are the same"
 msgstr "%s: назви файлів бази нарощення та виведення збігаються"
 
-#: output.cc:4978
+#: output.cc:4979
 #, c-format
 msgid "%s: stat: %s"
 msgstr "%s: статистика: %s"
 
-#: output.cc:4983
+#: output.cc:4984
 #, c-format
 msgid "%s: incremental base file is empty"
 msgstr "%s: файл бази нарощення є порожнім"
 
-#: output.cc:4995 output.cc:5093
+#: output.cc:4996 output.cc:5094
 #, c-format
 msgid "%s: open: %s"
 msgstr "%s: відкриття: %s"
 
-#: output.cc:5012
+#: output.cc:5013
 #, c-format
 msgid "%s: read failed: %s"
 msgstr "%s: помилка під час спроби читання: %s"
 
-#: output.cc:5017
+#: output.cc:5018
 #, c-format
 msgid "%s: file too short: read only %lld of %lld bytes"
 msgstr "%s: файл є надто коротким: прочитано лише %lld з %lld байтів"
 
-#: output.cc:5117
+#: output.cc:5118
 #, c-format
 msgid "%s: mremap: %s"
 msgstr "%s: mremap: %s"
 
-#: output.cc:5136
+#: output.cc:5137
 #, c-format
 msgid "%s: mmap: %s"
 msgstr "%s: mmap: %s"
 
-#: output.cc:5228
+#: output.cc:5229
 #, c-format
 msgid "%s: mmap: failed to allocate %lu bytes for output file: %s"
 msgstr "%s: mmap: не вдалося отримати %lu байтів пам'яті для файла виведених даних: %s"
 
-#: output.cc:5246
+#: output.cc:5247
 #, c-format
 msgid "%s: munmap: %s"
 msgstr "%s: munmap: %s"
 
-#: output.cc:5266
+#: output.cc:5267
 #, c-format
 msgid "%s: write: unexpected 0 return-value"
 msgstr "%s: запис: повернуто неочікуване значення 0"
 
-#: output.cc:5268
+#: output.cc:5269
 #, c-format
 msgid "%s: write: %s"
 msgstr "%s: запис: %s"
 
-#: output.cc:5283
+#: output.cc:5284
 #, c-format
 msgid "%s: close: %s"
 msgstr "%s: закриття: %s"
@@ -3513,103 +3513,108 @@ msgstr "%s:%s перевищує розмір групи"
 msgid "%s:%s: branch in non-executable section, no long branch stub for you"
 msgstr "%s:%s: відгалуження у невиконуваному розділі, для вас немає шаблона довгої гілки"
 
-#: powerpc.cc:3795
+#: powerpc.cc:3798
 #, c-format
 msgid "%s: stub group size is too large; retrying with %#x"
 msgstr "%s: груповий розмір заглушки є надто великим; робимо повторну спробу з розміром %#x"
 
-#: powerpc.cc:5738
+#: powerpc.cc:5741
 msgid "** glink"
 msgstr "** glink"
 
-#: powerpc.cc:6403 powerpc.cc:7118
+#: powerpc.cc:6406 powerpc.cc:7121
 #, c-format
 msgid "linkage table error against `%s'"
 msgstr "помилка у таблиці компонування щодо «%s»"
 
-#: powerpc.cc:6406
+#: powerpc.cc:6409
 #, c-format
 msgid "linkage table error against `%s:[local %u]'"
 msgstr "помилка у таблиці компонування щодо «%s:[local %u]»"
 
-#: powerpc.cc:7245
+#: powerpc.cc:7248
 msgid "** save/restore"
 msgstr "** зберегти/відновити"
 
-#: powerpc.cc:8043
+#: powerpc.cc:8046
 #, c-format
 msgid "%s: unsupported reloc %u for IFUNC symbol"
 msgstr "%s: непідтримуване пересування %u для символу IFUNC"
 
-#: powerpc.cc:8309 powerpc.cc:9096
+#: powerpc.cc:8312 powerpc.cc:9099
 #, c-format
 msgid "tocsave symbol %u has bad shndx %u"
 msgstr "символ tocsave %u має помилковий shndx %u"
 
-#: powerpc.cc:8600 powerpc.cc:9433
+#: powerpc.cc:8603 powerpc.cc:9436
 #, c-format
 msgid "%s: toc optimization is not supported for %#08x instruction"
 msgstr "%s: для інструкції %#08x не передбачено підтримки оптимізації toc"
 
-#: powerpc.cc:8666 powerpc.cc:9495
+#: powerpc.cc:8669 powerpc.cc:9498
 #, c-format
 msgid "%s: unsupported -mbss-plt code"
 msgstr "%s: непідтримуваний код -mbss-plt"
 
-#: powerpc.cc:9842
+#: powerpc.cc:9845
 #, c-format
 msgid "split-stack stack size overflow at section %u offset %0zx"
 msgstr "перевищення розміру розділеного стека у розділі %u, зсув %0zx"
 
-#: powerpc.cc:9913
+#: powerpc.cc:9916
 msgid "--plt-localentry is especially dangerous without ld.so support to detect ABI violations"
 msgstr "--plt-localentry особливо небезпечний, якщо у ld.so не передбачено підтримки виявлення порушень ABI."
 
-#: powerpc.cc:9942
+#: powerpc.cc:9945
 msgid "--plt-localentry is incompatible with power10 pc-relative code"
 msgstr "--plt-localentry є несумісним із відносним щодо лічильника програми кодом power10"
 
-#: powerpc.cc:10249 powerpc.cc:10255
+#: powerpc.cc:10252 powerpc.cc:10258
 #, c-format
 msgid "%s uses hard float, %s uses soft float"
 msgstr "%s використовує апаратну підтримку дійсних чисел, а у %s — програмну"
 
-#: powerpc.cc:10261 powerpc.cc:10268
+#: powerpc.cc:10264 powerpc.cc:10271
 #, c-format
 msgid "%s uses double-precision hard float, %s uses single-precision hard float"
 msgstr "у %s використовується апаратна підтримка дійсних чисел з подвійною точністю, а у %s — апаратна підтримка для дійсних чисел з одинарною точністю"
 
-#: powerpc.cc:10288 powerpc.cc:10294
+#: powerpc.cc:10291 powerpc.cc:10297
 #, c-format
 msgid "%s uses 64-bit long double, %s uses 128-bit long double"
 msgstr "у %s використано 64-бітові довгі цілі значення із подвійною точністю, а у %s — 128-бітові"
 
-#: powerpc.cc:10300 powerpc.cc:10306
+#: powerpc.cc:10303 powerpc.cc:10309
 #, c-format
 msgid "%s uses IBM long double, %s uses IEEE long double"
 msgstr "у %s використано довгі цілі значення із подвійною точністю IBM, а у %s — IEEE"
 
-#: powerpc.cc:10360 powerpc.cc:10366
+#: powerpc.cc:10363 powerpc.cc:10369
 #, c-format
 msgid "%s uses AltiVec vector ABI, %s uses SPE vector ABI"
 msgstr "%s використовує векторний ABI AltiVec, %s використовує векторний ABI SPE"
 
-#: powerpc.cc:10395 powerpc.cc:10402
+#: powerpc.cc:10398 powerpc.cc:10405
 #, c-format
 msgid "%s uses r3/r4 for small structure returns, %s uses memory"
 msgstr "у %s r3/r4 використовується для повернення малих структур, а у %s для цього використовується пам'ять"
 
-#: powerpc.cc:10972
+#: powerpc.cc:10975
 msgid "call lacks nop, can't restore toc; recompile with -fPIC"
 msgstr "у виклику не вистачає nop, відновлення toc неможливе; зберіть повторно з -fPIC"
 
-#: powerpc.cc:12424 s390.cc:3479
-msgid "relocation overflow"
-msgstr "переповнення під час пересування"
+#: powerpc.cc:12434 powerpc.cc:12442
+#, c-format
+msgid "reloc type %u overflow against '%s'"
+msgstr "переповнення типу пересування %u щодо «%s»"
 
-#: powerpc.cc:12426
+#: powerpc.cc:12437
 msgid "try relinking with a smaller --stub-group-size"
 msgstr "спробуйте виконати повторне компонування із меншим значенням --stub-group-size"
+
+#: powerpc.cc:12444
+msgid "debug info may be unreliable, compile with -gdwarf64"
+msgstr "діагностичні дані можуть бути неточними, зберіть з -gdwarf64"
 
 #: readsyms.cc:285
 #, c-format
@@ -3680,64 +3685,64 @@ msgstr "некоректний символ STB_LOCAL у зовнішніх си
 msgid "unsupported symbol binding %d"
 msgstr "непідтримуване прив'язування символів %d"
 
-#: resolve.cc:288
+#: resolve.cc:274
 #, c-format
 msgid "STT_COMMON symbol '%s' in %s is not in a common section"
 msgstr "символ STT_COMMON «%s» у %s не перебуває у загальному розділі"
 
-#: resolve.cc:443
+#: resolve.cc:429
 #, c-format
 msgid "common of '%s' overriding smaller common"
 msgstr "загальне визначення «%s» замінює загальне визначення нижчого рівня"
 
-#: resolve.cc:448
+#: resolve.cc:434
 #, c-format
 msgid "common of '%s' overidden by larger common"
 msgstr "загальне визначення «%s» замінено загальним визначенням вищого рівня"
 
-#: resolve.cc:453
+#: resolve.cc:439
 #, c-format
 msgid "multiple common of '%s'"
 msgstr "декілька загальних визначень «%s»"
 
-#: resolve.cc:492
+#: resolve.cc:478
 #, c-format
 msgid "symbol '%s' used as both __thread and non-__thread"
 msgstr "символ «%s» використано одразу як __thread і як не-__thread"
 
-#: resolve.cc:535
+#: resolve.cc:521
 #, c-format
 msgid "multiple definition of '%s'"
 msgstr "повторне визначення «%s»"
 
-#: resolve.cc:574
+#: resolve.cc:560
 #, c-format
 msgid "definition of '%s' overriding common"
 msgstr "визначення «%s» замінює загальне визначення"
 
-#: resolve.cc:609
+#: resolve.cc:595
 #, c-format
 msgid "definition of '%s' overriding dynamic common definition"
 msgstr "визначення «%s» замінює динамічне загальне визначення"
 
-#: resolve.cc:785
+#: resolve.cc:771
 #, c-format
 msgid "common '%s' overridden by previous definition"
 msgstr "загальне визначення «%s» замінено попереднім визначенням"
 
-#: resolve.cc:920
+#: resolve.cc:906
 msgid "COPY reloc"
 msgstr "пересування COPY"
 
-#: resolve.cc:924 resolve.cc:947
+#: resolve.cc:910 resolve.cc:933
 msgid "command line"
 msgstr "командний рядок"
 
-#: resolve.cc:927
+#: resolve.cc:913
 msgid "linker script"
 msgstr "скрипт компонувальника"
 
-#: resolve.cc:931
+#: resolve.cc:917
 msgid "linker defined"
 msgstr "визначений компонувальник"
 
@@ -3746,11 +3751,15 @@ msgstr "визначений компонувальник"
 msgid "R_390_PC32DBL target misaligned at %llx"
 msgstr "ціль R_390_PC32DBL не вирівняно у %llx"
 
-#: s390.cc:1099 tilegx.cc:2088 x86_64.cc:1697
+#: s390.cc:1099 tilegx.cc:2088 x86_64.cc:1699
 msgid "out of patch space (PLT); relink with --incremental-full"
 msgstr "вихід за межі латки (PLT); виконайте повторне компонування за допомогою --incremental-full"
 
-#: s390.cc:3677 s390.cc:3733 x86_64.cc:4878
+#: s390.cc:3479
+msgid "relocation overflow"
+msgstr "переповнення під час пересування"
+
+#: s390.cc:3677 s390.cc:3733 x86_64.cc:4960
 #, c-format
 msgid "unsupported reloc type %u"
 msgstr "непідтримуваний тип пересування %u"
@@ -4043,17 +4052,17 @@ msgstr "%s: встановлено прапорець прямого поряд�
 msgid "%s: little endian elf flag clear on LE object"
 msgstr "%s: знято прапорець прямого порядку байтів elf для об'єкта LE"
 
-#: stringpool.cc:513
+#: stringpool.cc:514
 #, c-format
 msgid "%s: %s entries: %zu; buckets: %zu\n"
 msgstr "%s: записів %s: %zu; блоків: %zu\n"
 
-#: stringpool.cc:517
+#: stringpool.cc:518
 #, c-format
 msgid "%s: %s entries: %zu\n"
 msgstr "%s: записів %s: %zu\n"
 
-#: stringpool.cc:520
+#: stringpool.cc:521
 #, c-format
 msgid "%s: %s Stringdata structures: %zu\n"
 msgstr "%s: %s структури даних рядків: %zu\n"
@@ -4063,75 +4072,75 @@ msgstr "%s: %s структури даних рядків: %zu\n"
 msgid "Cannot export local symbol '%s'"
 msgstr "Не вдалося експортувати локальний символ «%s»"
 
-#: symtab.cc:948
+#: symtab.cc:957
 #, c-format
 msgid "%s: reference to %s"
 msgstr "%s: посилання на %s"
 
-#: symtab.cc:950
+#: symtab.cc:959
 #, c-format
 msgid "%s: definition of %s"
 msgstr "%s: визначення %s"
 
-#: symtab.cc:1060
+#: symtab.cc:1123
 #, c-format
 msgid "%s: conflicting default version definition for %s@@%s"
 msgstr "%s: конфлікт визначення типових версій для %s@@%s"
 
-#: symtab.cc:1064
+#: symtab.cc:1127
 #, c-format
 msgid "%s: %s: previous definition of %s@@%s here"
 msgstr "%s: %s: попереднє визначення %s@@%s тут"
 
-#: symtab.cc:1206
+#: symtab.cc:1269
 #, c-format
 msgid "bad global symbol name offset %u at %zu"
 msgstr "помилковий відступ назви загального символу %u у %zu"
 
-#: symtab.cc:1473
+#: symtab.cc:1536
 msgid "--just-symbols does not make sense with a shared object"
 msgstr "--just-symbols не має сенсу для об'єкта спільного використання"
 
-#: symtab.cc:1484
+#: symtab.cc:1547
 msgid "too few symbol versions"
 msgstr "занадто мало версій символів"
 
-#: symtab.cc:1539
+#: symtab.cc:1602
 #, c-format
 msgid "bad symbol name offset %u at %zu"
 msgstr "помилковий відступ назви символу %u у %zu"
 
-#: symtab.cc:1602
+#: symtab.cc:1665
 #, c-format
 msgid "versym for symbol %zu out of range: %u"
 msgstr "versym для символу %zu поза межами діапазону: %u"
 
-#: symtab.cc:1610
+#: symtab.cc:1673
 #, c-format
 msgid "versym for symbol %zu has no name: %u"
 msgstr "versym для символу %zu не має назви: %u"
 
-#: symtab.cc:2633
+#: symtab.cc:2696
 #, c-format
 msgid "discarding version information for %s@%s, defined in unused shared library %s (linked with --as-needed)"
 msgstr "відкидаємо дані щодо версії для %s@%s, їх визначено у невикористаній спільній бібліотеці %s (скомпоновано із --as-needed)"
 
-#: symtab.cc:2995 symtab.cc:3141
+#: symtab.cc:3058 symtab.cc:3204
 #, c-format
 msgid "%s: unsupported symbol section 0x%x"
 msgstr "%s: непідтримуваний розділ символів 0x%x"
 
-#: symtab.cc:3473
+#: symtab.cc:3536
 #, c-format
 msgid "%s: symbol table entries: %zu; buckets: %zu\n"
 msgstr "%s: записів таблиці символів: %zu; блоків: %zu\n"
 
-#: symtab.cc:3476
+#: symtab.cc:3539
 #, c-format
 msgid "%s: symbol table entries: %zu\n"
 msgstr "%s: записів таблиці символів: %zu\n"
 
-#: symtab.cc:3633
+#: symtab.cc:3696
 #, c-format
 msgid "while linking %s: symbol '%s' defined in multiple places (possible ODR violation):"
 msgstr "під час компонування %s: символ «%s» визначено у декількох місцях (можливе порушення ODR):"
@@ -4140,7 +4149,7 @@ msgstr "під час компонування %s: символ «%s» визн�
 #. which may not be the location we expect to intersect
 #. with another definition.  We could print the whole
 #. set of locations, but that seems too verbose.
-#: symtab.cc:3640 symtab.cc:3643
+#: symtab.cc:3703 symtab.cc:3706
 #, c-format
 msgid "  %s from %s\n"
 msgstr "  %s з %s\n"
@@ -4192,7 +4201,7 @@ msgstr "пересування має помилковий відступ %zu"
 msgid "linker does not include stack split support required by %s"
 msgstr "у компонувальник не включено підтримку поділу стека, потрібну для %s"
 
-#: tilegx.cc:2738 x86_64.cc:2714
+#: tilegx.cc:2738 x86_64.cc:2716
 msgid "TLS_DESC not yet supported for incremental linking"
 msgstr "у нарощувальному компонуванні ще не передбачено підтримки TLS_DESC"
 
@@ -4200,7 +4209,7 @@ msgstr "у нарощувальному компонуванні ще не пе�
 msgid "TLS_DESC not yet supported for TILEGX"
 msgstr "у TILEGX ще не передбачено підтримки TLS_DESC"
 
-#: tilegx.cc:3202 x86_64.cc:3096
+#: tilegx.cc:3202 x86_64.cc:3118
 #, c-format
 msgid "requires unsupported dynamic reloc %u; recompile with -fPIC"
 msgstr "потребує непідтримуваного динамічного пересування %u; зберіть повторно з -fPIC"
@@ -4216,8 +4225,8 @@ msgstr "Пересування TLS щодо некоректної інстру�
 #. This output is intended to follow the GNU standards.
 #: version.cc:65
 #, c-format
-msgid "Copyright (C) 2023 Free Software Foundation, Inc.\n"
-msgstr "© Free Software Foundation, Inc., 2023\n"
+msgid "Copyright (C) 2025 Free Software Foundation, Inc.\n"
+msgstr "© Free Software Foundation, Inc., 2025\n"
 
 #: version.cc:66
 #, c-format
@@ -4236,46 +4245,46 @@ msgstr ""
 msgid "%s failed: %s"
 msgstr "Помилка %s: %s"
 
-#: x86_64.cc:1500
+#: x86_64.cc:1502
 #, c-format
 msgid "%s: corrupt .note.gnu.property section (pr_datasz for property %d is not 4)"
 msgstr "%s: пошкоджений розділ .note.gnu.property (pr_datasz для властивості %d не дорівнює 4)"
 
-#: x86_64.cc:1508
+#: x86_64.cc:1510
 #, c-format
 msgid "%s: unknown program property type 0x%x in .note.gnu.property section"
 msgstr "%s: невідомий тип властивості програми 0x%x у розділі .note.gnu.property"
 
-#: x86_64.cc:1930
+#: x86_64.cc:1932
 #, c-format
 msgid "PC-relative offset overflow in PLT entry %d"
 msgstr "переповнення зсуву відносно PC у записі PLT %d"
 
-#: x86_64.cc:2140
+#: x86_64.cc:2142
 #, c-format
 msgid "PC-relative offset overflow in APLT entry %d"
 msgstr "переповнення зсуву відносно PC у записі APLT %d"
 
-#: x86_64.cc:3064
+#: x86_64.cc:3086
 msgid "requires dynamic R_X86_64_32 reloc which may overflow at runtime; recompile with -fPIC"
 msgstr "потребує динамічного пересування R_X86_64_32, яке може призвести до переповнення під час роботи; зберіть повторно з параметром -fPIC"
 
-#: x86_64.cc:3081
+#: x86_64.cc:3103
 #, c-format
 msgid "requires dynamic %s reloc against '%s' which may overflow at runtime; recompile with -fPIC"
 msgstr "потребує динамічного пересування %s щодо «%s», що може призвести до переповнення під час роботи; зберіть повторно з параметром -fPIC"
 
-#: x86_64.cc:4569
+#: x86_64.cc:4644
 #, c-format
 msgid "relocation overflow: reference to local symbol %u in %s"
 msgstr "переповнення пересування: посилання на локальний символ %u у %s"
 
-#: x86_64.cc:4576
+#: x86_64.cc:4651
 #, c-format
 msgid "relocation overflow: reference to '%s' defined in %s"
 msgstr "переповнення пересування: посилання на «%s», визначений у %s"
 
-#: x86_64.cc:4584
+#: x86_64.cc:4659
 #, c-format
 msgid "relocation overflow: reference to '%s'"
 msgstr "переповнення пересування: посилання на «%s»"

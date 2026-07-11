@@ -1,5 +1,5 @@
 /* Simulator for Atmel's AVR core.
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
    Written by Tristan Gingold, AdaCore.
 
    This file is part of GDB, the GNU debugger.
@@ -896,7 +896,7 @@ step_once (SIM_CPU *cpu)
 
       case OP_reti:
 	sram[SREG] |= SREG_I;
-	/* Fall through */
+	ATTRIBUTE_FALLTHROUGH;
       case OP_ret:
 	{
 	  const struct avr_sim_state *state = AVR_SIM_STATE (CPU_STATE (cpu));

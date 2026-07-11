@@ -1,18 +1,17 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: sparc64-solaris.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_sparc64_solaris;
+const_target_desc_up tdesc_sparc64_solaris;
 static void
 initialize_tdesc_sparc64_solaris (void)
 {
   target_desc_up result = allocate_target_description ();
   set_tdesc_architecture (result.get (), bfd_scan_arch ("sparc:v9"));
 
-  set_tdesc_osabi (result.get (), osabi_from_tdesc_string ("Solaris"));
+  set_tdesc_osabi (result.get (), GDB_OSABI_SOLARIS);
 
   struct tdesc_feature *feature;
 
@@ -108,5 +107,5 @@ initialize_tdesc_sparc64_solaris (void)
   tdesc_create_reg (feature, "f60", 78, 1, NULL, 64, "ieee_double");
   tdesc_create_reg (feature, "f62", 79, 1, NULL, 64, "ieee_double");
 
-  tdesc_sparc64_solaris = result.release ();
+  tdesc_sparc64_solaris = std::move (result);
 }

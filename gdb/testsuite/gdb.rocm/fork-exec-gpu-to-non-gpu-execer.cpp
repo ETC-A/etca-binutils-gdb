@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2021-2023 Free Software Foundation, Inc.
+   Copyright 2021-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,6 +17,8 @@
 
 #include <hip/hip_runtime.h>
 #include <unistd.h>
+
+#include "rocm-test-utils.h"
 
 __global__ static void
 kernel1 ()
@@ -50,6 +52,6 @@ main ()
 
   kernel2<<<1, 1>>> ();
 
-  hipDeviceSynchronize ();
+  CHECK (hipDeviceSynchronize ());
   return 0;
 }

@@ -1,6 +1,6 @@
 /* Machine-independent support for Solaris /proc (process file system)
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include <sys/types.h>
 #include <sys/procfs.h>
@@ -43,7 +42,7 @@ struct trans
 
 static struct trans pr_why_table[] =
 {
-  { PR_REQUESTED, "PR_REQUESTED", 
+  { PR_REQUESTED, "PR_REQUESTED",
     "Directed to stop by debugger via P(IO)CSTOP or P(IO)CWSTOP" },
   { PR_SIGNALLED, "PR_SIGNALLED", "Receipt of a traced signal" },
   { PR_SYSENTRY, "PR_SYSENTRY", "Entry to a traced system call" },

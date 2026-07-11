@@ -1,6 +1,6 @@
 /* Scheme interface to values.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,14 +20,13 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
-#include "top.h"		/* For quit_force().  */
+#include "top.h"
 #include "arch-utils.h"
 #include "charset.h"
 #include "cp-abi.h"
 #include "target-float.h"
 #include "infcall.h"
-#include "symtab.h" /* Needed by language.h.  */
+#include "symtab.h"
 #include "language.h"
 #include "valprint.h"
 #include "value.h"
@@ -87,7 +86,8 @@ static SCM substitute_symbol;
 
 void
 gdbscm_preserve_values (const struct extension_language_defn *extlang,
-			struct objfile *objfile, htab_t copied_types)
+			struct objfile *objfile,
+			copied_types_hash_t &copied_types)
 {
   value_smob *iter;
 
@@ -604,7 +604,7 @@ gdbscm_value_dynamic_type (SCM self)
 	type = value_rtti_type (value, NULL, NULL, NULL);
       else
 	{
-	  /* Re-use object's static type.  */
+	  /* Reuse object's static type.  */
 	  type = NULL;
 	}
     }

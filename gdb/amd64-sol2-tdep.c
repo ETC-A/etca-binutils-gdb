@@ -1,6 +1,6 @@
 /* Target-dependent code for AMD64 Solaris.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    Contributed by Joseph Myers, CodeSourcery, LLC.
 
@@ -19,7 +19,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "regcache.h"
@@ -67,7 +66,7 @@ static int amd64_sol2_gregset_reg_offset[] = {
    'mcontext_t' that contains the saved set of machine registers.  */
 
 static CORE_ADDR
-amd64_sol2_mcontext_addr (frame_info_ptr this_frame)
+amd64_sol2_mcontext_addr (const frame_info_ptr &this_frame)
 {
   CORE_ADDR sp, ucontext_addr;
 
@@ -97,13 +96,10 @@ amd64_sol2_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->sc_num_regs = tdep->gregset_num_regs;
 
   /* Solaris uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_lp64_solib_ops);
 }
 
-void _initialize_amd64_sol2_tdep ();
-void
-_initialize_amd64_sol2_tdep ()
+INIT_GDB_FILE (amd64_sol2_tdep)
 {
   gdbarch_register_osabi (bfd_arch_i386, bfd_mach_x86_64,
 			  GDB_OSABI_SOLARIS, amd64_sol2_init_abi);

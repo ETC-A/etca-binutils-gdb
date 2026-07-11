@@ -1,5 +1,5 @@
 /* Run a function on the main thread
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,14 +16,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "run-on-main-thread.h"
 #include "ser-event.h"
-#if CXX_STD_THREAD
-#include <thread>
-#include <mutex>
-#endif
+#include "gdbsupport/cleanups.h"
+#include "gdbsupport/cxx-thread.h"
 #include "gdbsupport/event-loop.h"
+#include "infrun.h"
+#include "gdbsupport/scope-exit.h"
 
 /* The serial event used when posting runnables.  */
 
@@ -33,17 +32,13 @@ static struct serial_event *runnable_event;
 
 static std::vector<std::function<void ()>> runnables;
 
-#if CXX_STD_THREAD
-
 /* Mutex to hold when handling RUNNABLE_EVENT or RUNNABLES.  */
 
-static std::mutex runnable_mutex;
+static gdb::mutex runnable_mutex;
 
-/* The main thread.  */
+/* The main thread's thread id.  */
 
-static std::thread::id main_thread;
-
-#endif
+static gdb::thread::id main_thread_id;
 
 /* Run all the queued runnables.  */
 
@@ -55,9 +50,7 @@ run_events (int error, gdb_client_data client_data)
   /* Hold the lock while changing the globals, but not while running
      the runnables.  */
   {
-#if CXX_STD_THREAD
-    std::lock_guard<std::mutex> lock (runnable_mutex);
-#endif
+    gdb::lock_guard<gdb::mutex> lock (runnable_mutex);
 
     /* Clear the event fd.  Do this before flushing the events list,
        so that any new event post afterwards is sure to re-awaken the
@@ -69,13 +62,30 @@ run_events (int error, gdb_client_data client_data)
     local = std::move (runnables);
   }
 
+  /* Schedule cleanup in case secondary prompts (for instance, the pagination
+     prompt) happened while running events.  */
+  SCOPE_EXIT { reinstall_readline_callback_handler_cleanup (); };
+
   for (auto &item : local)
     {
       try
 	{
 	  item ();
 	}
-      catch (...)
+      catch (const gdb_exception_forced_quit &e)
+	{
+	  /* GDB is terminating, so:
+	     - make sure this is propagated, and
+	     - no need to keep running things, so propagate immediately.  */
+	  throw;
+	}
+      catch (const gdb_exception_quit &e)
+	{
+	  /* Should cancellation of a runnable event cancel the execution of
+	     the following one?  The answer is not clear, so keep doing what
+	     we've done so far: ignore this exception.  */
+	}
+      catch (const gdb_exception &)
 	{
 	  /* Ignore exceptions in the callback.  */
 	}
@@ -87,33 +97,48 @@ run_events (int error, gdb_client_data client_data)
 void
 run_on_main_thread (std::function<void ()> &&func)
 {
-#if CXX_STD_THREAD
-  std::lock_guard<std::mutex> lock (runnable_mutex);
-#endif
+  gdb::lock_guard<gdb::mutex> lock (runnable_mutex);
   runnables.emplace_back (std::move (func));
   serial_event_set (runnable_event);
 }
+
+static bool main_thread_id_initialized = false;
 
 /* See run-on-main-thread.h.  */
 
 bool
 is_main_thread ()
 {
-#if CXX_STD_THREAD
-  return std::this_thread::get_id () == main_thread;
-#else
-  return true;
-#endif
+  /* Initialize main_thread_id on first use of is_main_thread.  */
+  if (!main_thread_id_initialized)
+    {
+      main_thread_id_initialized = true;
+
+      main_thread_id = gdb::this_thread::get_id ();
+    }
+
+  return gdb::this_thread::get_id () == main_thread_id;
 }
 
-void _initialize_run_on_main_thread ();
-void
-_initialize_run_on_main_thread ()
+INIT_GDB_FILE (run_on_main_thread)
 {
-#if CXX_STD_THREAD
-  main_thread = std::this_thread::get_id ();
-#endif
+  /* The variable main_thread_id should be initialized when entering main, or
+     at an earlier use, so it should already be initialized here.  */
+  gdb_assert (main_thread_id_initialized);
+
+  /* Assume that we execute this in the main thread.  */
+  gdb_assert (is_main_thread ());
+
   runnable_event = make_serial_event ();
   add_file_handler (serial_event_fd (runnable_event), run_events, nullptr,
 		    "run-on-main-thread");
+
+  /* A runnable may refer to an extension language.  So, we want to
+     make sure any pending ones have been deleted before the extension
+     languages are shut down.  */
+  add_final_cleanup ([] ()
+    {
+      gdb::lock_guard<gdb::mutex> lock (runnable_mutex);
+      runnables.clear ();
+    });
 }

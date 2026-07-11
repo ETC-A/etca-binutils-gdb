@@ -1,5 +1,5 @@
 /* GNU/Linux/SH specific low level interface, for the remote server for GDB.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "linux-low.h"
+#include "tdesc.h"
 
 /* Linux target op definitions for the SH architecture.  */
 
@@ -70,7 +70,7 @@ sh_target::low_set_pc (regcache *regcache, CORE_ADDR pc)
 
 /* Defined in auto-generated file reg-sh.c.  */
 void init_registers_sh (void);
-extern const struct target_desc *tdesc_sh;
+extern const_target_desc_up tdesc_sh;
 
 #ifdef HAVE_SYS_REG_H
 #include <sys/reg.h>
@@ -180,7 +180,7 @@ sh_target::get_regs_info ()
 void
 sh_target::low_arch_setup ()
 {
-  current_process ()->tdesc = tdesc_sh;
+  current_process ()->tdesc = tdesc_sh.get ();
 }
 
 /* The linux target ops object.  */

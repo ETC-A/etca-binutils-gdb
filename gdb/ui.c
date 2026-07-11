@@ -1,4 +1,4 @@
-/* Copyright (C) 2023 Free Software Foundation, Inc.
+/* Copyright (C) 2023-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,7 +15,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "ui.h"
 
 #include "cli/cli-cmds.h"
@@ -28,6 +27,7 @@
 #include "pager.h"
 #include "main.h"
 #include "top.h"
+#include "logging-file.h"
 
 /* See top.h.  */
 
@@ -49,10 +49,16 @@ ui::ui (FILE *instream_, FILE *outstream_, FILE *errstream_)
     errstream (errstream_),
     input_fd (fileno (instream)),
     m_input_interactive_p (ISATTY (instream)),
-    m_gdb_stdout (new pager_file (new stdio_file (outstream))),
+    m_ui_stdout (new pager_file
+		 (std::make_unique<logging_file<ui_file_up>>
+		  (std::make_unique<stdio_file> (outstream)))),
     m_gdb_stdin (new stdio_file (instream)),
-    m_gdb_stderr (new stderr_file (errstream)),
-    m_gdb_stdlog (new timestamped_file (m_gdb_stderr))
+    m_ui_stderr (new logging_file<ui_file_up>
+		 (std::make_unique<stderr_file> (errstream))),
+    m_ui_stdlog (new timestamped_file
+		 (std::make_unique<logging_file<ui_file_up>>
+		  (std::make_unique<stderr_file> (errstream), true))),
+    m_ui_stdtarg (m_ui_stderr)
 {
   unbuffer_stream (instream_);
 
@@ -86,8 +92,8 @@ ui::~ui ()
     ui_list = next;
 
   delete m_gdb_stdin;
-  delete m_gdb_stdout;
-  delete m_gdb_stderr;
+  delete m_ui_stdout;
+  delete m_ui_stderr;
 }
 
 
@@ -107,7 +113,7 @@ ui::input_interactive_p () const
 
 
 /* When there is an event ready on the stdin file descriptor, instead
-   of calling readline directly throught the callback function, or
+   of calling readline directly through the callback function, or
    instead of calling gdb_readline_no_editing_callback, give gdb a
    chance to detect errors and do something.  */
 
@@ -225,9 +231,9 @@ new_ui_command (const char *args, int from_tty)
 
     current_ui = ui.get ();
 
-    set_top_level_interpreter (interpreter_name);
+    set_top_level_interpreter (interpreter_name, true);
 
-    interp_pre_command_loop (top_level_interpreter ());
+    top_level_interpreter ()->pre_command_loop ();
 
     /* Make sure the file is not closed.  */
     stream.release ();
@@ -238,9 +244,7 @@ new_ui_command (const char *args, int from_tty)
   gdb_printf ("New UI allocated\n");
 }
 
-void _initialize_ui ();
-void
-_initialize_ui ()
+INIT_GDB_FILE (ui)
 {
   cmd_list_element *c = add_cmd ("new-ui", class_support, new_ui_command, _("\
 Create a new UI.\n\

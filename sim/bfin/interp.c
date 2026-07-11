@@ -1,6 +1,6 @@
 /* Simulator for Analog Devices Blackfin processors.
 
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
    Contributed by Analog Devices, Inc.
 
    This file is part of simulators.
@@ -103,7 +103,6 @@ void
 bfin_syscall (SIM_CPU *cpu)
 {
   SIM_DESC sd = CPU_STATE (cpu);
-  char * const *argv = (void *)STATE_PROG_ARGV (sd);
   host_callback *cb = STATE_CALLBACK (sd);
   bu32 args[6];
   CB_SYSCALL sc;
@@ -397,12 +396,14 @@ bfin_syscall (SIM_CPU *cpu)
       goto sys_finish;
     case CB_SYS_setuid:
       sc.arg1 &= 0xffff;
+      ATTRIBUTE_FALLTHROUGH;
     case CB_SYS_setuid32:
       tbuf += sprintf (tbuf, "setuid(%u)", args[0]);
       sc.result = setuid (sc.arg1);
       goto sys_finish;
     case CB_SYS_setgid:
       sc.arg1 &= 0xffff;
+      ATTRIBUTE_FALLTHROUGH;
     case CB_SYS_setgid32:
       tbuf += sprintf (tbuf, "setgid(%u)", args[0]);
       sc.result = setgid (sc.arg1);
@@ -771,7 +772,7 @@ bfin_fdpic_load (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd, bu32 *sp,
     goto skip_fdpic_init;
   if (bfd_seek (abfd, 0, SEEK_SET) != 0)
     goto skip_fdpic_init;
-  if (bfd_bread (&ehdr, sizeof (ehdr), abfd) != sizeof (ehdr))
+  if (bfd_read (&ehdr, sizeof (ehdr), abfd) != sizeof (ehdr))
     goto skip_fdpic_init;
   iehdr = elf_elfheader (abfd);
   if (!(iehdr->e_flags & EF_BFIN_FDPIC))
@@ -810,7 +811,7 @@ bfin_fdpic_load (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd, bu32 *sp,
       if (bfd_seek (abfd, iehdr->e_phoff, SEEK_SET) != 0)
 	goto skip_fdpic_init;
       data = xmalloc (phdr_size);
-      if (bfd_bread (data, phdr_size, abfd) != phdr_size)
+      if (bfd_read (data, phdr_size, abfd) != phdr_size)
 	goto skip_fdpic_init;
       *sp -= phdr_size;
       elf_addrs[1] = *sp;
@@ -844,7 +845,7 @@ bfin_fdpic_load (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd, bu32 *sp,
 	  memset (data + filesz, 0, memsz - filesz);
 
 	if (bfd_seek (abfd, p->p_offset, SEEK_SET) == 0
-	    && bfd_bread (data, filesz, abfd) == filesz)
+	    && bfd_read (data, filesz, abfd) == filesz)
 	  sim_write (sd, paddr, data, memsz);
 
 	free (data);
@@ -870,7 +871,7 @@ bfin_fdpic_load (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd, bu32 *sp,
 
 	*ldso_path = xmalloc (len);
 	if (bfd_seek (abfd, off, SEEK_SET) != 0
-	    || bfd_bread (*ldso_path, len, abfd) != len)
+	    || bfd_read (*ldso_path, len, abfd) != len)
 	  {
 	    free (*ldso_path);
 	    *ldso_path = NULL;
@@ -1011,7 +1012,6 @@ bfin_user_init (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd,
   if (auxvt)
     {
 # define AT_PUSH(at, val) \
-  auxvt_size += 8; \
   sp -= 4; \
   auxvt = (val); \
   sim_write (sd, sp, &auxvt, 4); \
@@ -1020,7 +1020,6 @@ bfin_user_init (SIM_DESC sd, SIM_CPU *cpu, struct bfd *abfd,
   sim_write (sd, sp, &auxvt, 4)
       unsigned int egid = getegid (), gid = getgid ();
       unsigned int euid = geteuid (), uid = getuid ();
-      bu32 auxvt_size = 0;
       AT_PUSH (AT_NULL, 0);
       AT_PUSH (AT_SECURE, egid != gid || euid != uid);
       AT_PUSH (AT_EGID, egid);

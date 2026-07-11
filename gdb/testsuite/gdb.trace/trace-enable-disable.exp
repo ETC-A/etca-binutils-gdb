@@ -1,4 +1,4 @@
-# Copyright 2015-2023 Free Software Foundation, Inc.
+# Copyright 2015-2026 Free Software Foundation, Inc.
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 3 of the License, or
@@ -32,16 +32,17 @@ if { [gdb_compile "$srcdir/$subdir/$srcfile" $binfile executable $options] != ""
 
 clean_restart ${testfile}
 
-if ![runto_main] {
+if {![runto_main]} {
     return -1
 }
 
-if ![gdb_target_supports_trace] {
+if {![gdb_target_supports_trace]} {
     unsupported "target does not support trace"
     return -1
 }
 
 # Compile the test case with the in-process agent library.
+require allow_in_proc_agent
 set libipa [get_in_proc_agent]
 gdb_load_shlib $libipa
 
@@ -63,7 +64,7 @@ proc test_tracepoint_enable_disable { tracepoint_cmd } {
 
 	set expected 0
 
-	if ![runto_main] {
+	if {![runto_main]} {
 	    return -1
 	}
 

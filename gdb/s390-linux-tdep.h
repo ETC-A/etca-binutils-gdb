@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux on s390.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef S390_LINUX_TDEP_H
-#define S390_LINUX_TDEP_H
+#ifndef GDB_S390_LINUX_TDEP_H
+#define GDB_S390_LINUX_TDEP_H
+
+#include "gdbsupport/tdesc.h"
 
 #define S390_IS_GREGSET_REGNUM(i)					\
   (((i) >= S390_PSWM_REGNUM && (i) <= S390_A15_REGNUM)			\
@@ -48,20 +50,20 @@ extern const struct regset s390_gs_regset;
 extern const struct regset s390_gsbc_regset;
 
 /* GNU/Linux target descriptions.  */
-extern const struct target_desc *tdesc_s390_linux32v1;
-extern const struct target_desc *tdesc_s390_linux32v2;
-extern const struct target_desc *tdesc_s390_linux64;
-extern const struct target_desc *tdesc_s390_linux64v1;
-extern const struct target_desc *tdesc_s390_linux64v2;
-extern const struct target_desc *tdesc_s390_te_linux64;
-extern const struct target_desc *tdesc_s390_vx_linux64;
-extern const struct target_desc *tdesc_s390_tevx_linux64;
-extern const struct target_desc *tdesc_s390_gs_linux64;
-extern const struct target_desc *tdesc_s390x_linux64v1;
-extern const struct target_desc *tdesc_s390x_linux64v2;
-extern const struct target_desc *tdesc_s390x_te_linux64;
-extern const struct target_desc *tdesc_s390x_vx_linux64;
-extern const struct target_desc *tdesc_s390x_tevx_linux64;
-extern const struct target_desc *tdesc_s390x_gs_linux64;
+extern const_target_desc_up tdesc_s390_linux32v1;
+extern const_target_desc_up tdesc_s390_linux32v2;
+extern const_target_desc_up tdesc_s390_linux64;
+extern const_target_desc_up tdesc_s390_linux64v1;
+extern const_target_desc_up tdesc_s390_linux64v2;
+extern const_target_desc_up tdesc_s390_te_linux64;
+extern const_target_desc_up tdesc_s390_vx_linux64;
+extern const_target_desc_up tdesc_s390_tevx_linux64;
+extern const_target_desc_up tdesc_s390_gs_linux64;
+extern const_target_desc_up tdesc_s390x_linux64v1;
+extern const_target_desc_up tdesc_s390x_linux64v2;
+extern const_target_desc_up tdesc_s390x_te_linux64;
+extern const_target_desc_up tdesc_s390x_vx_linux64;
+extern const_target_desc_up tdesc_s390x_tevx_linux64;
+extern const_target_desc_up tdesc_s390x_gs_linux64;
 
-#endif /* S390_LINUX_TDEP_H */
+#endif /* GDB_S390_LINUX_TDEP_H */

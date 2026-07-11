@@ -1,6 +1,6 @@
 /* Self tests for gdb_tilde_expand
 
-   Copyright (C) 2021-2023 Free Software Foundation, Inc.
+   Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "gdbsupport/selftest.h"
 #include <cstdlib>
 
@@ -85,9 +84,7 @@ do_test ()
 } /* namespace gdb_tilde_expand_tests */
 } /* namespace selftests */
 
-void _initialize_gdb_tilde_expand_selftests ();
-void
-_initialize_gdb_tilde_expand_selftests ()
+INIT_GDB_FILE (gdb_tilde_expand_selftests)
 {
   selftests::register_test
     ("gdb_tilde_expand", selftests::gdb_tilde_expand_tests::do_test);

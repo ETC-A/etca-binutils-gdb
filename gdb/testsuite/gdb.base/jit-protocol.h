@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,18 @@
 
 #ifdef JIT_H
 #error "We don't include jit.h directly since we'd like the jit-reader unit  \
-        tests to break if we make ABI incompatible changes to the structures \
-        re-declared here."
+	tests to break if we make ABI incompatible changes to the structures \
+	redeclared here."
 #endif
 
 #ifndef JIT_PROTOCOL_H
 #define JIT_PROTOCOL_H
 
 #include <stdint.h>
+
+#ifndef JIT_DESCRIPTOR_LINKAGE
+#define JIT_DESCRIPTOR_LINKAGE
+#endif
 
 typedef enum
 {
@@ -51,7 +55,8 @@ struct jit_descriptor
   struct jit_code_entry *first_entry;
 };
 
-struct jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
+JIT_DESCRIPTOR_LINKAGE struct jit_descriptor __jit_debug_descriptor
+  = { 1, 0, 0, 0 };
 
 void __attribute__((noinline)) __jit_debug_register_code()
 {

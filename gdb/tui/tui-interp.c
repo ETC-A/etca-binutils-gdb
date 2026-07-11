@@ -1,6 +1,6 @@
 /* TUI Interpreter definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,21 +17,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "cli/cli-interp.h"
 #include "interps.h"
 #include "ui.h"
 #include "event-top.h"
-#include "gdbsupport/event-loop.h"
 #include "ui-out.h"
 #include "cli-out.h"
-#include "tui/tui-data.h"
 #include "tui/tui-win.h"
 #include "tui/tui.h"
 #include "tui/tui-io.h"
-#include "infrun.h"
-#include "observable.h"
-#include "gdbthread.h"
 #include "inferior.h"
 #include "main.h"
 
@@ -46,11 +40,14 @@ public:
     : cli_interp_base (name)
   {}
 
-  void init (bool top_level) override;
+  void do_init (bool top_level) override;
   void resume () override;
   void suspend () override;
   void exec (const char *command_str) override;
   ui_out *interp_ui_out () override;
+
+  bool supports_new_ui () const override
+  { return false; }
 };
 
 /* Cleanup the tui before exiting.  */
@@ -66,7 +63,7 @@ tui_exit (void)
 /* These implement the TUI interpreter.  */
 
 void
-tui_interp::init (bool top_level)
+tui_interp::do_init (bool top_level)
 {
   /* Install exit handler to leave the screen in a good shape.  */
   atexit (tui_exit);
@@ -108,25 +105,10 @@ void
 tui_interp::resume ()
 {
   struct ui *ui = current_ui;
-  struct ui_file *stream;
-
-  /* gdb_setup_readline will change gdb_stdout.  If the TUI was
-     previously writing to gdb_stdout, then set it to the new
-     gdb_stdout afterwards.  */
-
-  stream = tui_old_uiout->set_stream (gdb_stdout);
-  if (stream != gdb_stdout)
-    {
-      tui_old_uiout->set_stream (stream);
-      stream = NULL;
-    }
 
   gdb_setup_readline (1);
 
   ui->input_handler = tui_command_line_handler;
-
-  if (stream != NULL)
-    tui_old_uiout->set_stream (gdb_stdout);
 
   if (tui_start_enabled)
     tui_enable ();
@@ -164,9 +146,7 @@ tui_interp_factory (const char *name)
   return new tui_interp (name);
 }
 
-void _initialize_tui_interp ();
-void
-_initialize_tui_interp ()
+INIT_GDB_FILE (tui_interp)
 {
   interp_factory_register (INTERP_TUI, tui_interp_factory);
 

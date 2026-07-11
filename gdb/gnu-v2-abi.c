@@ -1,6 +1,6 @@
 /* Abstraction of GNU v2 abi.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    Contributed by Daniel Berlin <dberlin@redhat.com>
 
@@ -19,7 +19,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "value.h"
@@ -27,7 +26,6 @@
 #include "gdb-demangle.h"
 #include "cp-abi.h"
 #include "cp-support.h"
-#include <ctype.h>
 
 static cp_abi_ops gnu_v2_abi_ops;
 
@@ -47,7 +45,7 @@ static enum ctor_kinds
 gnuv2_is_constructor_name (const char *name)
 {
   if ((name[0] == '_' && name[1] == '_'
-       && (isdigit (name[2]) || strchr ("Qt", name[2])))
+       && (c_isdigit (name[2]) || strchr ("Qt", name[2])))
       || startswith (name, "__ct__"))
     return complete_object_ctor;
   else
@@ -159,7 +157,7 @@ gnuv2_virtual_fn_field (struct value **arg1p, struct fn_field * f, int j,
     {
       /* Move the `this' pointer according to the virtual function table.  */
       arg1->set_offset (arg1->offset ()
-			+ value_as_long (value_field (entry, 0)));
+			+ value_as_long (entry->field (0)));
 
       if (!arg1->lazy ())
 	{
@@ -167,7 +165,7 @@ gnuv2_virtual_fn_field (struct value **arg1p, struct fn_field * f, int j,
 	  arg1->fetch_lazy ();
 	}
 
-      vfn = value_field (entry, 2);
+      vfn = entry->field (2);
     }
   else if (entry_type->code () == TYPE_CODE_PTR)
     vfn = entry;
@@ -187,7 +185,6 @@ gnuv2_value_rtti_type (struct value *v, int *full, LONGEST *top, int *using_enc)
   struct type *known_type;
   struct type *rtti_type;
   CORE_ADDR vtbl;
-  struct bound_minimal_symbol minsym;
   char *p;
   const char *linkage_name;
   struct type *btype;
@@ -234,13 +231,13 @@ gnuv2_value_rtti_type (struct value *v, int *full, LONGEST *top, int *using_enc)
   /* We can't use value_ind here, because it would want to use RTTI, and
      we'd waste a bunch of time figuring out we already know the type.
      Besides, we don't care about the type, just the actual pointer.  */
-  if (value_field (v, known_type_vptr_fieldno)->address () == 0)
+  if (v->field (known_type_vptr_fieldno)->address () == 0)
     return NULL;
 
-  vtbl = value_as_address (value_field (v, known_type_vptr_fieldno));
+  vtbl = value_as_address (v->field (known_type_vptr_fieldno));
 
   /* Try to find a symbol that is the vtable.  */
-  minsym=lookup_minimal_symbol_by_pc(vtbl);
+  bound_minimal_symbol minsym = lookup_minimal_symbol_by_pc (vtbl);
   if (minsym.minsym==NULL
       || (linkage_name=minsym.minsym->linkage_name ())==NULL
       || !is_vtable_name (linkage_name))
@@ -267,15 +264,9 @@ gnuv2_value_rtti_type (struct value *v, int *full, LONGEST *top, int *using_enc)
       if (top && ((*top) >0))
 	{
 	  if (rtti_type->length () > known_type->length ())
-	    {
-	      if (full)
-		*full=0;
-	    }
+	    *full = 0;
 	  else
-	    {
-	      if (full)
-		*full=1;
-	    }
+	    *full = 1;
 	}
     }
   else
@@ -325,12 +316,9 @@ vb_match (struct type *type, int index, struct type *basetype)
   if (fieldtype->target_type () == basetype)
     return 1;
 
-  if (basetype->name () != NULL
-      && fieldtype->target_type ()->name () != NULL
-      && strcmp (basetype->name (),
-		 fieldtype->target_type ()->name ()) == 0)
-    return 1;
-  return 0;
+  return (basetype->name () != nullptr
+	  && fieldtype->target_type ()->name () != nullptr
+	  && streq (basetype->name (), fieldtype->target_type ()->name ()));
 }
 
 /* Compute the offset of the baseclass which is the INDEXth baseclass
@@ -413,9 +401,7 @@ init_gnuv2_ops (void)
   gnu_v2_abi_ops.baseclass_offset = gnuv2_baseclass_offset;
 }
 
-void _initialize_gnu_v2_abi ();
-void
-_initialize_gnu_v2_abi ()
+INIT_GDB_FILE (gnu_v2_abi)
 {
   init_gnuv2_ops ();
   register_cp_abi (&gnu_v2_abi_ops);

@@ -1,6 +1,6 @@
 /* Common target-dependent code for ppc64 GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "infrun.h"
@@ -85,7 +85,7 @@
    Return the function's entry point.  */
 
 static CORE_ADDR
-ppc64_plt_entry_point (frame_info_ptr frame, CORE_ADDR plt_off)
+ppc64_plt_entry_point (const frame_info_ptr &frame, CORE_ADDR plt_off)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -108,7 +108,7 @@ ppc64_plt_entry_point (frame_info_ptr frame, CORE_ADDR plt_off)
 }
 
 static CORE_ADDR
-ppc64_plt_pcrel_entry_point (frame_info_ptr frame, CORE_ADDR plt_off,
+ppc64_plt_pcrel_entry_point (const frame_info_ptr &frame, CORE_ADDR plt_off,
 			     CORE_ADDR pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
@@ -507,7 +507,7 @@ static const struct ppc_insn_pattern ppc64_standard_linkage12[] =
 	10000388:   7d 69 03 a6     mtctr   r11
 	1000038c:   e8 42 80 80     ld      r2,-32640(r2)
 	10000390:   28 22 00 00     cmpldi  r2,0
-	10000394:   4c e2 04 20     bnectr+ 
+	10000394:   4c e2 04 20     bnectr+
 	10000398:   48 00 03 a0     b       10000738 <printf@plt>
 
    - But since this is the first time that PLT entry has been used, it
@@ -546,7 +546,7 @@ static const struct ppc_insn_pattern ppc64_standard_linkage12[] =
    dynamic linker lazy symbol resolution stubs.)  */
 
 static CORE_ADDR
-ppc64_standard_linkage1_target (frame_info_ptr frame, unsigned int *insn)
+ppc64_standard_linkage1_target (const frame_info_ptr &frame, unsigned int *insn)
 {
   CORE_ADDR plt_off = ((ppc_insn_d_field (insn[0]) << 16)
 		       + ppc_insn_ds_field (insn[2]));
@@ -555,7 +555,7 @@ ppc64_standard_linkage1_target (frame_info_ptr frame, unsigned int *insn)
 }
 
 static CORE_ADDR
-ppc64_standard_linkage2_target (frame_info_ptr frame, unsigned int *insn)
+ppc64_standard_linkage2_target (const frame_info_ptr &frame, unsigned int *insn)
 {
   CORE_ADDR plt_off = ((ppc_insn_d_field (insn[1]) << 16)
 		       + ppc_insn_ds_field (insn[3]));
@@ -564,7 +564,7 @@ ppc64_standard_linkage2_target (frame_info_ptr frame, unsigned int *insn)
 }
 
 static CORE_ADDR
-ppc64_standard_linkage3_target (frame_info_ptr frame, unsigned int *insn)
+ppc64_standard_linkage3_target (const frame_info_ptr &frame, unsigned int *insn)
 {
   CORE_ADDR plt_off = ppc_insn_ds_field (insn[1]);
 
@@ -572,7 +572,7 @@ ppc64_standard_linkage3_target (frame_info_ptr frame, unsigned int *insn)
 }
 
 static CORE_ADDR
-ppc64_standard_linkage4_target (frame_info_ptr frame, unsigned int *insn)
+ppc64_standard_linkage4_target (const frame_info_ptr &frame, unsigned int *insn)
 {
   CORE_ADDR plt_off = ((ppc_insn_d_field (insn[1]) << 16)
 		       + ppc_insn_ds_field (insn[2]));
@@ -581,7 +581,7 @@ ppc64_standard_linkage4_target (frame_info_ptr frame, unsigned int *insn)
 }
 
 static CORE_ADDR
-ppc64_pcrel_linkage1_target (frame_info_ptr frame, unsigned int *insn,
+ppc64_pcrel_linkage1_target (const frame_info_ptr &frame, unsigned int *insn,
 			     CORE_ADDR pc)
 {
   /* insn[0] is for the std instruction.  */
@@ -591,7 +591,7 @@ ppc64_pcrel_linkage1_target (frame_info_ptr frame, unsigned int *insn,
 }
 
 static CORE_ADDR
-ppc64_pcrel_linkage2_target (frame_info_ptr frame, unsigned int *insn,
+ppc64_pcrel_linkage2_target (const frame_info_ptr &frame, unsigned int *insn,
 			     CORE_ADDR pc)
 {
   CORE_ADDR plt_off;
@@ -611,7 +611,7 @@ ppc64_pcrel_linkage2_target (frame_info_ptr frame, unsigned int *insn,
    check whether we are in the middle of a PLT stub.  */
 
 static CORE_ADDR
-ppc64_skip_trampoline_code_1 (frame_info_ptr frame, CORE_ADDR pc)
+ppc64_skip_trampoline_code_1 (const frame_info_ptr &frame, CORE_ADDR pc)
 {
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
   unsigned int insns[MAX (MAX (MAX (ARRAY_SIZE (ppc64_standard_linkage1),
@@ -707,7 +707,7 @@ ppc64_skip_trampoline_code_1 (frame_info_ptr frame, CORE_ADDR pc)
    ppc_elfv2_skip_entrypoint.  */
 
 CORE_ADDR
-ppc64_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
+ppc64_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
 
@@ -752,9 +752,9 @@ ppc64_convert_from_func_ptr_addr (struct gdbarch *gdbarch,
   const struct target_section *s = target_section_by_addr (targ, addr);
 
   /* Check if ADDR points to a function descriptor.  */
-  if (s && strcmp (s->the_bfd_section->name, ".opd") == 0)
+  if (s && streq (s->the_bfd_section->name, ".opd"))
     {
-      /* There may be relocations that need to be applied to the .opd 
+      /* There may be relocations that need to be applied to the .opd
 	 section.  Unfortunately, this function may be called at a time
 	 where these relocations have not yet been performed -- this can
 	 happen for example shortly after a library has been loaded with
@@ -793,11 +793,12 @@ ppc64_convert_from_func_ptr_addr (struct gdbarch *gdbarch,
    from that symbol.  */
 
 void
-ppc64_elf_make_msymbol_special (asymbol *sym, struct minimal_symbol *msym)
+ppc64_elf_make_msymbol_special (const asymbol *sym,
+				struct minimal_symbol *msym)
 {
   if ((sym->flags & BSF_SYNTHETIC) != 0 && sym->udata.p != NULL)
     {
-      elf_symbol_type *elf_sym = (elf_symbol_type *) sym->udata.p;
+      const elf_symbol_type *elf_sym = (const elf_symbol_type *) sym->udata.p;
       msym->set_size (elf_sym->internal_elf_sym.st_size);
     }
 }

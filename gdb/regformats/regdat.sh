@@ -1,7 +1,7 @@
 #!/bin/sh -u
 
 # Register protocol definitions for GDB, the GNU debugger.
-# Copyright (C) 2001-2023 Free Software Foundation, Inc.
+# Copyright (C) 2001-2026 Free Software Foundation, Inc.
 #
 # This file is part of GDB.
 #
@@ -105,9 +105,8 @@ EOF
 }
 
 
-exec > new-$2
+exec > new-$3
 copyright $1
-echo '#include "server.h"'
 echo '#include "regdef.h"'
 echo '#include "tdesc.h"'
 echo
@@ -119,13 +118,14 @@ xmlarch=x
 xmlosabi=x
 expedite=x
 feature=x
+osabi=unknown
 exec < $1
 while do_read
 do
   if test "${type}" = "name"; then
     name="${entry}"
 
-    echo "const struct target_desc *tdesc_${name};"
+    echo "const_target_desc_up tdesc_${name};"
     echo ""
 
     # This is necessary for -Wmissing-declarations.
@@ -134,9 +134,8 @@ do
     echo "void"
     echo "init_registers_${name} (void)"
     echo "{"
-    echo "  static struct target_desc tdesc_${name}_s;"
-    echo "  struct target_desc *result = &tdesc_${name}_s;"
-    echo "  struct tdesc_feature *feature = tdesc_create_feature (result, \"${name}\");"
+    echo "  target_desc_up result = allocate_target_description ();"
+    echo "  struct tdesc_feature *feature = tdesc_create_feature (result.get (), \"${name}\");"
     continue
   elif test "${type}" = "xmltarget"; then
     xmltarget="${entry}"
@@ -144,7 +143,7 @@ do
   elif test "${type}" = "xmlarch"; then
     xmlarch="${entry}"
     continue
-  elif test "${type}" = "osabi"; then
+  elif test "${type}" = "xmlosabi"; then
     xmlosabi="${entry}"
     continue
   elif test "${type}" = "expedite"; then
@@ -152,6 +151,9 @@ do
     continue
   elif test "${type}" = "feature"; then
     feature="${entry}"
+    continue
+  elif test "${type}" = "osabi"; then
+    osabi="${entry}"
     continue
   elif test "${name}" = x; then
     echo "$0: $1 does not specify \`\`name''." 1>&2
@@ -189,16 +191,18 @@ else
 fi
 echo
 
+osabi_enum=$(grep "${osabi}" "$2" | sed 's/.*(\([^,]\+\),.*/GDB_OSABI_\1/')
+
 cat <<EOF
   result->xmltarget = xmltarget_${name};
 #endif
 
-  init_target_desc (result, expedite_regs_${name});
+  init_target_desc (result.get (), expedite_regs_${name}, ${osabi_enum});
 
-  tdesc_${name} = result;
+  tdesc_${name} = std::move (result);
 }
 EOF
 
 # close things off
 exec 1>&2
-mv -- "new-$2" "$2"
+mv -- "new-$3" "$3"

@@ -1,6 +1,6 @@
 /* BSD Kernel Data Access Library (libkvm) interface.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #define _KMEMUSER
-#include "defs.h"
 #include "cli/cli-cmds.h"
 #include "command.h"
 #include "filenames.h"
@@ -28,7 +27,7 @@
 #include "process-stratum-target.h"
 #include "value.h"
 #include "gdbcore.h"
-#include "inferior.h"          /* for get_exec_file */
+#include "inferior.h"
 #include "gdbthread.h"
 #include "gdbsupport/pathstuff.h"
 #include "gdbsupport/gdb_tilde_expand.h"
@@ -109,7 +108,6 @@ static void
 bsd_kvm_target_open (const char *arg, int from_tty)
 {
   char errbuf[_POSIX2_LINE_MAX];
-  const char *execfile = NULL;
   kvm_t *temp_kd;
   std::string filename;
 
@@ -119,10 +117,10 @@ bsd_kvm_target_open (const char *arg, int from_tty)
     {
       filename = gdb_tilde_expand (arg);
       if (!IS_ABSOLUTE_PATH (filename))
-	filename = gdb_abspath (filename.c_str ());
+	filename = gdb_abspath (filename);
     }
 
-  execfile = get_exec_file (0);
+  const char *execfile = current_program_space->exec_filename ();
   temp_kd = kvm_openfiles (execfile, filename.c_str (), NULL,
 			   write_files ? O_RDWR : O_RDONLY, errbuf);
   if (temp_kd == NULL)
@@ -136,10 +134,10 @@ bsd_kvm_target_open (const char *arg, int from_tty)
   thread_info *thr = add_thread_silent (&bsd_kvm_ops, bsd_kvm_ptid);
   switch_to_thread (thr);
 
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (get_thread_regcache (thr), -1);
 
   reinit_frame_cache ();
-  print_stack_frame (get_selected_frame (NULL), 0, SRC_AND_LOC, 1);
+  print_stack_frame (get_selected_frame (), 0, SRC_AND_LOC, 1);
 }
 
 void
@@ -154,7 +152,7 @@ bsd_kvm_target::close ()
 
   bsd_kvm_corefile.clear ();
   switch_to_no_thread ();
-  exit_inferior_silent (current_inferior ());
+  exit_inferior (current_inferior ());
 }
 
 static LONGEST
@@ -334,10 +332,10 @@ bsd_kvm_proc_cmd (const char *arg, int fromtty)
   if (kvm_read (core_kd, addr, &bsd_kvm_paddr, sizeof bsd_kvm_paddr) == -1)
     error (("%s"), kvm_geterr (core_kd));
 
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (get_thread_regcache (inferior_thread ()), -1);
 
   reinit_frame_cache ();
-  print_stack_frame (get_selected_frame (NULL), 0, SRC_AND_LOC, 1);
+  print_stack_frame (get_selected_frame (), 0, SRC_AND_LOC, 1);
 }
 
 #endif
@@ -354,10 +352,10 @@ bsd_kvm_pcb_cmd (const char *arg, int fromtty)
 
   bsd_kvm_paddr = (struct pcb *)(u_long) parse_and_eval_address (arg);
 
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (get_thread_regcache (inferior_thread ()), -1);
 
   reinit_frame_cache ();
-  print_stack_frame (get_selected_frame (NULL), 0, SRC_AND_LOC, 1);
+  print_stack_frame (get_selected_frame (), 0, SRC_AND_LOC, 1);
 }
 
 bool
@@ -383,18 +381,18 @@ bsd_kvm_add_target (int (*supply_pcb)(struct regcache *, struct pcb *))
   bsd_kvm_supply_pcb = supply_pcb;
 
   add_target (bsd_kvm_target_info, bsd_kvm_target_open);
-  
+
   add_prefix_cmd ("kvm", class_obscure, bsd_kvm_cmd, _("\
 Generic command for manipulating the kernel memory interface."),
 		  &bsd_kvm_cmdlist, 0, &cmdlist);
 
 #ifndef HAVE_STRUCT_THREAD_TD_PCB
   add_cmd ("proc", class_obscure, bsd_kvm_proc_cmd,
-	   _("Set current context from proc address"), &bsd_kvm_cmdlist);
+	   _("Set current context from proc address."), &bsd_kvm_cmdlist);
 #endif
   add_cmd ("pcb", class_obscure, bsd_kvm_pcb_cmd,
 	   /* i18n: PCB == "Process Control Block".  */
-	   _("Set current context from pcb address"), &bsd_kvm_cmdlist);
+	   _("Set current context from pcb address."), &bsd_kvm_cmdlist);
 
   /* Some notes on the ptid usage on this target.
 

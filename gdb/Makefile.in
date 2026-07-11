@@ -1,4 +1,4 @@
-# Copyright (C) 1989-2023 Free Software Foundation, Inc.
+# Copyright (C) 1989-2026 Free Software Foundation, Inc.
 
 # This file is part of GDB.
 
@@ -197,10 +197,6 @@ LIBEXPAT = @LIBEXPAT@
 # Where is lzma?  This will be empty if lzma was not available.
 LIBLZMA = @LIBLZMA@
 
-# Where is libbabeltrace? This will be empty if libbabeltrace was not
-# available.
-LIBBABELTRACE = @LIBBABELTRACE@
-
 # Where is libxxhash? This will be empty if libxxhash was not
 # available.
 LIBXXHASH = @LIBXXHASH@
@@ -260,10 +256,12 @@ LIBBACKTRACE_LIB=@LIBBACKTRACE_LIB@
 
 SUPPORT = ../gdbsupport
 LIBSUPPORT = $(SUPPORT)/libgdbsupport.a
-INCSUPPORT = -I$(srcdir)/.. -I..
+INCSUPPORT = \
+	-I$(srcdir)/.. \
+	-I..
 
 #
-# CLI sub directory definitons
+# CLI sub directory definitions
 #
 SUBDIR_CLI_SRCS = \
 	cli/cli-cmds.c \
@@ -280,7 +278,7 @@ SUBDIR_CLI_SRCS = \
 SUBDIR_CLI_OBS = $(patsubst %.c,%.o,$(SUBDIR_CLI_SRCS))
 
 #
-# MI sub directory definitons
+# MI sub directory definitions
 #
 SUBDIR_MI_SRCS = \
 	mi/mi-cmd-break.c \
@@ -318,10 +316,9 @@ SUBDIR_TUI_SRCS = \
 	tui/tui-io.c \
 	tui/tui-layout.c \
 	tui/tui-location.c \
-	tui/tui-out.c \
 	tui/tui-regs.c \
 	tui/tui-source.c \
-	tui/tui-stack.c \
+	tui/tui-status.c \
 	tui/tui-win.c \
 	tui/tui-wingeneral.c \
 	tui/tui-winsource.c
@@ -349,7 +346,7 @@ SUBDIR_GCC_COMPILE_SRCS = \
 SUBDIR_GCC_COMPILE_OBS = $(patsubst %.c,%.o,$(filter %.c,$(SUBDIR_GCC_COMPILE_SRCS)))
 
 #
-# Guile sub directory definitons for guile support.
+# Guile sub directory definitions for guile support.
 #
 SUBDIR_GUILE_SRCS = \
 	guile/guile.c \
@@ -358,6 +355,7 @@ SUBDIR_GUILE_SRCS = \
 	guile/scm-block.c \
 	guile/scm-breakpoint.c \
 	guile/scm-cmd.c \
+	guile/scm-color.c \
 	guile/scm-disasm.c \
 	guile/scm-exception.c \
 	guile/scm-frame.c \
@@ -385,7 +383,7 @@ SUBDIR_GUILE_LDFLAGS =
 SUBDIR_GUILE_CFLAGS =
 
 #
-# python sub directory definitons
+# python sub directory definitions
 #
 SUBDIR_PYTHON_SRCS = \
 	python/py-arch.c \
@@ -394,8 +392,10 @@ SUBDIR_PYTHON_SRCS = \
 	python/py-bpevent.c \
 	python/py-breakpoint.c \
 	python/py-cmd.c \
+	python/py-color.c \
 	python/py-connection.c \
 	python/py-continueevent.c \
+	python/py-corefile.c \
 	python/py-dap.c \
 	python/py-disasm.c \
 	python/py-event.c \
@@ -418,6 +418,7 @@ SUBDIR_PYTHON_SRCS = \
 	python/py-micmd.c \
 	python/py-newobjfileevent.c \
 	python/py-objfile.c \
+	python/py-obj-type.c \
 	python/py-param.c \
 	python/py-prettyprint.c \
 	python/py-progspace.c \
@@ -427,6 +428,7 @@ SUBDIR_PYTHON_SRCS = \
 	python/py-registers.c \
 	python/py-signalevent.c \
 	python/py-stopevent.c \
+	python/py-style.c \
 	python/py-symbol.c \
 	python/py-symtab.c \
 	python/py-threadevent.c \
@@ -446,6 +448,7 @@ SUBDIR_PYTHON_LDFLAGS =
 SUBDIR_PYTHON_CFLAGS =
 
 SELFTESTS_SRCS = \
+	block-selftests.c \
 	disasm-selftests.c \
 	gdbarch-selftests.c \
 	selftest-arch.c \
@@ -456,6 +459,7 @@ SELFTESTS_SRCS = \
 	unittests/common-utils-selftests.c \
 	unittests/copy_bitwise-selftests.c \
 	unittests/enum-flags-selftests.c \
+	unittests/enumerate-selftests.c \
 	unittests/environ-selftests.c \
 	unittests/filtered_iterator-selftests.c \
 	unittests/format_pieces-selftests.c \
@@ -464,12 +468,13 @@ SELFTESTS_SRCS = \
 	unittests/gdb_tilde_expand-selftests.c \
 	unittests/gmp-utils-selftests.c \
 	unittests/intrusive_list-selftests.c \
+	unittests/iterator-range-selftests.c \
 	unittests/lookup_name_info-selftests.c \
 	unittests/memory-map-selftests.c \
 	unittests/memrange-selftests.c \
+	unittests/next-iterator-selftests.c \
 	unittests/offset-type-selftests.c \
 	unittests/observable-selftests.c \
-	unittests/optional-selftests.c \
 	unittests/packed-selftests.c \
 	unittests/parallel-for-selftests.c \
 	unittests/parse-connection-spec-selftests.c \
@@ -477,20 +482,19 @@ SELFTESTS_SRCS = \
 	unittests/ptid-selftests.c \
 	unittests/main-thread-selftests.c \
 	unittests/mkdir-recursive-selftests.c \
+	unittests/remote-arg-selftests.c \
 	unittests/rsp-low-selftests.c \
 	unittests/scoped_fd-selftests.c \
 	unittests/scoped_ignore_signal-selftests.c \
 	unittests/scoped_mmap-selftests.c \
 	unittests/scoped_restore-selftests.c \
 	unittests/search-memory-selftests.c \
-	unittests/string_view-selftests.c \
 	unittests/style-selftests.c \
 	unittests/tracepoint-selftests.c \
 	unittests/tui-selftests.c \
 	unittests/ui-file-selftests.c \
 	unittests/unique_xmalloc_ptr_char.c \
 	unittests/unpack-selftests.c \
-	unittests/utils-selftests.c \
 	unittests/vec-utils-selftests.c \
 	unittests/xml-utils-selftests.c
 
@@ -554,32 +558,22 @@ GDBTK_LIBRARY = $(datadir)/insight$(GDBTK_VERSION)
 # the testsuite won't run properly.
 GDBTK_SRC_DIR = @GDBTK_SRC_DIR@
 
-SUBDIR_GDBTK_OBS = \
-	gdbtk.o \
-	gdbtk-bp.o \
-	gdbtk-cmds.o \
-	gdbtk-hooks.o \
-	gdbtk-interp.o \
-	gdbtk-register.o \
-	gdbtk-stack.o \
-	gdbtk-varobj.o \
-	gdbtk-wrapper.o
-
 SUBDIR_GDBTK_SRCS = \
 	gdbtk/generic/gdbtk.c \
 	gdbtk/generic/gdbtk-bp.c \
 	gdbtk/generic/gdbtk-cmds.c \
 	gdbtk/generic/gdbtk-hooks.c \
 	gdbtk/generic/gdbtk-interp.c \
-	gdbtk/generic/gdbtk-main.c \
 	gdbtk/generic/gdbtk-register.c \
 	gdbtk/generic/gdbtk-stack.c \
 	gdbtk/generic/gdbtk-varobj.c \
 	gdbtk/generic/gdbtk-wrapper.c
 
+SUBDIR_GDBTK_OBS = $(patsubst %.c,%.o,$(SUBDIR_GDBTK_SRCS))
+
 SUBDIR_GDBTK_DEPS = $(LIBGUI) $(TCL_DEPS) $(TK_DEPS)
 SUBDIR_GDBTK_LDFLAGS =
-SUBDIR_GDBTK_CFLAGS = -DGDBTK
+SUBDIR_GDBTK_CFLAGS= -DGDBTK -D@TCL_PLATFORM_DEFINE@ -D@TK_PLATFORM_DEFINE@
 
 CONFIG_OBS = @CONFIG_OBS@
 CONFIG_SRCS = @CONFIG_SRCS@
@@ -591,9 +585,10 @@ CONFIG_CLEAN = @CONFIG_CLEAN@
 CONFIG_INSTALL = @CONFIG_INSTALL@
 CONFIG_UNINSTALL = @CONFIG_UNINSTALL@
 HAVE_NATIVE_GCORE_TARGET = @HAVE_NATIVE_GCORE_TARGET@
+HAVE_GSTACK = @HAVE_GSTACK@
 
 CONFIG_SRC_SUBDIR = arch cli dwarf2 mi compile tui unittests guile python \
-	target nat
+	target nat gdbtk/generic
 CONFIG_DEP_SUBDIR = $(addsuffix /$(DEPDIR),$(CONFIG_SRC_SUBDIR))
 
 # -I. for config files.
@@ -604,8 +599,14 @@ CONFIG_DEP_SUBDIR = $(addsuffix /$(DEPDIR),$(CONFIG_SRC_SUBDIR))
 # your system doesn't have fcntl.h in /usr/include (which is where it
 # should be according to Posix).
 DEFS = @DEFS@
-GDB_CFLAGS = -I. -I$(srcdir) -I$(srcdir)/config \
-	-DLOCALEDIR="\"$(localedir)\"" $(DEFS)
+GDB_INCLUDED_HEADER = -include $(srcdir)/defs.h
+GDB_CFLAGS = \
+	-I. \
+	-I$(srcdir) \
+	-I$(srcdir)/config \
+	$(GDB_INCLUDED_HEADER) \
+	-DLOCALEDIR="\"$(localedir)\"" \
+	$(DEFS)
 
 # MH_CFLAGS, if defined, has host-dependent CFLAGS from the config directory.
 GLOBAL_CFLAGS = $(MH_CFLAGS)
@@ -628,16 +629,31 @@ INTERNAL_CPPFLAGS = $(CPPFLAGS) @GUILE_CPPFLAGS@ @PYTHON_CPPFLAGS@ \
 	@LARGEFILE_CPPFLAGS@
 
 # INTERNAL_CFLAGS is the aggregate of all other *CFLAGS macros.
-INTERNAL_CFLAGS_BASE = \
-	$(GLOBAL_CFLAGS) $(PROFILE_CFLAGS) \
-	$(GDB_CFLAGS) $(OPCODES_CFLAGS) $(BFD_CFLAGS) $(INCLUDE_CFLAGS) \
-	$(READLINE_CFLAGS) $(ZLIBINC) $(ZSTD_CFLAGS) $(LIBDECNUMBER_CFLAGS) \
-	$(INTL_CFLAGS) $(INCGNU) $(INCSUPPORT) $(LIBBACKTRACE_INC) \
-	$(ENABLE_CFLAGS) $(INTERNAL_CPPFLAGS) $(SRCHIGH_CFLAGS) \
-	$(TOP_CFLAGS) $(PTHREAD_CFLAGS) $(DEBUGINFOD_CFLAGS) $(GMPINC) \
-	$(AMD_DBGAPI_CFLAGS)
-INTERNAL_WARN_CFLAGS = $(INTERNAL_CFLAGS_BASE) $(GDB_WARN_CFLAGS)
-INTERNAL_CFLAGS = $(INTERNAL_WARN_CFLAGS) $(GDB_WERROR_CFLAGS)
+INTERNAL_CFLAGS = \
+	$(GLOBAL_CFLAGS) \
+	$(PROFILE_CFLAGS) \
+	$(GDB_CFLAGS) \
+	$(OPCODES_CFLAGS) \
+	$(BFD_CFLAGS) \
+	$(INCLUDE_CFLAGS) \
+	$(READLINE_CFLAGS) \
+	$(ZLIBINC) \
+	$(ZSTD_CFLAGS) \
+	$(LIBDECNUMBER_CFLAGS) \
+	$(INTL_CFLAGS) \
+	$(INCGNU) \
+	$(INCSUPPORT) \
+	$(LIBBACKTRACE_INC) \
+	$(ENABLE_CFLAGS) \
+	$(INTERNAL_CPPFLAGS) \
+	$(SRCHIGH_CFLAGS) \
+	$(TOP_CFLAGS) \
+	$(PTHREAD_CFLAGS) \
+	$(DEBUGINFOD_CFLAGS) \
+	$(GMPINC) \
+	$(AMD_DBGAPI_CFLAGS) \
+	$(GDB_WARN_CFLAGS) \
+	$(GDB_WERROR_CFLAGS)
 
 # LDFLAGS is specifically reserved for setting from the command line
 # when running make.
@@ -658,10 +674,10 @@ CLIBS = $(SIM) $(READLINE) $(OPCODES) $(LIBCTF) $(BFD) $(ZLIB) $(ZSTD_LIBS) \
         $(LIBSUPPORT) $(INTL) $(LIBIBERTY) $(LIBDECNUMBER) \
 	$(XM_CLIBS) $(GDBTKLIBS)  $(LIBBACKTRACE_LIB) \
 	@LIBS@ @GUILE_LIBS@ @PYTHON_LIBS@ $(AMD_DBGAPI_LIBS) \
-	$(LIBEXPAT) $(LIBLZMA) $(LIBBABELTRACE) $(LIBIPT) \
+	$(LIBEXPAT) $(LIBLZMA) $(LIBIPT) \
 	$(WIN32LIBS) $(LIBGNU) $(LIBGNU_EXTRA_LIBS) $(LIBICONV) \
 	$(GMPLIBS) $(SRCHIGH_LIBS) $(LIBXXHASH) $(PTHREAD_LIBS) \
-	$(DEBUGINFOD_LIBS) $(LIBBABELTRACE_LIB)
+	$(DEBUGINFOD_LIBS)
 CDEPS = $(NAT_CDEPS) $(SIM) $(BFD) $(READLINE_DEPS) $(CTF_DEPS) \
 	$(OPCODES) $(INTL_DEPS) $(LIBIBERTY) $(CONFIG_DEPS) $(LIBGNU) \
 	$(LIBSUPPORT)
@@ -709,15 +725,16 @@ ALL_64_TARGET_OBS = \
 	aarch64-newlib-tdep.o \
 	aarch64-ravenscar-thread.o \
 	aarch64-tdep.o \
+	aarch64-windows-tdep.o \
 	alpha-bsd-tdep.o \
 	alpha-linux-tdep.o \
-	alpha-mdebug-tdep.o \
 	alpha-netbsd-tdep.o \
 	alpha-obsd-tdep.o \
 	alpha-tdep.o \
 	amd64-darwin-tdep.o \
 	amd64-dicos-tdep.o \
 	amd64-fbsd-tdep.o \
+	amd64-gnu-tdep.o \
 	amd64-linux-tdep.o \
 	amd64-netbsd-tdep.o \
 	amd64-obsd-tdep.o \
@@ -727,7 +744,10 @@ ALL_64_TARGET_OBS = \
 	amd64-windows-tdep.o \
 	arch/aarch64.o \
 	arch/aarch64-insn.o \
+	arch/aarch64-mte.o \
 	arch/aarch64-mte-linux.o \
+	arch/aarch64-scalable-linux.o \
+	arch/amd64-linux-tdesc.o \
 	arch/amd64.o \
 	arch/riscv.o \
 	bpf-tdep.o \
@@ -743,6 +763,7 @@ ALL_64_TARGET_OBS = \
 	mips-tdep.o \
 	mips64-obsd-tdep.o \
 	riscv-fbsd-tdep.o \
+	riscv-linux-canonicalize-syscall-gen.o \
 	riscv-linux-tdep.o \
 	riscv-none-tdep.o \
 	riscv-ravenscar-thread.o \
@@ -768,9 +789,11 @@ ALL_TARGET_OBS = \
 	arch/arm.o \
 	arch/arm-get-next-pcs.o \
 	arch/arm-linux.o \
+	arch/i386-linux-tdesc.o \
 	arch/i386.o \
 	arch/loongarch.o \
 	arch/ppc-linux-common.o \
+	arch/x86-linux-tdesc-features.o \
 	arm-bsd-tdep.o \
 	arm-fbsd-tdep.o \
 	arm-linux-tdep.o \
@@ -808,7 +831,6 @@ ALL_TARGET_OBS = \
 	i386-go32-tdep.o \
 	i386-linux-tdep.o \
 	i386-netbsd-tdep.o \
-	i386-nto-tdep.o \
 	i386-obsd-tdep.o \
 	i386-sol2-tdep.o \
 	i386-tdep.o \
@@ -834,9 +856,6 @@ ALL_TARGET_OBS = \
 	msp430-tdep.o \
 	netbsd-tdep.o \
 	nds32-tdep.o \
-	nios2-linux-tdep.o \
-	nios2-tdep.o \
-	nto-tdep.o \
 	obsd-tdep.o \
 	or1k-linux-tdep.o \
 	or1k-tdep.o \
@@ -865,12 +884,14 @@ ALL_TARGET_OBS = \
 	solib-dsbt.o \
 	solib-frv.o \
 	solib-svr4.o \
+	solib-svr4-linux.o \
 	sparc-linux-tdep.o \
 	sparc-netbsd-tdep.o \
 	sparc-obsd-tdep.o \
 	sparc-ravenscar-thread.o \
 	sparc-sol2-tdep.o \
 	sparc-tdep.o \
+	svr4-tls-tdep.o \
 	symfile-mem.o \
 	tic6x-linux-tdep.o \
 	tic6x-tdep.o \
@@ -879,12 +900,19 @@ ALL_TARGET_OBS = \
 	vax-tdep.o \
 	windows-tdep.o \
 	x86-tdep.o \
-	xcoffread.o \
 	xstormy16-tdep.o \
 	xtensa-config.o \
 	xtensa-linux-tdep.o \
 	xtensa-tdep.o \
 	z80-tdep.o
+
+# Object files for reading specific types of debug information.
+coff_SRCS = coffread.c coff-pe-read.c
+elf_SRCS = elfread.c stap-probe.c dtrace-probe.c
+macho_SRCS = machoread.c
+xcoff_SRCS = xcoffread.c
+FORMAT_SRCS = @FORMAT_SRCS@
+FORMAT_OBS = $(patsubst %.c,%.o,$(FORMAT_SRCS))
 
 # The following native-target dependent variables are defined on
 # configure.nat.
@@ -994,7 +1022,10 @@ TARGET_FLAGS_TO_PASS = \
 	"RUNTEST=$(RUNTEST)" \
 	"RUNTESTFLAGS=$(RUNTESTFLAGS)" \
 	"FORCE_PARALLEL=$(FORCE_PARALLEL)" \
-	"TESTS=$(TESTS)"
+	"TESTS=$(TESTS)" \
+	"GDB_DEBUG=$(GDB_DEBUG)" \
+	"GDBSERVER_DEBUG=$(GDBSERVER_DEBUG)" \
+
 
 # All source files that go into linking GDB.
 
@@ -1026,20 +1057,20 @@ COMMON_SFILES = \
 	break-catch-sig.c \
 	break-catch-syscall.c \
 	break-catch-throw.c \
+	break-cond-parse.c \
 	breakpoint.c \
 	bt-utils.c \
 	btrace.c \
+	buffered-streams.c \
 	build-id.c \
-	buildsym-legacy.c \
 	buildsym.c \
 	c-lang.c \
 	c-typeprint.c \
 	c-valprint.c \
 	c-varobj.c \
+	char-print.c \
 	charset.c \
 	cli-out.c \
-	coff-pe-read.c \
-	coffread.c \
 	complaints.c \
 	completer.c \
 	copying.c \
@@ -1053,7 +1084,6 @@ COMMON_SFILES = \
 	d-lang.c \
 	d-namespace.c \
 	d-valprint.c \
-	dbxread.c \
 	dcache.c \
 	debug.c \
 	debuginfod-support.c \
@@ -1061,40 +1091,17 @@ COMMON_SFILES = \
 	disasm.c \
 	displaced-stepping.c \
 	dummy-frame.c \
-	dwarf2/abbrev.c \
-	dwarf2/abbrev-cache.c \
-	dwarf2/ada-imported.c \
-	dwarf2/attribute.c \
-	dwarf2/comp-unit-head.c \
-	dwarf2/cooked-index.c \
-	dwarf2/cu.c \
-	dwarf2/die.c \
-	dwarf2/dwz.c \
-	dwarf2/expr.c \
-	dwarf2/frame-tailcall.c \
-	dwarf2/frame.c \
-	dwarf2/index-cache.c \
-	dwarf2/index-common.c \
-	dwarf2/index-write.c \
-	dwarf2/leb.c \
-	dwarf2/line-header.c \
-	dwarf2/loc.c \
-	dwarf2/macro.c \
-	dwarf2/read.c \
-	dwarf2/read-debug-names.c \
-	dwarf2/read-gdb-index.c \
-	dwarf2/section.c \
-	dwarf2/stringify.c \
+	extract-store-integer.c \
 	eval.c \
 	event-top.c \
 	exceptions.c \
 	exec.c \
+	expanded-symbol.c \
 	expprint.c \
 	extension.c \
 	f-lang.c \
 	f-typeprint.c \
 	f-valprint.c \
-	filename-seen-cache.c \
 	filesystem.c \
 	findcmd.c \
 	findvar.c \
@@ -1135,7 +1142,6 @@ COMMON_SFILES = \
 	maint.c \
 	maint-test-options.c \
 	maint-test-settings.c \
-	mdebugread.c \
 	mem-break.c \
 	memattr.c \
 	memory-map.c \
@@ -1143,7 +1149,6 @@ COMMON_SFILES = \
 	memtag.c \
 	minidebug.c \
 	minsyms.c \
-	mipsread.c \
 	namespace.c \
 	objc-lang.c \
 	objfiles.c \
@@ -1162,7 +1167,6 @@ COMMON_SFILES = \
 	progspace.c \
 	progspace-and-thread.c \
 	prologue-value.c \
-	psymtab.c \
 	record.c \
 	record-btrace.c \
 	record-full.c \
@@ -1185,7 +1189,6 @@ COMMON_SFILES = \
 	source.c \
 	source-cache.c \
 	split-name.c \
-	stabsread.c \
 	stack.c \
 	std-regs.c \
 	symfile.c \
@@ -1202,7 +1205,6 @@ COMMON_SFILES = \
 	thread-iter.c \
 	tid-parse.c \
 	top.c \
-	tracectf.c \
 	tracefile.c \
 	tracefile-tfile.c \
 	tracepoint.c \
@@ -1236,7 +1238,6 @@ SFILES = \
 	d-exp.y \
 	dtrace-probe.c \
 	elf-none-tdep.c \
-	elfread.c \
 	f-exp.y \
 	gcore-elf.c \
 	gdb.c \
@@ -1264,124 +1265,235 @@ SFILES = \
 # right, it is probably easiest just to list .h files here directly.
 
 HFILES_NO_SRCDIR = \
+	aarch32-linux-nat.h \
 	aarch32-tdep.h \
+	aarch64-fbsd-tdep.h \
+	aarch64-linux-tdep.h \
+	aarch64-nat.h \
 	aarch64-ravenscar-thread.h \
 	aarch64-tdep.h \
+	ada-casefold.h \
+	ada-exp.h \
 	ada-lang.h \
 	addrmap.h \
 	alpha-bsd-tdep.h \
 	alpha-tdep.h \
-	amd-dbgapi-target.h \
+	amd64-bsd-nat.h \
 	amd64-darwin-tdep.h \
+	amd64-fbsd-tdep.h \
 	amd64-linux-tdep.h \
 	amd64-nat.h \
 	amd64-ravenscar-thread.h \
 	amd64-tdep.h \
+	amd-dbgapi-hdep.h \
+	amd-dbgapi-target.h \
 	amdgpu-tdep.h \
 	annotate.h \
-	arc-tdep.h \
+	arch/aarch32.h \
+	arch/aarch64-fpmr-linux.h \
+	arch/aarch64-gcs-linux.h \
+	arch/aarch64.h \
+	arch/aarch64-insn.h \
+	arch/aarch64-mte.h \
+	arch/aarch64-mte-linux.h \
+	arch/aarch64-pauth-linux.h \
+	arch/aarch64-scalable-linux.h \
+	arch/amd64.h \
+	arch/amd64-linux-tdesc.h \
+	arch/arc.h \
+	arch/arm-get-next-pcs.h \
+	arch/arm.h \
+	arch/arm-linux.h \
+	arch/csky.h \
+	arch/i386.h \
+	arch/i386-linux-tdesc.h \
+	arch/loongarch.h \
+	arch/loongarch-insn.h \
+	arch/loongarch-syscall.h \
+	arch/ppc-linux-common.h \
+	arch/ppc-linux-tdesc.h \
+	arch/riscv.h \
+	arch/tic6x.h \
 	arch-utils.h \
+	arch/x86-linux-tdesc-features.h \
+	arch/x86-linux-tdesc.h \
+	arch/xtensa.h \
+	arc-linux-tdep.h \
+	arc-tdep.h \
+	arm-fbsd-tdep.h \
 	arm-linux-tdep.h \
 	arm-netbsd-tdep.h \
 	arm-tdep.h \
 	async-event.h \
 	auto-load.h \
 	auxv.h \
-	ax.h \
 	ax-gdb.h \
+	ax.h \
 	bcache.h \
 	bfd-target.h \
 	bfin-tdep.h \
 	block.h \
+	break-cond-parse.h \
 	breakpoint.h \
 	bsd-kvm.h \
 	bsd-uthread.h \
+	btrace.h \
 	bt-utils.h \
+	buffered-streams.h \
 	build-id.h \
-	buildsym-legacy.h \
 	buildsym.h \
-	c-lang.h \
+	c-exp.h \
+	cgen-remap.h \
 	charset.h \
 	charset-list.h \
+	c-lang.h \
+	cli/cli-cmds.h \
+	cli/cli-decode.h \
+	cli/cli-interp.h \
+	cli/cli-option.h \
+	cli/cli-script.h \
+	cli/cli-setshow.h \
+	cli/cli-style.h \
+	cli/cli-utils.h \
 	cli-out.h \
 	coff-pe-read.h \
 	command.h \
+	compile/compile-c.h \
+	compile/compile-cplus.h \
+	compile/compile.h \
+	compile/compile-internal.h \
+	compile/compile-object-load.h \
+	compile/compile-object-run.h \
+	compile/gcc-c-plugin.h \
+	compile/gcc-cp-plugin.h \
 	complaints.h \
 	completer.h \
+	config/djgpp/langinfo.h \
+	config/djgpp/nl_types.h \
+	config/i386/nm-x86-gnu.h \
+	config/nm-linux.h \
+	config/sparc/nm-sol2.h \
 	cp-abi.h \
 	cp-support.h \
+	cris-tdep.h \
 	csky-tdep.h \
-	d-lang.h \
+	c-support.h \
+	ctfread.h \
 	darwin-nat.h \
 	dcache.h \
+	debuginfod-support.h \
 	defs.h \
 	dicos-tdep.h \
 	dictionary.h \
 	disasm-flags.h \
 	disasm.h \
+	disasm-selftests.h \
+	displaced-stepping.h \
+	d-lang.h \
 	dummy-frame.h \
+	dwarf2/abbrev.h \
+	dwarf2/abbrev-table-cache.h \
+	dwarf2/aranges.h \
+	dwarf2/attribute.h \
+	dwarf2/call-site.h \
+	dwarf2/cooked-index-entry.h \
+	dwarf2/cooked-indexer.h \
 	dwarf2/cooked-index.h \
+	dwarf2/cooked-index-shard.h \
+	dwarf2/cooked-index-worker.h \
 	dwarf2/cu.h \
-	dwarf2/frame-tailcall.h \
-	dwarf2/frame.h \
+	dwarf2/die.h \
+	dwarf2/dwz.h \
+	dwarf2/error.h \
 	dwarf2/expr.h \
+	dwarf2/file-and-dir.h \
+	dwarf2/frame.h \
+	dwarf2/frame-tailcall.h \
 	dwarf2/index-cache.h \
 	dwarf2/index-common.h \
+	dwarf2/index-write.h \
+	dwarf2/leb.h \
+	dwarf2/line-header.h \
+	dwarf2/line-program.h \
 	dwarf2/loc.h \
-	dwarf2/read.h \
+	dwarf2/macro.h \
+	dwarf2/mapped-index.h \
+	dwarf2/parent-map.h \
+	dwarf2/public.h \
 	dwarf2/read-debug-names.h \
 	dwarf2/read-gdb-index.h \
+	dwarf2/read.h \
+	dwarf2/section.h \
+	dwarf2/sect-names.h \
+	dwarf2/stringify.h \
+	dwarf2/tag.h \
+	dwarf2/types.h \
+	dwarf2/unit-head.h \
+	elf-none-tdep.h \
 	event-top.h \
 	exceptions.h \
 	exec.h \
+	expanded-symbol.h \
+	expop.h \
 	expression.h \
 	extension.h \
 	extension-priv.h \
+	extract-store-integer.h \
 	f-array-walker.h \
-	f-lang.h \
 	fbsd-nat.h \
 	fbsd-tdep.h \
+	f-exp.h \
+	filename-seen-cache.h \
 	filesystem.h \
-	frame.h \
+	find-memory-region.h \
+	finish-thread-state.h \
+	f-lang.h \
 	frame-base.h \
+	frame.h \
+	frame-id.h \
 	frame-unwind.h \
 	frv-tdep.h \
 	ft32-tdep.h \
 	gcore-elf.h \
 	gcore.h \
+	gdbarch-gen.h \
+	gdbarch.h \
 	gdb_bfd.h \
+	gdbcore.h \
 	gdb_curses.h \
+	gdb-demangle.h \
 	gdb_expat.h \
 	gdb_proc_service.h \
-	gdb-stabs.h \
-	gdb_vfork.h \
-	gdb_wchar.h \
-	gdbarch.h \
-	gdbcmd.h \
-	gdbcore.h \
 	gdbthread.h \
 	gdbtypes.h \
+	gdb_vfork.h \
+	gdb_wchar.h \
 	glibc-tdep.h \
 	gmp-utils.h \
 	gnu-nat.h \
+	gnu-nat-mig.h \
 	go-lang.h \
 	gregset.h \
+	guile/guile.h \
+	guile/guile-internal.h \
 	hppa-bsd-tdep.h \
 	hppa-linux-offsets.h \
 	hppa-tdep.h \
 	i386-bsd-nat.h \
 	i386-darwin-tdep.h \
-	i386-linux-nat.h \
+	i386-fbsd-tdep.h \
 	i386-linux-tdep.h \
 	i386-tdep.h \
 	i387-tdep.h \
 	ia64-libunwind-tdep.h \
 	ia64-tdep.h \
+	infcall.h \
 	inf-child.h \
+	inferior.h \
+	inferior-iter.h \
 	inf-loop.h \
 	inf-ptrace.h \
-	infcall.h \
-	inferior.h \
+	infrun.h \
 	inline-frame.h \
 	interps.h \
 	jit.h \
@@ -1389,10 +1501,12 @@ HFILES_NO_SRCDIR = \
 	linespec.h \
 	linux-fork.h \
 	linux-nat.h \
+	linux-nat-trad.h \
 	linux-record.h \
 	linux-tdep.h \
 	location.h \
 	loongarch-tdep.h \
+	m2-exp.h \
 	m2-lang.h \
 	m32r-tdep.h \
 	m68k-tdep.h \
@@ -1400,107 +1514,211 @@ HFILES_NO_SRCDIR = \
 	macroscope.h \
 	macrotab.h \
 	main.h \
-	mdebugread.h \
+	maint.h \
 	memattr.h \
 	memory-map.h \
 	memrange.h \
+	memtag.h \
 	microblaze-tdep.h \
+	microblaze-linux-tdep.h \
+	mi/mi-cmd-break.h \
+	mi/mi-cmds.h \
+	mi/mi-common.h \
+	mi/mi-console.h \
+	mi/mi-getopt.h \
+	mi/mi-interp.h \
+	mi/mi-main.h \
+	mi/mi-out.h \
+	mi/mi-parse.h \
+	minsyms.h \
+	mips-fbsd-tdep.h \
 	mips-linux-tdep.h \
 	mips-netbsd-tdep.h \
 	mips-tdep.h \
 	mn10300-tdep.h \
 	moxie-tdep.h \
+	namespace.h \
+	nat/aarch64-fpmr-linux.h \
+	nat/aarch64-gcs-linux.h \
+	nat/aarch64-hw-point.h \
+	nat/aarch64-linux.h \
+	nat/aarch64-linux-hw-point.h \
+	nat/aarch64-mte-linux-ptrace.h \
+	nat/aarch64-pauth-linux.h \
+	nat/aarch64-scalable-linux-ptrace.h \
+	nat/aarch64-scalable-linux-sigcontext.h \
+	nat/amd64-linux.h \
+	nat/amd64-linux-siginfo.h \
+	nat/fork-inferior.h \
+	nat/gdb_ptrace.h \
+	nat/gdb_thread_db.h \
+	nat/glibc_thread_db.h \
+	nat/i386-linux.h \
+	nat/linux-btrace.h \
+	nat/linux-namespaces.h \
+	nat/linux-nat.h \
+	nat/linux-osdata.h \
+	nat/linux-personality.h \
+	nat/linux-procfs.h \
+	nat/linux-ptrace.h \
+	nat/linux-waitpid.h \
+	nat/loongarch-hw-point.h \
+	nat/loongarch-linux.h \
+	nat/loongarch-linux-hw-point.h \
+	nat/mips-linux-watch.h \
+	nat/netbsd-nat.h \
+	nat/ppc-linux.h \
+	nat/riscv-linux-tdesc.h \
+	nat/windows-nat.h \
+	nat/x86-cpuid.h \
+	nat/x86-dregs.h \
+	nat/x86-gcc-cpuid.h \
+	nat/x86-linux-dregs.h \
+	nat/x86-linux.h \
+	nat/x86-linux-tdesc.h \
+	nat/x86-xstate.h \
+	nds32-tdep.h \
 	netbsd-nat.h \
 	netbsd-tdep.h \
-	nds32-tdep.h \
-	nios2-tdep.h \
-	elf-none-tdep.h \
-	nto-tdep.h \
 	objc-lang.h \
+	objfile-flags.h \
 	objfiles.h \
 	obsd-nat.h \
 	obsd-tdep.h \
+	observable.h \
 	or1k-linux-tdep.h \
+	or1k-tdep.h \
 	osabi.h \
 	osdata.h \
-	p-lang.h \
+	pager.h \
 	parser-defs.h \
+	p-lang.h \
+	ppc64-tdep.h \
 	ppc-fbsd-tdep.h \
 	ppc-linux-tdep.h \
 	ppc-netbsd-tdep.h \
 	ppc-obsd-tdep.h \
 	ppc-ravenscar-thread.h \
 	ppc-tdep.h \
-	ppc64-tdep.h \
 	probe.h \
-	proc-utils.h \
+	process-stratum-target.h \
 	procfs.h \
-	progspace.h \
+	proc-utils.h \
+	producer.h \
 	progspace-and-thread.h \
+	progspace.h \
 	prologue-value.h \
-	psympriv.h \
-	psymtab.h \
+	python/py-color.h \
+	python/py-event.h \
+	python/py-events.h \
+	python/py-instruction.h \
+	python/py-record-btrace.h \
+	python/py-record-full.h \
+	python/py-record.h \
+	python/py-ref.h \
+	python/py-stopevent.h \
+	python/python.h \
+	python/python-internal.h \
+	python/python-limited-api-missing.h \
+	python/py-uiout.h \
+	quick-symbol.h \
 	ravenscar-thread.h \
-	record.h \
+	record-btrace.h \
 	record-full.h \
+	record.h \
 	regcache.h \
+	regformats/regdef.h \
 	reggroups.h \
+	registry.h \
 	regset.h \
-	remote.h \
 	remote-fileio.h \
+	remote.h \
 	remote-notif.h \
 	riscv-fbsd-tdep.h \
+	riscv-linux-tdep.h \
 	riscv-ravenscar-thread.h \
 	riscv-tdep.h \
 	rs6000-aix-tdep.h \
 	run-on-main-thread.h \
+	rust-exp.h \
+	rust-lang.h \
 	s390-linux-tdep.h \
 	s390-tdep.h \
+	scoped-mock-context.h \
 	selftest-arch.h \
 	sentinel-frame.h \
 	ser-base.h \
 	ser-event.h \
+	serial.h \
 	ser-tcp.h \
 	ser-unix.h \
-	serial.h \
 	sh-tdep.h \
 	sim-regno.h \
 	skip.h \
 	sol2-tdep.h \
-	solib.h \
 	solib-aix.h \
 	solib-darwin.h \
+	solib-dsbt.h \
+	solib-frv.h \
+	solib.h \
 	solib-svr4.h \
+	solib-svr4-linux.h \
 	solib-target.h \
-	solist.h \
-	source.h \
 	source-cache.h \
+	source.h \
+	sparc64-tdep.h \
 	sparc-nat.h \
 	sparc-ravenscar-thread.h \
 	sparc-tdep.h \
-	sparc64-tdep.h \
 	split-name.h \
-	stabsread.h \
 	stack.h \
 	stap-probe.h \
+	svr4-tls-tdep.h \
+	symfile-add-flags.h \
 	symfile.h \
 	symtab.h \
-	target.h \
+	target-connection.h \
 	target-dcache.h \
+	target-debug.h \
 	target-descriptions.h \
+	target-float.h \
+	target.h \
+	target/resume.h \
+	target-section.h \
+	target/target.h \
+	target/wait.h \
+	target/waitstatus.h \
 	terminal.h \
+	test-target.h \
+	thread-fsm.h \
+	thread-iter.h \
+	tic6x-tdep.h \
 	tid-parse.h \
+	tilegx-tdep.h \
 	top.h \
-	tracectf.h \
 	tracefile.h \
 	tracepoint.h \
 	trad-frame.h \
-	target-float.h \
 	tramp-frame.h \
-	type-stack.h \
+	tui/tui-command.h \
+	tui/tui-data.h \
+	tui/tui-disasm.h \
+	tui/tui-file.h \
+	tui/tui.h \
+	tui/tui-hooks.h \
+	tui/tui-io.h \
+	tui/tui-layout.h \
+	tui/tui-location.h \
+	tui/tui-regs.h \
+	tui/tui-source.h \
+	tui/tui-status.h \
+	tui/tui-wingeneral.h \
+	tui/tui-win.h \
+	tui/tui-winsource.h \
 	typeprint.h \
-	ui.h \
+	type-stack.h \
 	ui-file.h \
+	ui.h \
 	ui-out.h \
 	ui-style.h \
 	user-regs.h \
@@ -1513,101 +1731,18 @@ HFILES_NO_SRCDIR = \
 	windows-nat.h \
 	windows-tdep.h \
 	x86-bsd-nat.h \
+	x86-fbsd-nat.h \
 	x86-linux-nat.h \
 	x86-nat.h \
+	x86-tdep.h \
 	xcoffread.h \
 	xml-builtin.h \
 	xml-support.h \
 	xml-syscall.h \
 	xml-tdesc.h \
 	xtensa-tdep.h \
-	arch/aarch32.h \
-	arch/aarch64.h \
-	arch/aarch64-insn.h \
-	arch/aarch64-mte-linux.h \
-	arch/arc.h \
-	arch/arm.h \
-	arch/i386.h \
-	arch/loongarch.h \
-	arch/ppc-linux-common.h \
-	arch/ppc-linux-tdesc.h \
-	arch/riscv.h \
-	cli/cli-cmds.h \
-	cli/cli-decode.h \
-	cli/cli-script.h \
-	cli/cli-setshow.h \
-	cli/cli-style.h \
-	cli/cli-utils.h \
-	compile/compile.h \
-	compile/compile-c.h \
-	compile/compile-cplus.h \
-	compile/compile-internal.h \
-	compile/compile-object-load.h \
-	compile/compile-object-run.h \
-	compile/gcc-c-plugin.h \
-	compile/gcc-cp-plugin.h \
-	config/nm-linux.h \
-	config/nm-nto.h \
-	config/djgpp/langinfo.h \
-	config/djgpp/nl_types.h \
-	config/i386/nm-i386gnu.h \
-	config/sparc/nm-sol2.h \
-	mi/mi-cmds.h \
-	mi/mi-common.h \
-	mi/mi-console.h \
-	mi/mi-getopt.h \
-	mi/mi-main.h \
-	mi/mi-out.h \
-	mi/mi-parse.h \
-	nat/aarch64-linux.h \
-	nat/aarch64-linux-hw-point.h \
-	nat/aarch64-mte-linux-ptrace.h \
-	nat/aarch64-sve-linux-ptrace.h \
-	nat/amd64-linux-siginfo.h \
-	nat/gdb_ptrace.h \
-	nat/gdb_thread_db.h \
-	nat/fork-inferior.h \
-	nat/linux-btrace.h \
-	nat/linux-namespaces.h \
-	nat/linux-nat.h \
-	nat/linux-osdata.h \
-	nat/linux-personality.h \
-	nat/linux-ptrace.h \
-	nat/linux-waitpid.h \
-	nat/mips-linux-watch.h \
-	nat/ppc-linux.h \
-	nat/x86-cpuid.h \
-	nat/x86-dregs.h \
-	nat/x86-gcc-cpuid.h \
-	nat/x86-linux.h \
-	nat/x86-linux-dregs.h \
-	python/py-event.h \
-	python/py-events.h \
-	python/py-stopevent.h \
-	python/python.h \
-	python/python-internal.h \
-	regformats/regdef.h \
-	target/resume.h \
-	target/target.h \
-	target/wait.h \
-	target/waitstatus.h \
-	tui/tui.h \
-	tui/tui-command.h \
-	tui/tui-data.h \
-	tui/tui-disasm.h \
-	tui/tui-file.h \
-	tui/tui-hooks.h \
-	tui/tui-io.h \
-	tui/tui-layout.h \
-	tui/tui-location.h \
-	tui/tui-out.h \
-	tui/tui-regs.h \
-	tui/tui-source.h \
-	tui/tui-stack.h \
-	tui/tui-win.h \
-	tui/tui-wingeneral.h \
-	tui/tui-winsource.h \
-	x86-tdep.h
+	yy-remap.h \
+	z80-tdep.h
 
 # Header files that already have srcdir in them, or which are in objdir.
 
@@ -1627,7 +1762,9 @@ ALLDEPFILES = \
 	arch/aarch32.c \
 	arch/aarch64.c \
 	arch/aarch64-insn.c \
+	arch/aarch64-mte.c \
 	arch/aarch64-mte-linux.c \
+	arch/aarch64-scalable-linux.c \
 	arch/amd64.c \
 	arch/arc.c \
 	arch/arm.c \
@@ -1646,21 +1783,25 @@ ALLDEPFILES = \
 	aarch64-newlib-tdep.c \
 	aarch64-ravenscar-thread.c \
 	aarch64-tdep.c \
+	aarch64-windows-nat.c \
+	aarch64-windows-tdep.c \
 	aix-thread.c \
 	alpha-bsd-nat.c \
 	alpha-bsd-tdep.c \
 	alpha-linux-nat.c \
 	alpha-linux-tdep.c \
-	alpha-mdebug-tdep.c \
 	alpha-netbsd-tdep.c \
 	alpha-obsd-tdep.c \
 	alpha-tdep.c \
+	amd-dbgapi-mingw-hdep.c \
+	amd-dbgapi-posix-hdep.c \
 	amd-dbgapi-target.c \
 	amd64-bsd-nat.c \
 	amd64-darwin-tdep.c \
 	amd64-dicos-tdep.c \
 	amd64-fbsd-nat.c \
 	amd64-fbsd-tdep.c \
+	amd64-gnu-tdep.c \
 	amd64-linux-nat.c \
 	amd64-linux-tdep.c \
 	amd64-nat.c \
@@ -1716,7 +1857,6 @@ ALLDEPFILES = \
 	i386-dicos-tdep.c \
 	i386-fbsd-nat.c \
 	i386-fbsd-tdep.c \
-	i386-gnu-nat.c \
 	i386-gnu-tdep.c \
 	i386-linux-nat.c \
 	i386-linux-tdep.c \
@@ -1751,6 +1891,7 @@ ALLDEPFILES = \
 	m68k-linux-nat.c \
 	m68k-linux-tdep.c \
 	m68k-tdep.c \
+	microblaze-linux-nat.c \
 	microblaze-linux-tdep.c \
 	microblaze-tdep.c \
 	mingw-hdep.c \
@@ -1768,8 +1909,6 @@ ALLDEPFILES = \
 	netbsd-nat.c \
 	netbsd-tdep.c \
 	nds32-tdep.c \
-	nios2-linux-tdep.c \
-	nios2-tdep.c \
 	obsd-nat.c \
 	obsd-tdep.c \
 	or1k-linux-nat.c \
@@ -1790,6 +1929,7 @@ ALLDEPFILES = \
 	remote-sim.c \
 	riscv-fbsd-nat.c \
 	riscv-fbsd-tdep.c \
+	riscv-linux-canonicalize-syscall-gen.c \
 	riscv-linux-nat.c \
 	riscv-linux-tdep.c \
 	riscv-none-tdep.c \
@@ -1836,6 +1976,7 @@ ALLDEPFILES = \
 	sparc64-obsd-tdep.c \
 	sparc64-sol2-tdep.c \
 	sparc64-tdep.c \
+	svr4-tls-tdep.c \
 	tilegx-linux-nat.c \
 	tilegx-linux-tdep.c \
 	tilegx-tdep.c \
@@ -1845,9 +1986,10 @@ ALLDEPFILES = \
 	vax-tdep.c \
 	windows-nat.c \
 	windows-tdep.c \
+	x86-gnu-nat.c \
 	x86-nat.c \
 	x86-tdep.c \
-	xcoffread.c \
+	x86-windows-nat.c \
 	xstormy16-tdep.c \
 	xtensa-config.c \
 	xtensa-linux-nat.c \
@@ -1861,6 +2003,40 @@ TAGFILES_NO_SRCDIR = $(SFILES) $(HFILES_NO_SRCDIR) $(ALLDEPFILES) \
 	$(CONFIG_SRCS)
 TAGFILES_WITH_SRCDIR = $(HFILES_WITH_SRCDIR)
 
+# Files that are used to support certain debuginfo formats
+DWARF2_SRCS = \
+	dwarf2/abbrev.c \
+	dwarf2/ada-imported.c \
+	dwarf2/aranges.c \
+	dwarf2/attribute.c \
+	dwarf2/cooked-index.c \
+	dwarf2/cooked-index-entry.c \
+	dwarf2/cooked-index-shard.c \
+	dwarf2/cooked-index-worker.c \
+	dwarf2/cooked-indexer.c \
+	dwarf2/cu.c \
+	dwarf2/die.c \
+	dwarf2/dwz.c \
+	dwarf2/expr.c \
+	dwarf2/frame-tailcall.c \
+	dwarf2/frame.c \
+	dwarf2/index-cache.c \
+	dwarf2/index-common.c \
+	dwarf2/index-write.c \
+	dwarf2/leb.c \
+	dwarf2/line-header.c \
+	dwarf2/line-program.c \
+	dwarf2/loc.c \
+	dwarf2/macro.c \
+	dwarf2/parent-map.c \
+	dwarf2/read.c \
+	dwarf2/read-debug-names.c \
+	dwarf2/read-gdb-index.c \
+	dwarf2/section.c \
+	dwarf2/stringify.c \
+	dwarf2/unit-head.c
+DWARF2_OBS = $(patsubst %.c,%.o, $(DWARF2_SRCS))
+
 COMMON_OBS = $(DEPFILES) $(CONFIG_OBS) $(YYOBJ) \
 	mi/mi-common.o \
 	version.o \
@@ -1869,7 +2045,7 @@ COMMON_OBS = $(DEPFILES) $(CONFIG_OBS) $(YYOBJ) \
 	$(SUBDIR_CLI_OBS) \
 	$(SUBDIR_MI_OBS) \
 	$(SUBDIR_TARGET_OBS) \
-	$(SUBDIR_GCC_COMPILE_OBS)
+	$(FORMAT_OBS)
 
 SUBDIRS = doc @subdirs@ data-directory
 CLEANDIRS = $(SUBDIRS)
@@ -1912,7 +2088,7 @@ generated_files = \
 # Flags needed to compile Python code
 PYTHON_CFLAGS = @PYTHON_CFLAGS@
 
-all: gdb$(EXEEXT) $(CONFIG_ALL) gdb-gdb.py gdb-gdb.gdb
+all: gdb$(EXEEXT) $(CONFIG_ALL) gdb-gdb.py gdb-gdb.gdb gcore gstack gdb-add-index
 	@$(MAKE) $(FLAGS_TO_PASS) DO=all "DODIRS=$(SUBDIRS)" subdir_do
 
 # Rule for compiling .c files in the top-level gdb directory.
@@ -1922,15 +2098,13 @@ all: gdb$(EXEEXT) $(CONFIG_ALL) gdb-gdb.py gdb-gdb.gdb
 	$(POSTCOMPILE)
 
 $(CONFIG_DEP_SUBDIR):
-	$(SHELL) $(srcdir)/../mkinstalldirs $@
+	$(ECHO_GEN) $(SHELL) $(srcdir)/../install-sh -d $@
 
 # Python files need special flags.
 python/%.o: INTERNAL_CFLAGS += $(PYTHON_CFLAGS)
 
-# Rules for compiling .c files in the various source subdirectories.
-%.o: $(srcdir)/gdbtk/generic/%.c
-	$(COMPILE) $(all_gdbtk_cflags) $<
-	$(POSTCOMPILE)
+# Insight UI needs special flags.
+gdbtk/generic/%.o: INTERNAL_CFLAGS += $(all_gdbtk_cflags)
 
 installcheck:
 
@@ -1968,6 +2142,18 @@ check-parallel: force
 	  $(MAKE) $(TARGET_FLAGS_TO_PASS) check-parallel; \
 	else true; fi
 
+check-all-boards: force
+	@if [ -f testsuite/Makefile ]; then \
+	  rootme=`pwd`; export rootme; \
+	  rootsrc=`cd $(srcdir); pwd`; export rootsrc; \
+	  cd testsuite; \
+	  $(MAKE) $(TARGET_FLAGS_TO_PASS) check-all-boards; \
+	else true; fi
+
+testsuite.lockdir: force
+	rm -rf $@
+	mkdir -p $@
+
 # The idea is to parallelize testing of multilibs, for example:
 #   make -j3 check//sh-hms-sim/{-m1,-m2,-m3,-m3e,-m4}/{,-nofpu}
 # will run 3 concurrent sessions of check, eventually testing all 10
@@ -1976,7 +2162,7 @@ check-parallel: force
 # used, this rule will harmlessly fail to match.  Used FORCE_PARALLEL to
 # prevent serialized checking due to the passed RUNTESTFLAGS.
 # FIXME: use config.status --config not --version, when available.
-check//%: force
+check//%: force testsuite.lockdir
 	@if [ -f testsuite/config.status ]; then \
 	  rootme=`pwd`; export rootme; \
 	  rootsrc=`cd $(srcdir); pwd`; export rootsrc; \
@@ -1994,7 +2180,7 @@ check//%: force
 	     ); \
 	  else :; fi && cd $$testdir && \
 	  $(MAKE) $(TARGET_FLAGS_TO_PASS) \
-	    RUNTESTFLAGS="--target_board=$$variant $(RUNTESTFLAGS)" \
+	    RUNTESTFLAGS="GDB_LOCK_DIR=$$rootme/testsuite.lockdir --target_board=$$variant $(RUNTESTFLAGS)" \
 	    FORCE_PARALLEL=$(if $(FORCE_PARALLEL),1,$(if $(RUNTESTFLAGS),,1)) \
 	    "$$target"; \
 	else true; fi
@@ -2017,11 +2203,11 @@ check-headers:
 	@echo Checking headers.
 	for i in $(CHECK_HEADERS) ; do \
 		$(CXX) $(CXX_DIALECT) -x c++-header -c -fsyntax-only \
-		$(INTERNAL_CFLAGS) $(CXXFLAGS) -include defs.h $(srcdir)/$$i ; \
+		$(INTERNAL_CFLAGS) $(CXXFLAGS) $(srcdir)/$$i ; \
 	done
 .PHONY: check-headers
 
-info install-info clean-info dvi pdf install-pdf html install-html: force
+info install-info clean-info dvi install-dvi pdf install-pdf html install-html: force
 	@$(MAKE) $(FLAGS_TO_PASS) DO=$@ "DODIRS=$(SUBDIRS)" subdir_do
 
 # Traditionally "install" depends on "all".  But it may be useful
@@ -2059,6 +2245,19 @@ install-only: $(CONFIG_INSTALL)
 		  $(INSTALL_SCRIPT) gcore \
 			  $(DESTDIR)$(bindir)/$$transformed_name; \
 	fi
+	if test "x${HAVE_GSTACK}" != x; \
+	then \
+	  transformed_name=`t='$(program_transform_name)'; \
+			    echo gstack | sed -e "$$t"` ; \
+		  if test "x$$transformed_name" = x; then \
+		    transformed_name=gstack ; \
+		  else \
+		    true ; \
+		  fi ; \
+		  $(SHELL) $(srcdir)/../mkinstalldirs $(DESTDIR)$(bindir) ; \
+		  $(INSTALL_SCRIPT) gstack \
+			  $(DESTDIR)$(bindir)/$$transformed_name; \
+	fi
 	transformed_name=`t='$(program_transform_name)'; \
 			  echo gdb-add-index | sed -e "$$t"` ; \
 	if test "x$$transformed_name" = x; then \
@@ -2066,7 +2265,7 @@ install-only: $(CONFIG_INSTALL)
 	else \
 	  true ; \
 	fi ; \
-	$(INSTALL_SCRIPT) $(srcdir)/contrib/gdb-add-index.sh \
+	$(INSTALL_SCRIPT) gdb-add-index \
 		$(DESTDIR)$(bindir)/$$transformed_name
 	@$(MAKE) DO=install "DODIRS=$(SUBDIRS)" $(FLAGS_TO_PASS) subdir_do
 
@@ -2103,6 +2302,17 @@ uninstall: force $(CONFIG_UNINSTALL)
 		  fi ; \
 		  rm -f $(DESTDIR)$(bindir)/$$transformed_name; \
 	fi
+	if test "x$(HAVE_GSTACK)" != x; \
+	then \
+	  transformed_name=`t='$(program_transform_name)'; \
+			    echo gstack | sed -e "$$t"` ; \
+		  if test "x$$transformed_name" = x; then \
+		    transformed_name=gstack ; \
+		  else \
+		    true ; \
+		  fi ; \
+		  rm -f $(DESTDIR)$(bindir)/$$transformed_name; \
+	fi
 	transformed_name=`t='$(program_transform_name)'; \
 			  echo gdb-add-index | sed -e "$$t"` ; \
 	if test "x$$transformed_name" = x; then \
@@ -2112,16 +2322,6 @@ uninstall: force $(CONFIG_UNINSTALL)
 	fi ; \
 	rm -f $(DESTDIR)$(bindir)/$$transformed_name
 	@$(MAKE) DO=uninstall "DODIRS=$(SUBDIRS)" $(FLAGS_TO_PASS) subdir_do
-
-# The C++ name parser can be built standalone for testing.
-test-cp-name-parser.o: cp-name-parser.c
-	$(COMPILE) -DTEST_CPNAMES cp-name-parser.c
-	$(POSTCOMPILE)
-
-test-cp-name-parser$(EXEEXT): test-cp-name-parser.o $(LIBIBERTY)
-	$(ECHO_CXXLD) $(CC_LD) $(INTERNAL_LDFLAGS) \
-		-o test-cp-name-parser$(EXEEXT) test-cp-name-parser.o \
-		$(LIBIBERTY)
 
 # We do this by grepping through sources.  If that turns out to be too slow,
 # maybe we could just require every .o file to have an initialization routine
@@ -2134,7 +2334,7 @@ test-cp-name-parser$(EXEEXT): test-cp-name-parser.o $(LIBIBERTY)
 # computing the list of source files from the list of object files.
 
 INIT_FILES_FILTER_OUT = \
-	cp-name-parser.o \
+	gdbres.o \
 	init.o \
 	version.o \
 	xml-builtin.o \
@@ -2149,7 +2349,9 @@ INIT_FILES = \
 init.c: stamp-init; @true
 stamp-init: $(INIT_FILES) config.status $(srcdir)/make-init-c
 	$(ECHO_INIT_C)
-	$(SILENCE) $(srcdir)/make-init-c $(addprefix $(srcdir)/,$(INIT_FILES)) > init.c-tmp
+	$(SILENCE) $(srcdir)/make-init-c \
+		$(filter-out config.status $(srcdir)/make-init-c,$^) \
+		> init.c-tmp
 	$(SILENCE) $(SHELL) $(srcdir)/../move-if-change init.c-tmp init.c
 	$(SILENCE) echo stamp > stamp-init
 
@@ -2199,8 +2401,7 @@ TAGS: $(TAGFILES_NO_SRCDIR) $(TAGFILES_WITH_SRCDIR)
 		echo $(srcdir)/$$i ; \
 	done ; for i in $(TAGFILES_WITH_SRCDIR); do \
 		echo $$i ; \
-	done) | sed -e 's/\.o$$/\.c/'` \
-	`find $(srcdir)/config -name '*.h' -print`
+	done) | sed -e 's/\.o$$/\.c/'`
 
 tags: TAGS
 
@@ -2210,7 +2411,6 @@ clean mostlyclean: $(CONFIG_CLEAN)
 	rm -f init.c stamp-init version.c stamp-version
 	rm -f gdb$(EXEEXT) core make.log
 	rm -f gdb[0-9]$(EXEEXT)
-	rm -f test-cp-name-parser$(EXEEXT)
 	rm -f xml-builtin.c stamp-xml
 	rm -f $(DEPDIR)/*
 	for i in $(CONFIG_SRC_SUBDIR); do \
@@ -2224,7 +2424,7 @@ clean mostlyclean: $(CONFIG_CLEAN)
 # functionality described is if the distributed files are unmodified.
 distclean: clean
 	@$(MAKE) $(FLAGS_TO_PASS) DO=distclean "DODIRS=$(CLEANDIRS)" subdir_do
-	rm -f nm.h config.status config.h stamp-h b jit-reader.h gcore stamp-nmh
+	rm -f nm.h config.status config.h stamp-h b jit-reader.h gcore gstack gstack.in stamp-nmh
 	rm -f gdb-gdb.py gdb-gdb.gdb
 	rm -f y.output yacc.acts yacc.tmp y.tab.h
 	rm -f config.log config.cache
@@ -2273,37 +2473,56 @@ subdir_do: force
 	done
 
 Makefile: Makefile.in config.status
-	$(SHELL) config.status $@
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
 
 .PHONY: run
 run: Makefile
 	./gdb$(EXEEXT) --data-directory=`pwd`/data-directory $(GDBFLAGS)
 
-jit-reader.h: $(srcdir)/jit-reader.in
-	$(SHELL) config.status $@
+jit-reader.h: $(srcdir)/jit-reader.in config.status
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
 
-gcore: $(srcdir)/gcore.in
-	$(SHELL) config.status $@
+gstack.in gcore.in: %.in : $(srcdir)/%-1.in config.status
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
 
-gdb-gdb.py: $(srcdir)/gdb-gdb.py.in
-	$(SHELL) config.status $@
+gdb-add-index.in : $(srcdir)/contrib/gdb-add-index.sh config.status
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
 
-gdb-gdb.gdb: $(srcdir)/gdb-gdb.gdb.in
-	$(SHELL) config.status $@
+gstack gcore gdb-add-index: % : %.in version.c
+	$(ECHO_GEN) \
+	vv=`grep 'version\[\] = ' version.c | grep -o '".*"' | tr -d \"`; \
+	sed -e "s,@VERSION@,$$vv," $< > $@
+	@chmod +x $@
+
+gdb-gdb.py: $(srcdir)/gdb-gdb.py.in config.status
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
+
+gdb-gdb.gdb: $(srcdir)/gdb-gdb.gdb.in config.status
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) $@
 
 config.h: stamp-h ; @true
 stamp-h: $(srcdir)/config.in config.status
-	$(SHELL) config.status config.h
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) config.h
 
 nm.h: stamp-nmh ; @true
 stamp-nmh: config.status
-	$(SHELL) config.status nm.h
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) nm.h
 
-config.status: $(srcdir)/configure configure.nat configure.tgt configure.host ../bfd/development.sh
-	$(SHELL) config.status --recheck
+# Files included from config.status or the configure script.  When
+# these change the configure script doesn't need regenerating, but its
+# output (and so that of config.status) might change.
+config_status_deps = \
+	$(srcdir)/configure \
+	$(srcdir)/configure.nat \
+	$(srcdir)/configure.tgt \
+	$(srcdir)/configure.host \
+	$(srcdir)/../bfd/development.sh \
+	$(srcdir)/../bfd/config.bfd
+
+config.status: $(config_status_deps)
+	$(ECHO_GEN) $(SHELL) config.status $(SILENT_FLAG) --recheck
 
 ACLOCAL = aclocal
-ACLOCAL_AMFLAGS = -I ../config
 
 # Keep these in sync with the includes in acinclude.m4.
 aclocal_m4_deps = \
@@ -2331,7 +2550,7 @@ aclocal_m4_deps = \
 	../config/ax_pthread.m4
 
 $(srcdir)/aclocal.m4: @MAINTAINER_MODE_TRUE@ $(aclocal_m4_deps)
-	cd $(srcdir) && $(ACLOCAL) $(ACLOCAL_AMFLAGS)
+	cd $(srcdir) && $(ACLOCAL)
 
 AUTOCONF = autoconf
 configure_deps = $(srcdir)/configure.ac $(srcdir)/aclocal.m4
@@ -2477,12 +2696,14 @@ clean-po:
 # rule has no dependencies and always regenerates gdb.pot.  This is
 # relatively harmless since the .po files do not directly depend on
 # it.  The .pot file is left in the build directory.  Since GDB's
-# Makefile lacks a cannonical list of sources (missing xm, tm and nm
+# Makefile lacks a canonical list of sources (missing xm, tm and nm
 # files) force this rule.
 $(PACKAGE).pot: po/$(PACKAGE).pot
 po/$(PACKAGE).pot: force
 	-test -d po || mkdir po
-	sh -e $(srcdir)/po/gdbtext $(XGETTEXT) $(PACKAGE) . $(srcdir)
+	sh -e $(srcdir)/po/gdbtext $(XGETTEXT) $(PACKAGE) . $(srcdir) \
+	  $(srcdir)/../gdbsupport $(srcdir)/../gdbserver \
+	  $(addprefix $(srcdir)/,$(filter-out gdbtk/generic, $(CONFIG_SRC_SUBDIR)))
 
 
 #
@@ -2509,6 +2730,9 @@ po/$(PACKAGE).pot: force
 	     -e 's/\([ \t;,(]\)free$$/\1xfree/g' \
 	     -e '/^#line.*y.tab.c/d' \
 	     -e 's/YY_NULL/YY_NULLPTR/g' \
+	     -e "s/YYSTYPE/$(subst -,_,$*)_YYSTYPE/g" \
+	     -e "s/yyalloc/$(subst -,_,$*)_yyalloc/g" \
+	     -e "s/yysymbol_kind_t/$(subst -,_,$*)_yysymbol_kind_t/g" \
 	  < $@.tmp > $@.new && \
 	  rm -f $@.tmp && \
 	  mv $@.new $@
@@ -2592,10 +2816,10 @@ clean-gdbtk:
 	rm -f insight$(EXEEXT)
 
 # Removing the old gdb first works better if it is running, at least on SunOS.
-insight$(EXEEXT): gdbtk-main.o libgdb.a $(CDEPS) $(TDEPLIBS)
-	rm -f insight$(EXEEXT)
+insight$(EXEEXT): gdbtk/generic/gdbtk-main.o $(LIBGDB_OBS) $(CDEPS) $(TDEPLIBS)
+	$(SILENCE) rm -f insight$(EXEEXT)
 	$(ECHO_CXXLD) $(CC_LD) $(INTERNAL_LDFLAGS) $(WIN32LDAPP) \
-		-o insight$(EXEEXT) gdbtk-main.o libgdb.a \
+		-o insight$(EXEEXT) gdbtk/generic/gdbtk-main.o $(LIBGDB_OBS) \
 		$(TDEPLIBS) $(TUI_LIBRARY) $(CLIBS) $(LOADLIBES)
 
 gdbres.o: $(srcdir)/gdbtk/gdb.rc $(srcdir)/gdbtk/gdbtool.ico
@@ -2630,8 +2854,7 @@ endif
 
 # A list of all the objects we might care about in this build, for
 # dependency tracking.
-all_object_files = gdb.o $(LIBGDB_OBS) gdbtk-main.o \
-	test-cp-name-parser.o
+all_object_files = gdb.o $(LIBGDB_OBS) gdbtk/generic/gdbtk-main.o
 
 # All the .deps files to include.
 all_deps_files = $(foreach dep,$(patsubst %.o,%.Po,$(all_object_files)),\

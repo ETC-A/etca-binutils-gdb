@@ -1,6 +1,6 @@
 /* Shared general utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,25 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "common-utils.h"
 #include "host-defs.h"
-#include "gdbsupport/gdb-safe-ctype.h"
 #include "gdbsupport/gdb-xfree.h"
+
+/* When compiling for the in-process agent, we can't use c-ctype.h,
+   because (1) libinproctrace.so doesn't link against gnulib and (2)
+   some versions of clang won't inline all the functions.  So,
+   redefine them here.  */
+#ifdef IN_PROCESS_AGENT
+#include <ctype.h>
+#undef c_isspace
+#define c_isspace(X) (isspace (X))
+#undef c_isalnum
+#define c_isalnum(X) (isalnum (X))
+#undef c_isdigit
+#define c_isdigit(X) (isdigit (X))
+#undef c_tolower
+#define c_tolower(X) (tolower (X))
+#endif /* IN_PROCESS_AGENT */
 
 void *
 xzalloc (size_t size)
@@ -89,7 +103,7 @@ string_printf (const char* fmt, ...)
   /* C++11 and later guarantee std::string uses contiguous memory and
      always includes the terminating '\0'.  */
   va_start (vp, fmt);
-  vsprintf (&str[0], fmt, vp);	/* ARI: vsprintf */
+  vsprintf (&str[0], fmt, vp);
   va_end (vp);
 
   return str;
@@ -111,7 +125,7 @@ string_vprintf (const char* fmt, va_list args)
 
   /* C++11 and later guarantee std::string uses contiguous memory and
      always includes the terminating '\0'.  */
-  vsprintf (&str[0], fmt, args); /* ARI: vsprintf */
+  vsprintf (&str[0], fmt, args);
 
   return str;
 }
@@ -149,7 +163,7 @@ string_vappendf (std::string &str, const char *fmt, va_list args)
 
   /* C++11 and later guarantee std::string uses contiguous memory and
      always includes the terminating '\0'.  */
-  vsprintf (&str[curr_size], fmt, args); /* ARI: vsprintf */
+  vsprintf (&str[curr_size], fmt, args);
 
   return str;
 }
@@ -181,7 +195,7 @@ extract_string_maybe_quoted (const char **arg)
   /* Parse p similarly to gdb_argv buildargv function.  */
   while (*p != '\0')
     {
-      if (ISSPACE (*p) && !squote && !dquote && !bsquote)
+      if (c_isspace (*p) && !squote && !dquote && !bsquote)
 	break;
       else
 	{
@@ -223,6 +237,27 @@ extract_string_maybe_quoted (const char **arg)
   return result;
 }
 
+/* See gdbsupport/common-utils.h.  */
+
+std::string
+make_quoted_string (const char *str)
+{
+  gdb_assert (str != nullptr);
+
+  std::string result;
+
+  for (; *str != '\0'; ++str)
+    {
+      const char ch = *str;
+
+      if (strchr ("\"' \t\n", ch) != nullptr)
+       result.push_back ('\\');
+      result.push_back (ch);
+    }
+
+  return result;
+}
+
 /* The bit offset of the highest byte in a ULONGEST, for overflow
    checking.  */
 
@@ -234,21 +269,21 @@ extract_string_maybe_quoted (const char **arg)
 static int
 is_digit_in_base (unsigned char digit, int base)
 {
-  if (!ISALNUM (digit))
+  if (!c_isalnum (digit))
     return 0;
   if (base <= 10)
-    return (ISDIGIT (digit) && digit < base + '0');
+    return (c_isdigit (digit) && digit < base + '0');
   else
-    return (ISDIGIT (digit) || TOLOWER (digit) < base - 10 + 'a');
+    return (c_isdigit (digit) || c_tolower (digit) < base - 10 + 'a');
 }
 
 static int
 digit_to_int (unsigned char c)
 {
-  if (ISDIGIT (c))
+  if (c_isdigit (c))
     return c - '0';
   else
-    return TOLOWER (c) - 'a' + 10;
+    return c_tolower (c) - 'a' + 10;
 }
 
 /* As for strtoul, but for ULONGEST results.  */
@@ -262,7 +297,7 @@ strtoulst (const char *num, const char **trailer, int base)
   int i = 0;
 
   /* Skip leading whitespace.  */
-  while (ISSPACE (num[i]))
+  while (c_isspace (num[i]))
     i++;
 
   /* Handle prefixes.  */
@@ -329,7 +364,7 @@ skip_spaces (char *chp)
 {
   if (chp == NULL)
     return NULL;
-  while (*chp && ISSPACE (*chp))
+  while (*chp && c_isspace (*chp))
     chp++;
   return chp;
 }
@@ -341,7 +376,7 @@ skip_spaces (const char *chp)
 {
   if (chp == NULL)
     return NULL;
-  while (*chp && ISSPACE (*chp))
+  while (*chp && c_isspace (*chp))
     chp++;
   return chp;
 }
@@ -353,7 +388,7 @@ skip_to_space (const char *chp)
 {
   if (chp == NULL)
     return NULL;
-  while (*chp && !ISSPACE (*chp))
+  while (*chp && !c_isspace (*chp))
     chp++;
   return chp;
 }

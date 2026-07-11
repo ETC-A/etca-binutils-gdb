@@ -1,5 +1,5 @@
 /* MI Command Set for GDB, the GNU debugger.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -18,17 +18,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "top.h"
 #include "mi-cmds.h"
 #include "mi-main.h"
 #include "mi-parse.h"
-#include <map>
+#include "gdbsupport/unordered_map.h"
 #include <string>
 
 /* MI command table (built at run time). */
 
-static std::map<std::string, mi_command_up> mi_cmd_table;
+static gdb::unordered_string_map<mi_command_up> mi_cmd_table;
 
 /* MI command with a pure MI implementation.  */
 
@@ -183,7 +181,7 @@ mi_command::mi_command (const char *name, int *suppress_notification)
 
 /* See mi-cmds.h.  */
 
-gdb::optional<scoped_restore_tmpl<int>>
+std::optional<scoped_restore_tmpl<int>>
 mi_command::do_suppress_notification () const
 {
   if (m_suppress_notification != nullptr)
@@ -371,9 +369,7 @@ mi_cmd_lookup (const char *command)
   return it->second.get ();
 }
 
-void _initialize_mi_cmds ();
-void
-_initialize_mi_cmds ()
+INIT_GDB_FILE (mi_cmds)
 {
   add_builtin_mi_commands ();
 }

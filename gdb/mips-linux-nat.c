@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux on MIPS processors.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "inferior.h"
 #include "mips-tdep.h"
 #include "target.h"
@@ -61,7 +60,7 @@ public:
 
   bool stopped_by_watchpoint () override;
 
-  bool stopped_data_address (CORE_ADDR *) override;
+  std::vector<CORE_ADDR> stopped_data_addresses () override;
 
   int region_ok_for_hw_watchpoint (CORE_ADDR, int) override;
 
@@ -90,7 +89,7 @@ static mips_linux_nat_target the_mips_linux_nat_target;
 static int have_ptrace_regsets = 1;
 
 /* Map gdb internal register number to ptrace ``address''.
-   These ``addresses'' are normally defined in <asm/ptrace.h>. 
+   These ``addresses'' are normally defined in <asm/ptrace.h>.
 
    ptrace does not provide a way to read (or set) MIPS_PS_REGNUM,
    and there's no point in reading or setting MIPS_ZERO_REGNUM.
@@ -460,7 +459,8 @@ mips_linux_nat_target::read_description ()
     {
       /* Assume no DSP if there is no inferior to inspect with ptrace.  */
       if (inferior_ptid == null_ptid)
-	return _MIPS_SIM == _ABIO32 ? tdesc_mips_linux : tdesc_mips64_linux;
+	return (_MIPS_SIM == _ABIO32
+		? tdesc_mips_linux : tdesc_mips64_linux).get ();
 
       int tid = get_ptrace_pid (inferior_ptid);
 
@@ -483,9 +483,9 @@ mips_linux_nat_target::read_description ()
   /* Report that target registers are a size we know for sure
      that we can get from ptrace.  */
   if (_MIPS_SIM == _ABIO32)
-    return have_dsp ? tdesc_mips_dsp_linux : tdesc_mips_linux;
+    return (have_dsp ? tdesc_mips_dsp_linux : tdesc_mips_linux).get ();
   else
-    return have_dsp ? tdesc_mips64_dsp_linux : tdesc_mips64_linux;
+    return (have_dsp ? tdesc_mips64_dsp_linux : tdesc_mips64_linux).get ();
 }
 
 /* -1 if the kernel and/or CPU do not support watch registers.
@@ -516,7 +516,7 @@ mips_show_dr (const char *func, CORE_ADDR addr,
   if (addr || len)
     gdb_printf (gdb_stdlog,
 		" (addr=%s, len=%d, type=%s)",
-		paddress (target_gdbarch (), addr), len,
+		paddress (current_inferior ()->arch (), addr), len,
 		type == hw_write ? "data-write"
 		: (type == hw_read ? "data-read"
 		   : (type == hw_access ? "data-read/write"
@@ -526,10 +526,10 @@ mips_show_dr (const char *func, CORE_ADDR addr,
 
   for (i = 0; i < MAX_DEBUG_REGISTER; i++)
     gdb_printf (gdb_stdlog, "\tDR%d: lo=%s, hi=%s\n", i,
-		paddress (target_gdbarch (),
+		paddress (current_inferior ()->arch (),
 			  mips_linux_watch_get_watchlo (&watch_mirror,
 							i)),
-		paddress (target_gdbarch (),
+		paddress (current_inferior ()->arch (),
 			  mips_linux_watch_get_watchhi (&watch_mirror,
 							i)));
 }
@@ -539,7 +539,7 @@ mips_show_dr (const char *func, CORE_ADDR addr,
 
 int
 mips_linux_nat_target::can_use_hw_breakpoint (enum bptype type,
-					      int cnt, int ot)
+					      int cnt, int othertype)
 {
   int i;
   uint32_t wanted_mask, irw_mask;
@@ -563,7 +563,7 @@ mips_linux_nat_target::can_use_hw_breakpoint (enum bptype type,
     default:
       return 0;
     }
- 
+
   for (i = 0;
        i < mips_linux_watch_get_num_valid (&watch_readback) && cnt;
        i++)
@@ -599,16 +599,17 @@ mips_linux_nat_target::stopped_by_watchpoint ()
   return false;
 }
 
-/* Target to_stopped_data_address implementation.  Set the address
-   where the watch triggered (if known).  Return 1 if the address was
-   known.  */
+/* Target stopped_data_addresses implementation.  Return a vector
+   containing the address(es) of the watchpoint(s) that triggered, if
+   known.  Return an empty vector if it is unknown which watchpoint(s)
+   triggered.  */
 
-bool
-mips_linux_nat_target::stopped_data_address (CORE_ADDR *paddr)
+std::vector<CORE_ADDR>
+mips_linux_nat_target::stopped_data_addresses ()
 {
   /* On mips we don't know the low order 3 bits of the data address,
-     so we must return false.  */
-  return false;
+     so we must return an empty vector.  */
+  return {};
 }
 
 /* Target to_region_ok_for_hw_watchpoint implementation.  Return 1 if
@@ -637,9 +638,9 @@ mips_linux_nat_target::region_ok_for_hw_watchpoint (CORE_ADDR addr, int len)
 static int
 write_watchpoint_regs (void)
 {
-  for (const lwp_info *lp : all_lwps ())
+  for (const lwp_info &lp : all_lwps ())
     {
-      int tid = lp->ptid.lwp ();
+      int tid = lp.ptid.lwp ();
       if (ptrace (PTRACE_SET_WATCH_REGS, tid, &watch_mirror, NULL) == -1)
 	perror_with_name (_("Couldn't write debug register"));
     }
@@ -785,9 +786,7 @@ mips_linux_nat_target::close ()
   linux_nat_trad_target::close ();
 }
 
-void _initialize_mips_linux_nat ();
-void
-_initialize_mips_linux_nat ()
+INIT_GDB_FILE (mips_linux_nat)
 {
   add_setshow_boolean_cmd ("show-debug-regs", class_maintenance,
 			   &show_debug_regs, _("\

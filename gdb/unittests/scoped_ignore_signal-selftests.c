@@ -1,6 +1,6 @@
 /* Self tests for scoped_ignored_signal for GDB, the GNU debugger.
 
-   Copyright (C) 2021-2023 Free Software Foundation, Inc.
+   Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/scoped_ignore_signal.h"
 #include "gdbsupport/selftest.h"
 #include "gdbsupport/scope-exit.h"
@@ -115,9 +114,7 @@ test_sigpipe ()
 } /* namespace scoped_ignore_sig */
 } /* namespace selftests */
 
-void _initialize_scoped_ignore_signal_selftests ();
-void
-_initialize_scoped_ignore_signal_selftests ()
+INIT_GDB_FILE (scoped_ignore_signal_selftests)
 {
 #ifdef SIGPIPE
   selftests::register_test ("scoped_ignore_sigpipe",

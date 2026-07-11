@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux on CSKY.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    Contributed by C-SKY Microsystems and Mentor Graphics.
 
@@ -19,10 +19,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "osabi.h"
 #include "glibc-tdep.h"
 #include "linux-tdep.h"
+#include "solib-svr4-linux.h"
 #include "gdbarch.h"
 #include "solib-svr4.h"
 #include "regset.h"
@@ -191,7 +191,7 @@ csky_supply_fregset (const struct regset *regset,
     }
   else
     {
-      warning (_("Unknow size %s of section .reg2, can not get value"
+      warning (_("Unknown size %s of section .reg2, can not get value"
 		 " of float registers."), pulongest (len));
     }
 }
@@ -272,7 +272,7 @@ csky_collect_fregset (const struct regset *regset,
     }
   else
     {
-      warning (_("Unknow size %s of section .reg2, will not set value"
+      warning (_("Unknown size %s of section .reg2, will not set value"
 		 " of float registers."), pulongest (len));
     }
 }
@@ -310,7 +310,7 @@ csky_linux_iterate_over_regset_sections (struct gdbarch *gdbarch,
 
 static void
 csky_linux_rt_sigreturn_init (const struct tramp_frame *self,
-			      frame_info_ptr this_frame,
+			      const frame_info_ptr &this_frame,
 			      struct trad_frame_cache *this_cache,
 			      CORE_ADDR func)
 {
@@ -355,7 +355,7 @@ csky_linux_rt_sigreturn_tramp_frame = {
 
 static void
 csky_linux_rt_sigreturn_init_pt_regs (const struct tramp_frame *self,
-				      frame_info_ptr this_frame,
+				      const frame_info_ptr &this_frame,
 				      struct trad_frame_cache *this_cache,
 				      CORE_ADDR func)
 {
@@ -408,8 +408,7 @@ csky_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   /* Shared library handling.  */
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
   set_gdbarch_skip_solib_resolver (gdbarch, glibc_skip_solib_resolver);
-  set_solib_svr4_fetch_link_map_offsets (gdbarch,
-					 linux_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_linux_ilp32_svr4_solib_ops);
 
   /* Enable TLS support.  */
   set_gdbarch_fetch_tls_load_module_address (gdbarch,
@@ -427,9 +426,7 @@ csky_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				&csky_linux_rt_sigreturn_tramp_frame_kernel_4x);
 }
 
-void _initialize_csky_linux_tdep ();
-void
-_initialize_csky_linux_tdep ()
+INIT_GDB_FILE (csky_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_csky, 0, GDB_OSABI_LINUX,
 			  csky_linux_init_abi);

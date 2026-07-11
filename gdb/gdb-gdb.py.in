@@ -1,4 +1,4 @@
-# Copyright (C) 2009-2023 Free Software Foundation, Inc.
+# Copyright (C) 2009-2026 Free Software Foundation, Inc.
 #
 # This file is part of GDB.
 #
@@ -15,8 +15,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import gdb
 import os.path
+
+import gdb
 
 
 class TypeFlag:
@@ -121,7 +122,7 @@ class StructTypePrettyPrinter:
 
 
 class StructMainTypePrettyPrinter:
-    """Pretty-print an objet of type main_type"""
+    """Pretty-print an object of type main_type"""
 
     def __init__(self, val):
         self.val = val
@@ -163,8 +164,10 @@ class StructMainTypePrettyPrinter:
             return "physaddr = 0x%x" % loc_val["physaddr"]
         elif loc_kind == "FIELD_LOC_KIND_PHYSNAME":
             return "physname = %s" % loc_val["physname"]
-        elif loc_kind == "FIELD_LOC_KIND_DWARF_BLOCK":
-            return "dwarf_block = %s" % loc_val["dwarf_block"]
+        elif loc_kind == "FIELD_LOC_KIND_DWARF_BLOCK_ADDR":
+            return "dwarf_block_addr = %s" % loc_val["dwarf_block"]
+        elif loc_kind == "FIELD_LOC_KIND_DWARF_BLOCK_BITPOS":
+            return "dwarf_block_bitpos = %s" % loc_val["dwarf_block"]
         else:
             return "m_loc = ??? (unsupported m_loc_kind value)"
 
@@ -172,13 +175,13 @@ class StructMainTypePrettyPrinter:
         """Return an image of the main_type field number FIELDNO."""
         f = self.val["flds_bnds"]["fields"][fieldno]
         label = "flds_bnds.fields[%d]:" % fieldno
-        if f["artificial"]:
+        if f["m_artificial"]:
             label += " (artificial)"
         fields = []
         fields.append("m_name = %s" % f["m_name"])
         fields.append("m_type = %s" % f["m_type"])
         fields.append("m_loc_kind = %s" % f["m_loc_kind"])
-        fields.append("bitsize = %d" % f["bitsize"])
+        fields.append("bitsize = %d" % f["m_bitsize"])
         fields.append(self.struct_field_location_img(f))
         return label + "\n" + "  {" + ",\n   ".join(fields) + "}"
 
@@ -341,7 +344,7 @@ class IntrusiveListPrinter:
         corresponding intrusive_list_node.
         """
 
-        assert elem_ptr.type.code == gdb.TYPE_CODE_PTR
+        assert elem_ptr.type.strip_typedefs().code == gdb.TYPE_CODE_PTR
 
         if self._uses_member_node():
             # Node as a member: add the member node offset from to the element's

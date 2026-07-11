@@ -1,6 +1,6 @@
 /* Solaris threads debugging interface.
 
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -48,7 +48,6 @@
    symbols, etc...  The ps_* routines actually do most of their work
    by calling functions in procfs.c.  */
 
-#include "defs.h"
 #include <thread.h>
 #include <proc_service.h>
 #include <thread_db.h>
@@ -58,7 +57,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <dlfcn.h>
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "regcache.h"
 #include "solib.h"
@@ -452,7 +451,7 @@ sol_thread_target::wait (ptid_t ptid, struct target_waitstatus *ourstatus,
       if (rtnval.tid_p ())
 	{
 	  thread_info *thr = current_inferior ()->find_thread (rtnval);
-	  if (thr == NULL || thr->state == THREAD_EXITED)
+	  if (thr == NULL || thr->state () == THREAD_EXITED)
 	    {
 	      process_stratum_target *proc_target
 		= current_inferior ()->process_target ();
@@ -606,7 +605,8 @@ check_for_thread_db (void)
   ptid_t ptid;
 
   /* Don't attempt to use thread_db for remote targets.  */
-  if (!(target_can_run () || core_bfd))
+  if (!(target_can_run ()
+	|| get_inferior_core_bfd(current_inferior ()) != nullptr))
     return;
 
   /* Do nothing if we couldn't load libthread_db.so.1.  */
@@ -666,10 +666,9 @@ check_for_thread_db (void)
    the library gets mapped and the symbol table is read in.  */
 
 static void
-sol_thread_new_objfile (struct objfile *objfile)
+sol_thread_new_objfile (struct objfile &objfile)
 {
-  if (objfile != NULL)
-    check_for_thread_db ();
+  check_for_thread_db ();
 }
 
 /* Clean up after the inferior dies.  */
@@ -761,9 +760,8 @@ ps_err_e
 ps_pglobal_lookup (struct ps_prochandle *ph, const char *ld_object_name,
 		   const char *ld_symbol_name, psaddr_t *ld_symbol_addr)
 {
-  struct bound_minimal_symbol ms;
-
-  ms = lookup_minimal_symbol (ld_symbol_name, NULL, NULL);
+  bound_minimal_symbol ms
+    = lookup_minimal_symbol (current_program_space, ld_symbol_name);
   if (!ms.minsym)
     return PS_NOSYM;
 
@@ -846,9 +844,8 @@ ps_err_e
 ps_lgetregs (struct ps_prochandle *ph, lwpid_t lwpid, prgregset_t gregset)
 {
   ptid_t ptid = ptid_t (current_inferior ()->pid, lwpid, 0);
-  struct regcache *regcache
-    = get_thread_arch_regcache (current_inferior ()->process_target (),
-				ptid, target_gdbarch ());
+  regcache *regcache = get_thread_arch_regcache (current_inferior (), ptid,
+						 current_inferior ()->arch ());
 
   target_fetch_registers (regcache, -1);
   fill_gregset (regcache, (gdb_gregset_t *) gregset, -1);
@@ -863,9 +860,8 @@ ps_lsetregs (struct ps_prochandle *ph, lwpid_t lwpid,
 	     const prgregset_t gregset)
 {
   ptid_t ptid = ptid_t (current_inferior ()->pid, lwpid, 0);
-  struct regcache *regcache
-    = get_thread_arch_regcache (current_inferior ()->process_target (),
-				ptid, target_gdbarch ());
+  regcache *regcache = get_thread_arch_regcache (current_inferior (), ptid,
+						 current_inferior ()->arch ());
 
   supply_gregset (regcache, (const gdb_gregset_t *) gregset);
   target_store_registers (regcache, -1);
@@ -916,9 +912,8 @@ ps_lgetfpregs (struct ps_prochandle *ph, lwpid_t lwpid,
 	       prfpregset_t *fpregset)
 {
   ptid_t ptid = ptid_t (current_inferior ()->pid, lwpid, 0);
-  struct regcache *regcache
-    = get_thread_arch_regcache (current_inferior ()->process_target (),
-				ptid, target_gdbarch ());
+  regcache *regcache = get_thread_arch_regcache (current_inferior (), ptid,
+						 current_inferior ()->arch ());
 
   target_fetch_registers (regcache, -1);
   fill_fpregset (regcache, (gdb_fpregset_t *) fpregset, -1);
@@ -933,9 +928,8 @@ ps_lsetfpregs (struct ps_prochandle *ph, lwpid_t lwpid,
 	       const prfpregset_t * fpregset)
 {
   ptid_t ptid = ptid_t (current_inferior ()->pid, lwpid, 0);
-  struct regcache *regcache
-    = get_thread_arch_regcache (current_inferior ()->process_target (),
-				ptid, target_gdbarch ());
+  regcache *regcache = get_thread_arch_regcache (current_inferior (), ptid,
+						 current_inferior ()->arch ());
 
   supply_fpregset (regcache, (const gdb_fpregset_t *) fpregset);
   target_store_registers (regcache, -1);
@@ -1004,7 +998,7 @@ sol_update_thread_list_callback (const td_thrhandle_t *th, void *ignored)
 
   ptid_t ptid = ptid_t (current_inferior ()->pid, 0, ti.ti_tid);
   thread_info *thr = current_inferior ()->find_thread (ptid);
-  if (thr == NULL || thr->state == THREAD_EXITED)
+  if (thr == NULL || thr->state () == THREAD_EXITED)
     {
       process_stratum_target *proc_target
 	= current_inferior ()->process_target ();
@@ -1018,7 +1012,7 @@ void
 sol_thread_target::update_thread_list ()
 {
   /* Delete dead threads.  */
-  prune_threads ();
+  prune_threads (current_inferior ()->process_target ());
 
   /* Find any new LWP's.  */
   beneath ()->update_thread_list ();
@@ -1074,25 +1068,26 @@ info_cb (const td_thrhandle_t *th, void *s)
       /* Print thr_create start function.  */
       if (ti.ti_startfunc != 0)
 	{
-	  const struct bound_minimal_symbol msym
+	  const bound_minimal_symbol msym
 	    = lookup_minimal_symbol_by_pc (ti.ti_startfunc);
 
 	  gdb_printf ("   startfunc=%s",
 		      msym.minsym
 		      ? msym.minsym->print_name ()
-		      : paddress (target_gdbarch (), ti.ti_startfunc));
+		      : paddress (current_inferior ()->arch (),
+				  ti.ti_startfunc));
 	}
 
       /* If thread is asleep, print function that went to sleep.  */
       if (ti.ti_state == TD_THR_SLEEP)
 	{
-	  const struct bound_minimal_symbol msym
+	  const bound_minimal_symbol msym
 	    = lookup_minimal_symbol_by_pc (ti.ti_pc);
 
 	  gdb_printf ("   sleepfunc=%s",
 		      msym.minsym
 		      ? msym.minsym->print_name ()
-		      : paddress (target_gdbarch (), ti.ti_pc));
+		      : paddress (current_inferior ()->arch (), ti.ti_pc));
 	}
 
       gdb_printf ("\n");
@@ -1114,33 +1109,24 @@ info_solthreads (const char *args, int from_tty)
 		    TD_SIGNO_MASK, TD_THR_ANY_USER_FLAGS);
 }
 
-/* Callback routine used to find a thread based on the TID part of
-   its PTID.  */
-
-static int
-thread_db_find_thread_from_tid (struct thread_info *thread, void *data)
-{
-  ULONGEST *tid = (ULONGEST *) data;
-
-  if (thread->ptid.tid () == *tid)
-    return 1;
-
-  return 0;
-}
-
 ptid_t
 sol_thread_target::get_ada_task_ptid (long lwp, ULONGEST thread)
 {
-  struct thread_info *thread_info =
-    iterate_over_threads (thread_db_find_thread_from_tid, &thread);
+  auto thread_db_find_thread_from_tid
+    = [&] (struct thread_info *iter)
+       {
+	 return iter->ptid.tid () == thread;
+       };
+
+  struct thread_info *thread_info
+    = find_thread (thread_db_find_thread_from_tid);
 
   if (thread_info == NULL)
     {
       /* The list of threads is probably not up to date.  Find any
 	 thread that is missing from the list, and try again.  */
       update_thread_list ();
-      thread_info = iterate_over_threads (thread_db_find_thread_from_tid,
-					  &thread);
+      thread_info = find_thread (thread_db_find_thread_from_tid);
     }
 
   gdb_assert (thread_info != NULL);
@@ -1148,9 +1134,7 @@ sol_thread_target::get_ada_task_ptid (long lwp, ULONGEST thread)
   return (thread_info->ptid);
 }
 
-void _initialize_sol_thread ();
-void
-_initialize_sol_thread ()
+INIT_GDB_FILE (sol_thread)
 {
   void *dlhandle;
 

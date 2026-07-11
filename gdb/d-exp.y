@@ -1,6 +1,6 @@
 /* YACC parser for D expressions, for GDB.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -38,8 +38,6 @@
 
 %{
 
-#include "defs.h"
-#include <ctype.h>
 #include "expression.h"
 #include "value.h"
 #include "parser-defs.h"
@@ -50,6 +48,7 @@
 #include "block.h"
 #include "type-stack.h"
 #include "expop.h"
+#include "cli/cli-style.h"
 
 #define parse_type(ps) builtin_type (ps->gdbarch ())
 #define parse_d_type(ps) builtin_d_type (ps->gdbarch ())
@@ -436,7 +435,7 @@ PrimaryExpression:
 	'(' Expression ')'
 		{ /* Do nothing.  */ }
 |	IdentifierExp
-		{ struct bound_minimal_symbol msymbol;
+		{
 		  std::string copy = copy_name ($1);
 		  struct field_of_this_result is_a_field_of_this;
 		  struct block_symbol sym;
@@ -444,8 +443,8 @@ PrimaryExpression:
 		  /* Handle VAR, which could be local or global.  */
 		  sym = lookup_symbol (copy.c_str (),
 				       pstate->expression_context_block,
-				       VAR_DOMAIN, &is_a_field_of_this);
-		  if (sym.symbol && sym.symbol->aclass () != LOC_TYPEDEF)
+				       SEARCH_VFT, &is_a_field_of_this);
+		  if (sym.symbol && sym.symbol->loc_class () != LOC_TYPEDEF)
 		    {
 		      if (symbol_read_needs_frame (sym.symbol))
 			pstate->block_tracker->update (sym);
@@ -464,11 +463,14 @@ PrimaryExpression:
 		  else
 		    {
 		      /* Lookup foreign name in global static symbols.  */
-		      msymbol = lookup_bound_minimal_symbol (copy.c_str ());
+		      bound_minimal_symbol msymbol
+			= lookup_minimal_symbol (current_program_space, copy.c_str ());
 		      if (msymbol.minsym != NULL)
 			pstate->push_new<var_msym_value_operation> (msymbol);
-		      else if (!have_full_symbols () && !have_partial_symbols ())
-			error (_("No symbol table is loaded.  Use the \"file\" command"));
+		      else if (!current_program_space->has_full_symbols ()
+			       && !current_program_space->has_partial_symbols ())
+			error (_("No symbol table is loaded.  Use the \"%ps\" command"),
+			       styled_string (command_style.style (), "file"));
 		      else
 			error (_("No symbol \"%s\" in current context."),
 			       copy.c_str ());
@@ -483,7 +485,7 @@ PrimaryExpression:
 			  if (type->code () == TYPE_CODE_MODULE)
 			    {
 			      struct block_symbol sym;
-			      const char *type_name = TYPE_SAFE_NAME (type);
+			      const char *type_name = type->safe_name ();
 			      int type_name_len = strlen (type_name);
 			      std::string name
 				= string_printf ("%.*s.%.*s",
@@ -493,7 +495,7 @@ PrimaryExpression:
 			      sym =
 				lookup_symbol (name.c_str (),
 					       (const struct block *) NULL,
-					       VAR_DOMAIN, NULL);
+					       SEARCH_VFT, NULL);
 			      pstate->push_symbol (name.c_str (), sym);
 			    }
 			  else
@@ -502,7 +504,7 @@ PrimaryExpression:
 				 of an aggregate or an enum type.  */
 			      if (!type_aggregate_p (type))
 				error (_("`%s' is not defined as an aggregate type."),
-				       TYPE_SAFE_NAME (type));
+				       type->safe_name ());
 
 			      pstate->push_new<scope_operation>
 				(type, copy_name ($3));
@@ -613,11 +615,9 @@ BasicType2:
 |	'*' BasicType2
 		{ type_stack->push (tp_pointer); }
 |	'[' INTEGER_LITERAL ']'
-		{ type_stack->push ($2.val);
-		  type_stack->push (tp_array); }
+		{ type_stack->push (tp_array, $2.val); }
 |	'[' INTEGER_LITERAL ']' BasicType2
-		{ type_stack->push ($2.val);
-		  type_stack->push (tp_array); }
+		{ type_stack->push (tp_array, $2.val); }
 ;
 
 BasicType:
@@ -683,15 +683,15 @@ parse_number (struct parser_state *ps, const char *p,
       len = strlen (s);
 
       /* Check suffix for `i' , `fi' or `li' (idouble, ifloat or ireal).  */
-      if (len >= 1 && tolower (s[len - 1]) == 'i')
+      if (len >= 1 && c_tolower (s[len - 1]) == 'i')
 	{
-	  if (len >= 2 && tolower (s[len - 2]) == 'f')
+	  if (len >= 2 && c_tolower (s[len - 2]) == 'f')
 	    {
 	      putithere->typed_val_float.type
 		= parse_d_type (ps)->builtin_ifloat;
 	      len -= 2;
 	    }
-	  else if (len >= 2 && tolower (s[len - 2]) == 'l')
+	  else if (len >= 2 && c_tolower (s[len - 2]) == 'l')
 	    {
 	      putithere->typed_val_float.type
 		= parse_d_type (ps)->builtin_ireal;
@@ -705,13 +705,13 @@ parse_number (struct parser_state *ps, const char *p,
 	    }
 	}
       /* Check suffix for `f' or `l'' (float or real).  */
-      else if (len >= 1 && tolower (s[len - 1]) == 'f')
+      else if (len >= 1 && c_tolower (s[len - 1]) == 'f')
 	{
 	  putithere->typed_val_float.type
 	    = parse_d_type (ps)->builtin_float;
 	  len -= 1;
 	}
-      else if (len >= 1 && tolower (s[len - 1]) == 'l')
+      else if (len >= 1 && c_tolower (s[len - 1]) == 'l')
 	{
 	  putithere->typed_val_float.type
 	    = parse_d_type (ps)->builtin_real;
@@ -936,21 +936,21 @@ parse_string_or_char (const char *tokptr, const char **outptr,
   return quote == '\'' ? CHARACTER_LITERAL : STRING_LITERAL;
 }
 
-struct token
+struct d_token
 {
   const char *oper;
   int token;
   enum exp_opcode opcode;
 };
 
-static const struct token tokentab3[] =
+static const struct d_token tokentab3[] =
   {
     {"^^=", ASSIGN_MODIFY, BINOP_EXP},
     {"<<=", ASSIGN_MODIFY, BINOP_LSH},
     {">>=", ASSIGN_MODIFY, BINOP_RSH},
   };
 
-static const struct token tokentab2[] =
+static const struct d_token tokentab2[] =
   {
     {"+=", ASSIGN_MODIFY, BINOP_ADD},
     {"-=", ASSIGN_MODIFY, BINOP_SUB},
@@ -975,7 +975,7 @@ static const struct token tokentab2[] =
   };
 
 /* Identifier-like tokens.  */
-static const struct token ident_tokens[] =
+static const struct d_token ident_tokens[] =
   {
     {"is", IDENTITY, OP_NULL},
     {"!is", NOTIDENTITY, OP_NULL},
@@ -1103,7 +1103,7 @@ lex_one_token (struct parser_state *par_state)
 	    last_was_structop = 1;
 	  goto symbol;		/* Nope, must be a symbol.  */
 	}
-      /* FALL THRU.  */
+      [[fallthrough]];
 
     case '0':
     case '1':
@@ -1132,8 +1132,8 @@ lex_one_token (struct parser_state *par_state)
 	    /* Hex exponents start with 'p', because 'e' is a valid hex
 	       digit and thus does not indicate a floating point number
 	       when the radix is hex.  */
-	    if ((!hex && !got_e && tolower (p[0]) == 'e')
-		|| (hex && !got_e && tolower (p[0] == 'p')))
+	    if ((!hex && !got_e && c_tolower (p[0]) == 'e')
+		|| (hex && !got_e && c_tolower (p[0] == 'p')))
 	      got_dot = got_e = 1;
 	    /* A '.' always indicates a decimal floating point number
 	       regardless of the radix.  If we have a '..' then its the
@@ -1141,7 +1141,8 @@ lex_one_token (struct parser_state *par_state)
 	    else if (!got_dot && (p[0] == '.' && p[1] != '.'))
 		got_dot = 1;
 	    /* This is the sign of the exponent, not the end of the number.  */
-	    else if (got_e && (tolower (p[-1]) == 'e' || tolower (p[-1]) == 'p')
+	    else if (got_e && (c_tolower (p[-1]) == 'e'
+			       || c_tolower (p[-1]) == 'p')
 		     && (*p == '-' || *p == '+'))
 	      continue;
 	    /* We will take any letters or digits, ignoring any embedded '_'.
@@ -1155,13 +1156,8 @@ lex_one_token (struct parser_state *par_state)
 	toktype = parse_number (par_state, tokstart, p - tokstart,
 				got_dot|got_e, &yylval);
 	if (toktype == ERROR)
-	  {
-	    char *err_copy = (char *) alloca (p - tokstart + 1);
-
-	    memcpy (err_copy, tokstart, p - tokstart);
-	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
-	  }
+	  error (_("Invalid number \"%.*s\"."), (int) (p - tokstart),
+		 tokstart);
 	pstate->lexptr = p;
 	return toktype;
       }
@@ -1171,16 +1167,16 @@ lex_one_token (struct parser_state *par_state)
 	const char *p = &tokstart[1];
 	size_t len = strlen ("entry");
 
-	while (isspace (*p))
+	while (c_isspace (*p))
 	  p++;
-	if (strncmp (p, "entry", len) == 0 && !isalnum (p[len])
+	if (strncmp (p, "entry", len) == 0 && !c_isalnum (p[len])
 	    && p[len] != '_')
 	  {
 	    pstate->lexptr = &p[len];
 	    return ENTRY;
 	  }
       }
-      /* FALLTHRU */
+      [[fallthrough]];
     case '+':
     case '-':
     case '*':
@@ -1253,10 +1249,7 @@ lex_one_token (struct parser_state *par_state)
 	  || strncmp (tokstart, "task", namelen) == 0)
       && (tokstart[namelen] == ' ' || tokstart[namelen] == '\t'))
     {
-      const char *p = tokstart + namelen + 1;
-
-      while (*p == ' ' || *p == '\t')
-	p++;
+      const char *p = skip_spaces (tokstart + namelen + 1);
       if (*p >= '0' && *p <= '9')
 	return 0;
     }
@@ -1307,7 +1300,7 @@ lex_one_token (struct parser_state *par_state)
 }
 
 /* An object of this type is pushed on a FIFO by the "outer" lexer.  */
-struct token_and_value
+struct d_token_and_value
 {
   int token;
   YYSTYPE value;
@@ -1316,7 +1309,7 @@ struct token_and_value
 
 /* A FIFO of tokens that have been read but not yet returned to the
    parser.  */
-static std::vector<token_and_value> token_fifo;
+static std::vector<d_token_and_value> token_fifo;
 
 /* Non-zero if the lexer should return tokens from the FIFO.  */
 static int popping;
@@ -1337,8 +1330,8 @@ classify_name (struct parser_state *par_state, const struct block *block)
 
   std::string copy = copy_name (yylval.sval);
 
-  sym = lookup_symbol (copy.c_str (), block, VAR_DOMAIN, &is_a_field_of_this);
-  if (sym.symbol && sym.symbol->aclass () == LOC_TYPEDEF)
+  sym = lookup_symbol (copy.c_str (), block, SEARCH_VFT, &is_a_field_of_this);
+  if (sym.symbol && sym.symbol->loc_class () == LOC_TYPEDEF)
     {
       yylval.tsym.type = sym.symbol->type ();
       return TYPENAME;
@@ -1346,9 +1339,11 @@ classify_name (struct parser_state *par_state, const struct block *block)
   else if (sym.symbol == NULL)
     {
       /* Look-up first for a module name, then a type.  */
-      sym = lookup_symbol (copy.c_str (), block, MODULE_DOMAIN, NULL);
+      sym = lookup_symbol (copy.c_str (), block, SEARCH_MODULE_DOMAIN,
+			   nullptr);
       if (sym.symbol == NULL)
-	sym = lookup_symbol (copy.c_str (), block, STRUCT_DOMAIN, NULL);
+	sym = lookup_symbol (copy.c_str (), block, SEARCH_STRUCT_DOMAIN,
+			     nullptr);
 
       if (sym.symbol != NULL)
 	{
@@ -1385,7 +1380,7 @@ classify_inner_name (struct parser_state *par_state,
   if (yylval.ssym.sym.symbol == NULL)
     return ERROR;
 
-  if (yylval.ssym.sym.symbol->aclass () == LOC_TYPEDEF)
+  if (yylval.ssym.sym.symbol->loc_class () == LOC_TYPEDEF)
     {
       yylval.tsym.type = yylval.ssym.sym.symbol->type ();
       return TYPENAME;
@@ -1404,7 +1399,7 @@ classify_inner_name (struct parser_state *par_state,
 static int
 yylex (void)
 {
-  token_and_value current;
+  d_token_and_value current;
   int last_was_dot;
   struct type *context_type = NULL;
   int last_to_examine, next_to_examine, checkpoint;
@@ -1467,7 +1462,7 @@ yylex (void)
 
       while (next_to_examine <= last_to_examine)
 	{
-	  token_and_value next;
+	  d_token_and_value next;
 
 	  next = token_fifo[next_to_examine];
 	  ++next_to_examine;
@@ -1531,7 +1526,7 @@ yylex (void)
 
   while (next_to_examine <= last_to_examine)
     {
-      token_and_value next;
+      d_token_and_value next;
 
       next = token_fifo[next_to_examine];
       ++next_to_examine;
@@ -1631,9 +1626,5 @@ d_parse (struct parser_state *par_state)
 static void
 yyerror (const char *msg)
 {
-  if (pstate->prev_lexptr)
-    pstate->lexptr = pstate->prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), msg, pstate->lexptr);
+  pstate->parse_error (msg);
 }
-

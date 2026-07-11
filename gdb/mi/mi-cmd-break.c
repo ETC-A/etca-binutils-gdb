@@ -1,5 +1,5 @@
 /* MI Command Set - breakpoint and watchpoint commands.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -17,11 +17,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "exceptions.h"
 #include "mi-cmds.h"
-#include "ui-out.h"
-#include "mi-out.h"
 #include "breakpoint.h"
 #include "mi-getopt.h"
 #include "observable.h"
@@ -30,8 +28,6 @@
 #include "language.h"
 #include "location.h"
 #include "linespec.h"
-#include "gdbsupport/gdb_obstack.h"
-#include <ctype.h>
 #include "tracepoint.h"
 
 enum
@@ -136,7 +132,7 @@ mi_argv_to_format (const char *const *argv, int argc)
 	  result += "\\\"";
 	  break;
 	default:
-	  if (isprint (argv[0][i]))
+	  if (c_isprint (argv[0][i]))
 	    result += argv[0][i];
 	  else
 	    {
@@ -173,6 +169,7 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
   int hardware = 0;
   int temp_p = 0;
   int thread = -1;
+  int thread_group = -1;
   int ignore_count = 0;
   const char *condition = NULL;
   int pending = 0;
@@ -191,7 +188,8 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
   enum opt
     {
       HARDWARE_OPT, TEMP_OPT, CONDITION_OPT,
-      IGNORE_COUNT_OPT, THREAD_OPT, PENDING_OPT, DISABLE_OPT,
+      IGNORE_COUNT_OPT, THREAD_OPT, THREAD_GROUP_OPT,
+      PENDING_OPT, DISABLE_OPT,
       TRACEPOINT_OPT,
       FORCE_CONDITION_OPT,
       QUALIFIED_OPT,
@@ -205,6 +203,7 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
     {"c", CONDITION_OPT, 1},
     {"i", IGNORE_COUNT_OPT, 1},
     {"p", THREAD_OPT, 1},
+    {"g", THREAD_GROUP_OPT, 1},
     {"f", PENDING_OPT, 0},
     {"d", DISABLE_OPT, 0},
     {"a", TRACEPOINT_OPT, 0},
@@ -247,6 +246,9 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
 	  if (!valid_global_thread_id (thread))
 	    error (_("Unknown thread %d."), thread);
 	  break;
+	case THREAD_GROUP_OPT:
+	  thread_group = mi_parse_thread_group_id (oarg);
+	  break;
 	case PENDING_OPT:
 	  pending = 1;
 	  break;
@@ -261,15 +263,15 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
 	  break;
 	case EXPLICIT_SOURCE_OPT:
 	  is_explicit = 1;
-	  explicit_loc->source_filename = xstrdup (oarg);
+	  explicit_loc->source_filename = make_unique_xstrdup (oarg);
 	  break;
 	case EXPLICIT_FUNC_OPT:
 	  is_explicit = 1;
-	  explicit_loc->function_name = xstrdup (oarg);
+	  explicit_loc->function_name = make_unique_xstrdup (oarg);
 	  break;
 	case EXPLICIT_LABEL_OPT:
 	  is_explicit = 1;
-	  explicit_loc->label_name = xstrdup (oarg);
+	  explicit_loc->label_name = make_unique_xstrdup (oarg);
 	  break;
 	case EXPLICIT_LINE_OPT:
 	  is_explicit = 1;
@@ -360,7 +362,8 @@ mi_cmd_break_insert_1 (int dprintf, const char *command,
 	error (_("Garbage '%s' at end of location"), address);
     }
 
-  create_breakpoint (get_current_arch (), locspec.get (), condition, thread,
+  create_breakpoint (get_current_arch (), locspec.get (), condition,
+		     thread, thread_group,
 		     extra_string.c_str (),
 		     force_condition,
 		     0 /* condition and thread are valid.  */,
@@ -479,8 +482,8 @@ mi_cmd_break_passcount (const char *command, const char *const *argv,
 }
 
 /* Insert a watchpoint. The type of watchpoint is specified by the
-   first argument: 
-   -break-watch <expr> --> insert a regular wp.  
+   first argument:
+   -break-watch <expr> --> insert a regular wp.
    -break-watch -r <expr> --> insert a read watchpoint.
    -break-watch -a <expr> --> insert an access wp.  */
 
@@ -578,14 +581,16 @@ mi_cmd_break_commands (const char *command, const char *const *argv, int argc)
       };
 
   if (is_tracepoint (b))
-    break_command = read_command_lines_1 (reader, 1,
-					  [=] (const char *line)
+    {
+      tracepoint *t = gdb::checked_static_cast<tracepoint *> (b);
+      break_command = read_command_lines_1 (reader, 1,
+					    [=] (const char *line)
 					    {
-					      validate_actionline (line, b);
+					      validate_actionline (line, t);
 					    });
+    }
   else
     break_command = read_command_lines_1 (reader, 1, 0);
 
   breakpoint_set_commands (b, std::move (break_command));
 }
-

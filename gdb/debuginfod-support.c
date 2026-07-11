@@ -1,5 +1,5 @@
 /* debuginfod utilities for GDB.
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,20 +16,25 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "diagnostics.h"
 #include <errno.h>
+#include "gdbsupport/cleanups.h"
 #include "gdbsupport/scoped_fd.h"
 #include "debuginfod-support.h"
-#include "gdbsupport/gdb_optional.h"
+#include <optional>
 #include "cli/cli-cmds.h"
 #include "cli/cli-style.h"
 #include "cli-out.h"
 #include "target.h"
+#include "buffered-streams.h"
 
 /* Set/show debuginfod commands.  */
 static cmd_list_element *set_debuginfod_prefix_list;
 static cmd_list_element *show_debuginfod_prefix_list;
+
+/* maint set/show debuginfod commands.  */
+static cmd_list_element *maint_set_debuginfod_cmdlist;
+static cmd_list_element *maint_show_debuginfod_cmdlist;
 
 static const char debuginfod_on[] = "on";
 static const char debuginfod_off[] = "off";
@@ -48,6 +53,14 @@ static const char *debuginfod_enabled =
   debuginfod_ask;
 #else
   debuginfod_off;
+#endif
+
+/* Controls whether ELF/DWARF section downloading is enabled.  */
+static bool debuginfod_download_sections =
+#if defined(HAVE_LIBDEBUGINFOD_FIND_SECTION)
+  true;
+#else
+  false;
 #endif
 
 static unsigned int debuginfod_verbose = 1;
@@ -80,6 +93,15 @@ debuginfod_exec_query (const unsigned char *build_id,
   return scoped_fd (-ENOSYS);
 }
 
+scoped_fd
+debuginfod_section_query (const unsigned char *build_id,
+			  int build_id_len,
+			  const char *filename,
+			  const char *section_name,
+			  gdb::unique_xmalloc_ptr<char> *destname)
+{
+  return scoped_fd (-ENOSYS);
+}
 #define NO_IMPL _("Support for debuginfod is not compiled into GDB.")
 
 #else
@@ -134,7 +156,8 @@ progressfn (debuginfod_client *c, long cur, long total)
 
   if (check_quit_flag ())
     {
-      gdb_printf ("Cancelling download of %s %s...\n",
+      ui_file *outstream = get_unbuffered (gdb_stdout);
+      gdb_printf (outstream, _("Cancelling download of %s %s...\n"),
 		  data->desc, styled_fname.c_str ());
       return 1;
     }
@@ -166,15 +189,6 @@ progressfn (debuginfod_client *c, long cur, long total)
   return 0;
 }
 
-/* Cleanup ARG, which is a debuginfod_client pointer.  */
-
-static void
-cleanup_debuginfod_client (void *arg)
-{
-  debuginfod_client *client = static_cast<debuginfod_client *> (arg);
-  debuginfod_end (client);
-}
-
 /* Return a pointer to the single global debuginfod_client, initialising it
    first if needed.  */
 
@@ -199,7 +213,10 @@ get_debuginfod_client ()
 	     handlers, which is too late.
 
 	     So instead, we make use of GDB's final cleanup mechanism.  */
-	  make_final_cleanup (cleanup_debuginfod_client, global_client);
+	  add_final_cleanup ([] ()
+	    {
+	      debuginfod_end (global_client);
+	    });
 	  debuginfod_set_progressfn (global_client, progressfn);
 	}
     }
@@ -215,58 +232,61 @@ debuginfod_is_enabled ()
 {
   const char *urls = skip_spaces (getenv (DEBUGINFOD_URLS_ENV_VAR));
 
-  if (debuginfod_enabled == debuginfod_off
-      || urls == nullptr
+  if (urls == nullptr
       || *urls == '\0')
     return false;
 
-  if (debuginfod_enabled == debuginfod_ask)
+  if (debuginfod_enabled != debuginfod_ask)
+    return debuginfod_enabled == debuginfod_on;
+
+  gdb_printf (_("\nThis GDB supports auto-downloading debuginfo " \
+		"from the following URLs:\n"));
+
+  std::string_view url_view (urls);
+  while (true)
     {
-      gdb_printf (_("\nThis GDB supports auto-downloading debuginfo " \
-		    "from the following URLs:\n"));
+      size_t off = url_view.find_first_not_of (' ');
+      if (off == std::string_view::npos)
+	break;
+      url_view = url_view.substr (off);
+#if defined (__GNUC__) && !defined (__clang__)				\
+  && ((__GNUC__ <= 11) || (__GNUC__ == 12 && __GNUC_MINOR__ < 1))
+      /* With g++ 11, we encounter a Wstringop-overread in
+	 url_view.find_first_of.  G++ seems convinced url_view might be of
+	 SIZE_MAX length here.  And so complains because the length of an
+	 array can only be PTRDIFF_MAX.  Work around this by explicitly
+	 limiting the size of url_view to PTRDIFF_MAX.  This is supposed to be
+	 fixed in GCC 12.1, see PR gcc/124879.  */
+      url_view = url_view.substr (0, PTRDIFF_MAX);
+#endif
+      off = url_view.find_first_of (' ');
+      gdb_printf
+	(_("  <%ps>\n"),
+	 styled_string (file_name_style.style (),
+			std::string (url_view.substr (0, off)).c_str ()));
+      if (off == std::string_view::npos)
+	break;
+      url_view = url_view.substr (off);
+    }
 
-      gdb::string_view url_view (urls);
-      while (true)
-	{
-	  size_t off = url_view.find_first_not_of (' ');
-	  if (off == gdb::string_view::npos)
-	    break;
-	  url_view = url_view.substr (off);
-	  /* g++ 11.2.1 on s390x, g++ 11.3.1 on ppc64le and g++ 11 on
-	     hppa seem convinced url_view might be of SIZE_MAX length.
-	     And so complains because the length of an array can only
-	     be PTRDIFF_MAX.  */
-	  DIAGNOSTIC_PUSH
-	  DIAGNOSTIC_IGNORE_STRINGOP_OVERREAD
-	  off = url_view.find_first_of (' ');
-	  DIAGNOSTIC_POP
-	  gdb_printf
-	    (_("  <%ps>\n"),
-	     styled_string (file_name_style.style (),
-			    gdb::to_string (url_view.substr (0,
-							     off)).c_str ()));
-	  if (off == gdb::string_view::npos)
-	    break;
-	  url_view = url_view.substr (off);
-	}
-
-      int resp = nquery (_("Enable debuginfod for this session? "));
-      if (!resp)
-	{
-	  gdb_printf (_("Debuginfod has been disabled.\nTo make this " \
-			"setting permanent, add \'set debuginfod " \
-			"enabled off\' to .gdbinit.\n"));
-	  debuginfod_enabled = debuginfod_off;
-	  return false;
-	}
-
-      gdb_printf (_("Debuginfod has been enabled.\nTo make this " \
+  int resp = nquery (_("Enable debuginfod for this session? "));
+  if (!resp)
+    {
+      gdb_printf (_("Debuginfod has been disabled.\nTo make this " \
+		    "setting permanent, add \'set debuginfod " \
+		    "enabled off\' to .gdbinit.\n"));
+      debuginfod_enabled = debuginfod_off;
+    }
+  else
+    {
+      gdb_printf (_("Debuginfod has been enabled.\nTo make this "      \
 		    "setting permanent, add \'set debuginfod enabled " \
 		    "on\' to .gdbinit.\n"));
       debuginfod_enabled = debuginfod_on;
     }
 
-  return true;
+  gdb_assert (debuginfod_enabled != debuginfod_ask);
+  return debuginfod_enabled == debuginfod_on;
 }
 
 /* Print the result of the most recent attempted download.  */
@@ -275,10 +295,14 @@ static void
 print_outcome (int fd, const char *desc, const char *fname)
 {
   if (fd < 0 && fd != -ENOENT)
-    gdb_printf (_("Download failed: %s.  Continuing without %s %ps.\n"),
-		safe_strerror (-fd),
-		desc,
-		styled_string (file_name_style.style (), fname));
+    {
+      ui_file *outstream = get_unbuffered (gdb_stdout);
+      gdb_printf (outstream,
+		  _("Download failed: %s.  Continuing without %s %ps.\n"),
+		  safe_strerror (-fd),
+		  desc,
+		  styled_string (file_name_style.style (), fname));
+    }
 }
 
 /* See debuginfod-support.h  */
@@ -299,7 +323,7 @@ debuginfod_source_query (const unsigned char *build_id,
 
   char *dname = nullptr;
   scoped_fd fd;
-  gdb::optional<target_terminal::scoped_restore_terminal_state> term_state;
+  std::optional<target_terminal::scoped_restore_terminal_state> term_state;
 
   {
     user_data data ("source file", srcpath);
@@ -345,7 +369,7 @@ debuginfod_debuginfo_query (const unsigned char *build_id,
 
   char *dname = nullptr;
   scoped_fd fd;
-  gdb::optional<target_terminal::scoped_restore_terminal_state> term_state;
+  std::optional<target_terminal::scoped_restore_terminal_state> term_state;
 
   {
     user_data data ("separate debug info for", filename);
@@ -388,10 +412,10 @@ debuginfod_exec_query (const unsigned char *build_id,
 
   char *dname = nullptr;
   scoped_fd fd;
-  gdb::optional<target_terminal::scoped_restore_terminal_state> term_state;
+  std::optional<target_terminal::scoped_restore_terminal_state> term_state;
 
   {
-    user_data data ("executable for", filename);
+    user_data data ("file", filename);
 
     debuginfod_set_user_data (c, &data);
     if (target_supports_terminal_ours ())
@@ -405,13 +429,64 @@ debuginfod_exec_query (const unsigned char *build_id,
     debuginfod_set_user_data (c, nullptr);
   }
 
-  print_outcome (fd.get (), "executable for", filename);
+  print_outcome (fd.get (), "file", filename);
 
   if (fd.get () >= 0)
     destname->reset (dname);
 
   return fd;
 }
+
+/* See debuginfod-support.h  */
+
+scoped_fd
+debuginfod_section_query (const unsigned char *build_id,
+			  int build_id_len,
+			  const char *filename,
+			  const char *section_name,
+			  gdb::unique_xmalloc_ptr<char> *destname)
+{
+#if !defined (HAVE_LIBDEBUGINFOD_FIND_SECTION)
+  return scoped_fd (-ENOSYS);
+#else
+
+  if (!debuginfod_download_sections || !debuginfod_is_enabled ())
+    return scoped_fd (-ENOSYS);
+
+  debuginfod_client *c = get_debuginfod_client ();
+
+  if (c == nullptr)
+    return scoped_fd (-ENOMEM);
+
+  char *dname = nullptr;
+  std::string desc = std::string ("section ") + section_name + " for";
+  scoped_fd fd;
+  std::optional<target_terminal::scoped_restore_terminal_state> term_state;
+
+  {
+    user_data data (desc.c_str (), filename);
+    debuginfod_set_user_data (c, &data);
+    if (target_supports_terminal_ours ())
+      {
+	term_state.emplace ();
+	target_terminal::ours ();
+      }
+
+    fd = scoped_fd (debuginfod_find_section (c, build_id, build_id_len,
+					     section_name, &dname));
+    debuginfod_set_user_data (c, nullptr);
+  }
+
+  print_outcome (fd.get (), desc.c_str (), filename);
+  gdb_assert (destname != nullptr);
+
+  if (fd.get () >= 0)
+    destname->reset (dname);
+
+  return fd;
+#endif /* HAVE_LIBDEBUGINFOD_FIND_SECTION */
+}
+
 #endif
 
 /* Set callback for "set debuginfod enabled".  */
@@ -501,11 +576,31 @@ show_debuginfod_verbose_command (ui_file *file, int from_tty,
 	      value);
 }
 
+/* Set callback for "maint set debuginfod download-sections".  */
+
+static void
+maint_set_debuginfod_download_sections (bool value)
+{
+#if !defined(HAVE_LIBDEBUGINFOD_FIND_SECTION)
+  if (value)
+    error (_("Support for section downloading is not compiled into GDB. " \
+"Defaulting to \"off\"."));
+#endif
+
+  debuginfod_download_sections = value;
+}
+
+/* Get callback for "maint set debuginfod download-sections".  */
+
+static bool
+maint_get_debuginfod_download_sections ()
+{
+  return debuginfod_download_sections;
+}
+
 /* Register debuginfod commands.  */
 
-void _initialize_debuginfod ();
-void
-_initialize_debuginfod ()
+INIT_GDB_FILE (debuginfod)
 {
   /* set/show debuginfod */
   add_setshow_prefix_cmd ("debuginfod", class_run,
@@ -519,8 +614,10 @@ _initialize_debuginfod ()
 			_("Set whether to use debuginfod."),
 			_("Show whether to use debuginfod."),
 			_("\
-When on, enable the use of debuginfod to download missing debug info and\n\
-source files."),
+When set to \"on\", enable the use of debuginfod to download missing\n\
+debug info and source files.  GDB may also download components of debug\n\
+info instead of entire files.  \"off\" disables the use of debuginfod.\n\
+When set to \"ask\", prompt whether to enable or disable debuginfod." ),
 			set_debuginfod_enabled,
 			get_debuginfod_enabled,
 			show_debuginfod_enabled,
@@ -531,9 +628,9 @@ source files."),
   add_setshow_string_noescape_cmd ("urls", class_run, _("\
 Set the list of debuginfod server URLs."), _("\
 Show the list of debuginfod server URLs."), _("\
-Manage the space-separated list of debuginfod server URLs that GDB will query \
-when missing debuginfo, executables or source files.\nThe default value is \
-copied from the DEBUGINFOD_URLS environment variable."),
+Manage the space-separated list of debuginfod server URLs that GDB will\n\
+query when missing debuginfo, executables or source files.\n\
+The default value is copied from the DEBUGINFOD_URLS environment variable."),
 				   set_debuginfod_urls,
 				   get_debuginfod_urls,
 				   show_debuginfod_urls,
@@ -551,4 +648,25 @@ query.\nTo disable, set to zero.  Verbose output is displayed by default."),
 			     show_debuginfod_verbose_command,
 			     &set_debuginfod_prefix_list,
 			     &show_debuginfod_prefix_list);
+
+  /* maint set/show debuginfod.  */
+  add_setshow_prefix_cmd ("debuginfod", class_maintenance,
+			  _("Set debuginfod specific variables."),
+			  _("Show debuginfod specific variables."),
+			  &maint_set_debuginfod_cmdlist,
+			  &maint_show_debuginfod_cmdlist,
+			  &maintenance_set_cmdlist, &maintenance_show_cmdlist);
+
+  /* maint set/show debuginfod download-sections.  */
+  add_setshow_boolean_cmd ("download-sections", class_maintenance, _("\
+Set whether debuginfod may download individual ELF/DWARF sections."), _("\
+Show whether debuginfod may download individual ELF/DWARF sections."), _("\
+When enabled, debuginfod may attempt to download individual ELF/DWARF\n\
+sections from debug info files.\n\
+If disabled, only whole debug info files may be downloaded."),
+			   maint_set_debuginfod_download_sections,
+			   maint_get_debuginfod_download_sections,
+			   nullptr,
+			   &maint_set_debuginfod_cmdlist,
+			   &maint_show_debuginfod_cmdlist);
 }

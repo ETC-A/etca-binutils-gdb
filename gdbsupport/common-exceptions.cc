@@ -1,6 +1,6 @@
 /* Exception (throw catch) mechanism, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "common-exceptions.h"
 #include <forward_list>
 
@@ -192,7 +191,7 @@ throw_exception (gdb_exception &&exception)
     gdb_assert_not_reached ("invalid return reason");
 }
 
-static void ATTRIBUTE_NORETURN ATTRIBUTE_PRINTF (3, 0)
+[[noreturn]] static void ATTRIBUTE_PRINTF (3, 0)
 throw_it (enum return_reason reason, enum errors error, const char *fmt,
 	  va_list ap)
 {

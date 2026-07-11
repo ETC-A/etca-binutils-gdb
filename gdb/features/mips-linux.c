@@ -1,18 +1,17 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: mips-linux.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_mips_linux;
+const_target_desc_up tdesc_mips_linux;
 static void
 initialize_tdesc_mips_linux (void)
 {
   target_desc_up result = allocate_target_description ();
   set_tdesc_architecture (result.get (), bfd_scan_arch ("mips"));
 
-  set_tdesc_osabi (result.get (), osabi_from_tdesc_string ("GNU/Linux"));
+  set_tdesc_osabi (result.get (), GDB_OSABI_LINUX);
 
   struct tdesc_feature *feature;
 
@@ -97,5 +96,5 @@ initialize_tdesc_mips_linux (void)
   feature = tdesc_create_feature (result.get (), "org.gnu.gdb.mips.linux");
   tdesc_create_reg (feature, "restart", 72, 1, "system", 32, "int");
 
-  tdesc_mips_linux = result.release ();
+  tdesc_mips_linux = std::move (result);
 }

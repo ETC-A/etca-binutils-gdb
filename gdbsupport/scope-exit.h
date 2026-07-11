@@ -1,4 +1,4 @@
-/* Copyright (C) 2019-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_SCOPE_EXIT_H
-#define COMMON_SCOPE_EXIT_H
+#ifndef GDBSUPPORT_SCOPE_EXIT_H
+#define GDBSUPPORT_SCOPE_EXIT_H
 
 #include <functional>
 #include <type_traits>
@@ -49,64 +49,54 @@
    See also forward_scope_exit.
 */
 
-/* CRTP base class for cancelable scope_exit-like classes.  Implements
-   the common call-custom-function-from-dtor functionality.  Classes
-   that inherit this implement the on_exit() method, which is called
-   from scope_exit_base's dtor.  */
+/* A template class that implements 'scope_exit' like things.  The POLICY
+   type is used as base class, and its constructors are pulled into
+   scope_exit_base.
 
-template <typename CRTP>
-class scope_exit_base
+   When scope_exit_base is destructed, POLICY::on_exit is called so long as
+   release has not first been called.
+
+   Private inheritance from POLICY as we don't want to leak any of its
+   details to the public API.  */
+
+template<typename POLICY>
+class scope_exit_base : private POLICY
 {
 public:
-  scope_exit_base () = default;
+  using POLICY::POLICY;
 
   ~scope_exit_base ()
   {
     if (!m_released)
-      {
-	auto *self = static_cast<CRTP *> (this);
-	self->on_exit ();
-      }
+      POLICY::on_exit ();
   }
 
-  /* This is needed for make_scope_exit because copy elision isn't
-     guaranteed until C++17.  An optimizing compiler will usually skip
-     calling this, but it must exist.  */
-  scope_exit_base (const scope_exit_base &other)
-    : m_released (other.m_released)
-  {
-    other.m_released = true;
-  }
+  DISABLE_COPY_AND_ASSIGN (scope_exit_base);
 
-  void operator= (const scope_exit_base &) = delete;
-
-  /* If this is called, then the wrapped function will not be called
-     on destruction.  */
+  /* If this is called, then on_exit will not be invoked from the dtor.  */
   void release () noexcept
   {
     m_released = true;
   }
 
 private:
-
-  /* True if released.  Mutable because of the copy ctor hack
-     above.  */
-  mutable bool m_released = false;
+  /* Only when false will on_exit be invoked from the dtor.  */
+  bool m_released = false;
 };
 
-/* The scope_exit class.  */
+namespace detail
+{
+
+/* Policy class to use with scope_exit_base that will be used to implement
+   the scope_exit type described in the comment at the head of this file.  */
 
 template<typename EF>
-class scope_exit : public scope_exit_base<scope_exit<EF>>
+class scope_exit_policy
 {
-  /* For access to on_exit().  */
-  friend scope_exit_base<scope_exit<EF>>;
-
 public:
-
   template<typename EFP,
 	   typename = gdb::Requires<std::is_constructible<EF, EFP>>>
-  scope_exit (EFP &&f)
+  scope_exit_policy (EFP &&f)
     try : m_exit_function ((!std::is_lvalue_reference<EFP>::value
 			    && std::is_nothrow_constructible<EF, EFP>::value)
 			   ? std::move (f)
@@ -118,51 +108,27 @@ public:
       /* "If the initialization of exit_function throws an exception,
 	 calls f()."  */
       f ();
+      /* "throws: Nothing, unless the initialization of exit_function
+	 throws."  */
+      throw;
     }
 
-  template<typename EFP,
-	   typename = gdb::Requires<std::is_constructible<EF, EFP>>>
-  scope_exit (scope_exit &&rhs)
-    noexcept (std::is_nothrow_move_constructible<EF>::value
-	      || std::is_nothrow_copy_constructible<EF>::value)
-    : m_exit_function (std::is_nothrow_constructible<EFP>::value
-		       ? std::move (rhs)
-		       : rhs)
-  {
-    rhs.release ();
-  }
+  DISABLE_COPY_AND_ASSIGN (scope_exit_policy);
 
-  /* This is needed for make_scope_exit because copy elision isn't
-     guaranteed until C++17.  An optimizing compiler will usually skip
-     calling this, but it must exist.  */
-  scope_exit (const scope_exit &other)
-    : scope_exit_base<scope_exit<EF>> (other),
-      m_exit_function (other.m_exit_function)
-  {
-  }
-
-  void operator= (const scope_exit &) = delete;
-  void operator= (scope_exit &&) = delete;
-
-private:
+  /* Called at scope exit unless 'release' (see scope_exit_base) was
+     called.  */
   void on_exit ()
   {
     m_exit_function ();
   }
 
+private:
   /* The function to call on scope exit.  */
   EF m_exit_function;
 };
 
-template <typename EF>
-scope_exit<typename std::decay<EF>::type>
-make_scope_exit (EF &&f)
-{
-  return scope_exit<typename std::decay<EF>::type> (std::forward<EF> (f));
-}
-
-namespace detail
-{
+template<typename EF>
+using scope_exit = scope_exit_base<::detail::scope_exit_policy<EF>>;
 
 enum class scope_exit_lhs {};
 
@@ -175,6 +141,14 @@ operator+ (scope_exit_lhs, EF &&rhs)
 
 }
 
+template <typename EF>
+::detail::scope_exit<typename std::decay<EF>::type>
+make_scope_exit (EF &&f)
+{
+  return ::detail::scope_exit<typename std::decay<EF>::type>
+    (std::forward<EF> (f));
+}
+
 /* Register a block of code to run on scope exit.  Note that the local
    context is captured by reference, which means you should be careful
    to avoid inadvertently changing a captured local's value before the
@@ -183,4 +157,4 @@ operator+ (scope_exit_lhs, EF &&rhs)
 #define SCOPE_EXIT \
   auto CONCAT(scope_exit_, __LINE__) = ::detail::scope_exit_lhs () + [&] ()
 
-#endif /* COMMON_SCOPE_EXIT_H */
+#endif /* GDBSUPPORT_SCOPE_EXIT_H */

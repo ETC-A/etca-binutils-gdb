@@ -1,4 +1,4 @@
-# Copyright 2023 Free Software Foundation, Inc.
+# Copyright 2023-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 # Check that the DWARF reader works with a a DW_AT_specification that
 # refers to a later DIE.
 
+require !readnow
+
 load_lib dwarf.exp
 
 # This test can only be run on targets which support DWARF-2 and use gas.
@@ -30,9 +32,9 @@ Dwarf::assemble $asm_file {
 
     cu {} {
 	DW_TAG_compile_unit {
-	    {DW_AT_language @DW_LANG_C_plus_plus}
-	    {DW_AT_name     $srcfile}
-	    {DW_AT_comp_dir /tmp}
+	    DW_AT_language @DW_LANG_C_plus_plus
+	    DW_AT_name     $srcfile
+	    DW_AT_comp_dir /tmp
 
 	} {
 	    declare_labels spec myint
@@ -41,26 +43,26 @@ Dwarf::assemble $asm_file {
 	    # name of an object that uses a specification that appears
 	    # later in the DWARF.
 	    DW_TAG_variable {
-		{DW_AT_specification :$spec}
-		{DW_AT_location {
+		DW_AT_specification :$spec
+		DW_AT_location {
 		    DW_OP_const1u 23
 		    DW_OP_stack_value
-		} SPECIAL_expr}
+		} SPECIAL_expr
 	    }
 
 	    myint: DW_TAG_base_type {
-		{DW_AT_byte_size 4 DW_FORM_sdata}
-		{DW_AT_encoding  @DW_ATE_signed}
-		{DW_AT_name      myint}
+		DW_AT_byte_size 4 DW_FORM_sdata
+		DW_AT_encoding  @DW_ATE_signed
+		DW_AT_name      myint
 	    }
 
 	    DW_TAG_namespace {
-		{DW_AT_name ns}
+		DW_AT_name ns
 	    } {
 		spec: DW_TAG_variable {
-		    {DW_AT_name v}
-		    {DW_AT_type :$myint}
-		    {DW_AT_declaration 1 DW_FORM_flag_present}
+		    DW_AT_name v
+		    DW_AT_type :$myint
+		    DW_AT_declaration 1 DW_FORM_flag_present
 		}
 	    }
 	}
@@ -69,34 +71,16 @@ Dwarf::assemble $asm_file {
 
 if {[prepare_for_testing "failed to prepare" ${testfile} \
 	 [list $srcfile $asm_file] {nodebug}]} {
-    return -1
+    return
 }
 
-set in_v 0
-gdb_test_multiple "maint print objfiles" "v has a parent" {
-    -re "^ *\\\[\[0-9\]\\\] *\\(\\(cooked_index_entry\[^\r\n\]*" {
-	set in_v 0
-	exp_continue
-    }
-    -re "^ *name: *v\[\r\n\]*" {
-	set in_v 1
-	exp_continue
-    }
-    -re "^ *parent: *\\(\\(cooked_index_entry \\*\\) (0|$hex)\\)" {
-	if {$in_v} {
-	    if {$expect_out(1,string) == "0"} {
-		fail $gdb_test_name
-	    } else {
-		pass $gdb_test_name
-	    }
-	    set in_v 0
-	}
-	exp_continue
-    }
-    -re "^\[^\r\n\]*\[\r\n\]+" {
-	exp_continue
-    }
-    -re "$gdb_prompt " {
-	# Done.
-    }
-}
+require {string equal [have_index $binfile] ""}
+
+set re_ws "\[ \t\]"
+
+gdb_test_lines "maint print objfiles" \
+    "v has a parent" \
+    [multi_line \
+	 "" \
+	 "$re_ws+qualified:$re_ws+ns::v" \
+	 ".*"]

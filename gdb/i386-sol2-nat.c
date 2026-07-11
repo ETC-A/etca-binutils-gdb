@@ -1,6 +1,6 @@
 /* Native-dependent code for Solaris x86.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "regcache.h"
 
 #include <sys/reg.h>
@@ -26,7 +25,7 @@
 #include "target.h"
 #include "procfs.h"
 
-/* This file provids the (temporary) glue between the Solaris x86
+/* This file provides the (temporary) glue between the Solaris x86
    target dependent code and the machine independent SVR4 /proc
    support.  */
 
@@ -253,9 +252,7 @@ fill_fpregset (const struct regcache *regcache,
 
 #endif
 
-void _initialize_amd64_sol2_nat ();
-void
-_initialize_amd64_sol2_nat ()
+INIT_GDB_FILE (amd64_sol2_nat)
 {
 #if PR_MODEL_NATIVE == PR_MODEL_LP64
   amd64_native_gregset32_reg_offset = amd64_sol2_gregset32_reg_offset;

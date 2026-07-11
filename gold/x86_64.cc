@@ -1,6 +1,6 @@
 // x86_64.cc -- x86_64 target support for gold.
 
-// Copyright (C) 2006-2023 Free Software Foundation, Inc.
+// Copyright (C) 2006-2026 Free Software Foundation, Inc.
 // Written by Ian Lance Taylor <iant@google.com>.
 
 // This file is part of gold.
@@ -39,7 +39,6 @@
 #include "target-select.h"
 #include "tls.h"
 #include "freebsd.h"
-#include "nacl.h"
 #include "gc.h"
 #include "icf.h"
 
@@ -1053,8 +1052,9 @@ class Target_x86_64 : public Sized_target<size, false>
     gold_assert(gsym != NULL);
     // We cannot do the conversion unless it's one of these relocations.
     if (r_type != elfcpp::R_X86_64_GOTPCREL
-        && r_type != elfcpp::R_X86_64_GOTPCRELX
-        && r_type != elfcpp::R_X86_64_REX_GOTPCRELX)
+	&& r_type != elfcpp::R_X86_64_GOTPCRELX
+	&& r_type != elfcpp::R_X86_64_REX_GOTPCRELX
+	&& r_type != elfcpp::R_X86_64_CODE_4_GOTPCRELX)
       return false;
     // We cannot convert references to IFUNC symbols, or to symbols that
     // are not local to the current module.
@@ -1109,7 +1109,8 @@ class Target_x86_64 : public Sized_target<size, false>
   // Adjust TLS relocation type based on the options and whether this
   // is a local symbol.
   static tls::Tls_optimization
-  optimize_tls_reloc(bool is_final, int r_type);
+  optimize_tls_reloc(bool is_final, int r_type, size_t r_offset,
+		     const unsigned char* reloc_view);
 
   // Get the GOT section, creating it if necessary.
   Output_data_got<64, false>*
@@ -2877,11 +2878,13 @@ Target_x86_64<size>::got_mod_index_entry(Symbol_table* symtab, Layout* layout,
 
 // Optimize the TLS relocation type based on what we know about the
 // symbol.  IS_FINAL is true if the final address of this symbol is
-// known at link time.
+// known at link time.  RELOC_VIEW points to the relocation offset.
 
 template<int size>
 tls::Tls_optimization
-Target_x86_64<size>::optimize_tls_reloc(bool is_final, int r_type)
+Target_x86_64<size>::optimize_tls_reloc(bool is_final, int r_type,
+					size_t r_offset,
+					const unsigned char* reloc_view)
 {
   // If we are generating a shared library, then we can't do anything
   // in the linker.
@@ -2890,6 +2893,10 @@ Target_x86_64<size>::optimize_tls_reloc(bool is_final, int r_type)
 
   switch (r_type)
     {
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
+      if (r_offset <= 4 || *(reloc_view - 4) != 0xd5)
+	return tls::TLSOPT_NONE;
+      // Fall through.
     case elfcpp::R_X86_64_TLSGD:
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:
     case elfcpp::R_X86_64_TLSDESC_CALL:
@@ -2912,11 +2919,21 @@ Target_x86_64<size>::optimize_tls_reloc(bool is_final, int r_type)
       // Another Local-Dynamic reloc.
       return tls::TLSOPT_TO_LE;
 
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
+      if (r_offset <= 6 || *(reloc_view - 6) != 0x62)
+	return tls::TLSOPT_NONE;
+      goto handle_gottpoff;
+
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+      if (r_offset <= 4 || *(reloc_view - 4) != 0xd5)
+	return tls::TLSOPT_NONE;
+      // Fall through.
     case elfcpp::R_X86_64_GOTTPOFF:
       // These are Initial-Exec relocs which get the thread offset
       // from the GOT.  If we know that we are linking against the
       // local symbol, we can switch to Local-Exec, which links the
       // thread offset into the instruction.
+handle_gottpoff:
       if (is_final)
 	return tls::TLSOPT_TO_LE;
       return tls::TLSOPT_NONE;
@@ -2971,17 +2988,21 @@ Target_x86_64<size>::Scan::get_reference_flags(unsigned int r_type)
     case elfcpp::R_X86_64_GOTPCREL:
     case elfcpp::R_X86_64_GOTPCRELX:
     case elfcpp::R_X86_64_REX_GOTPCRELX:
+    case elfcpp::R_X86_64_CODE_4_GOTPCRELX:
     case elfcpp::R_X86_64_GOTPLT64:
       // Absolute in GOT.
       return Symbol::ABSOLUTE_REF;
 
     case elfcpp::R_X86_64_TLSGD:            // Global-dynamic
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:  // Global-dynamic (from ~oliva url)
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
     case elfcpp::R_X86_64_TLSDESC_CALL:
     case elfcpp::R_X86_64_TLSLD:            // Local-dynamic
     case elfcpp::R_X86_64_DTPOFF32:
     case elfcpp::R_X86_64_DTPOFF64:
     case elfcpp::R_X86_64_GOTTPOFF:         // Initial-exec
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
     case elfcpp::R_X86_64_TPOFF32:          // Local-exec
       return Symbol::TLS_REF;
 
@@ -3146,6 +3167,8 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
       target->make_local_ifunc_plt_entry(symtab, layout, object, r_sym);
     }
 
+  const unsigned char* reloc_view = NULL;
+
   switch (r_type)
     {
     case elfcpp::R_X86_64_NONE:
@@ -3251,6 +3274,7 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
     case elfcpp::R_X86_64_GOTPCREL:
     case elfcpp::R_X86_64_GOTPCRELX:
     case elfcpp::R_X86_64_REX_GOTPCRELX:
+    case elfcpp::R_X86_64_CODE_4_GOTPCRELX:
     case elfcpp::R_X86_64_GOTPLT64:
       {
 	// The symbol requires a GOT section.
@@ -3261,20 +3285,29 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
 	// mov foo@GOTPCREL(%rip), %reg
 	// to lea foo(%rip), %reg.
 	// in Relocate::relocate.
+	size_t r_offset = reloc.get_r_offset();
 	if (!parameters->incremental()
-	    && (r_type == elfcpp::R_X86_64_GOTPCREL
-		|| r_type == elfcpp::R_X86_64_GOTPCRELX
-		|| r_type == elfcpp::R_X86_64_REX_GOTPCRELX)
+	    && (((r_type == elfcpp::R_X86_64_GOTPCREL
+		  || r_type == elfcpp::R_X86_64_GOTPCRELX
+		  || r_type == elfcpp::R_X86_64_REX_GOTPCRELX)
+		 && r_offset >= 2)
+		|| (r_type == elfcpp::R_X86_64_CODE_4_GOTPCRELX
+		    && r_offset >= 4))
 	    && reloc.get_r_addend() == -4
-	    && reloc.get_r_offset() >= 2
 	    && !is_ifunc)
 	  {
 	    section_size_type stype;
 	    const unsigned char* view = object->section_contents(data_shndx,
 								 &stype, true);
-	    if (view[reloc.get_r_offset() - 2] == 0x8b)
+	    if (r_type == elfcpp::R_X86_64_CODE_4_GOTPCRELX
+		&& view[r_offset - 4] != 0xd5)
+	      goto need_got;
+
+	    if (view[r_offset - 2] == 0x8b)
 	      break;
 	  }
+
+need_got:
 
 	// The symbol requires a GOT entry.
 	unsigned int r_sym = elfcpp::elf_r_sym<size>(reloc.get_r_info());
@@ -3333,6 +3366,14 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
       break;
 
       // These are initial tls relocs, which are expected when linking
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
+      {
+	section_size_type stype;
+	reloc_view = object->section_contents(data_shndx, &stype, true);
+      }
+      // Fall through.
     case elfcpp::R_X86_64_TLSGD:            // Global-dynamic
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:  // Global-dynamic (from ~oliva url)
     case elfcpp::R_X86_64_TLSDESC_CALL:
@@ -3343,9 +3384,11 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
     case elfcpp::R_X86_64_TPOFF32:          // Local-exec
       {
 	bool output_is_shared = parameters->options().shared();
+	size_t r_offset = reloc.get_r_offset();
 	const tls::Tls_optimization optimized_type
 	    = Target_x86_64<size>::optimize_tls_reloc(!output_is_shared,
-						      r_type);
+						      r_type, r_offset,
+						      reloc_view + r_offset);
 	switch (r_type)
 	  {
 	  case elfcpp::R_X86_64_TLSGD:       // General-dynamic
@@ -3374,6 +3417,7 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
 	    break;
 
 	  case elfcpp::R_X86_64_GOTPC32_TLSDESC:
+	  case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
 	    target->define_tls_base_symbol(symtab, layout);
 	    if (optimized_type == tls::TLSOPT_NONE)
 	      {
@@ -3426,6 +3470,8 @@ Target_x86_64<size>::Scan::local(Symbol_table* symtab,
 	    break;
 
 	  case elfcpp::R_X86_64_GOTTPOFF:    // Initial-exec
+	  case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+	  case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
 	    layout->set_has_static_tls();
 	    if (optimized_type == tls::TLSOPT_NONE)
 	      {
@@ -3498,6 +3544,7 @@ Target_x86_64<size>::Scan::possible_function_pointer_reloc(
     case elfcpp::R_X86_64_GOTPCREL:
     case elfcpp::R_X86_64_GOTPCRELX:
     case elfcpp::R_X86_64_REX_GOTPCRELX:
+    case elfcpp::R_X86_64_CODE_4_GOTPCRELX:
     case elfcpp::R_X86_64_GOTPLT64:
       {
 	return true;
@@ -3601,6 +3648,8 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
   if (gsym->type() == elfcpp::STT_GNU_IFUNC
       && this->reloc_needs_plt_for_ifunc(object, r_type))
     target->make_plt_entry(symtab, layout, gsym);
+
+  const unsigned char *reloc_view = NULL;
 
   switch (r_type)
     {
@@ -3714,6 +3763,7 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
     case elfcpp::R_X86_64_GOTPCREL:
     case elfcpp::R_X86_64_GOTPCRELX:
     case elfcpp::R_X86_64_REX_GOTPCRELX:
+    case elfcpp::R_X86_64_CODE_4_GOTPCRELX:
     case elfcpp::R_X86_64_GOTPLT64:
       {
 	// The symbol requires a GOT entry.
@@ -3736,8 +3786,12 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
         size_t r_offset = reloc.get_r_offset();
         if (!parameters->incremental()
 	    && reloc.get_r_addend() == -4
-	    && r_offset >= 2
-            && Target_x86_64<size>::can_convert_mov_to_lea(gsym, r_type,
+	    && ((r_type != elfcpp::R_X86_64_CODE_4_GOTPCRELX
+		 && r_offset >= 2)
+		|| (r_type == elfcpp::R_X86_64_CODE_4_GOTPCRELX
+		    && r_offset >= 4
+		    && view[r_offset - 4] == 0xd5))
+	    && Target_x86_64<size>::can_convert_mov_to_lea(gsym, r_type,
                                                            r_offset, &view))
           break;
 
@@ -3854,6 +3908,14 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
       break;
 
       // These are initial tls relocs, which are expected for global()
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
+      {
+	section_size_type stype;
+	reloc_view = object->section_contents(data_shndx, &stype, true);
+      }
+      // Fall through.
     case elfcpp::R_X86_64_TLSGD:            // Global-dynamic
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:  // Global-dynamic (from ~oliva url)
     case elfcpp::R_X86_64_TLSDESC_CALL:
@@ -3866,11 +3928,16 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
 	// For the Initial-Exec model, we can treat undef symbols as final
 	// when building an executable.
 	const bool is_final = (gsym->final_value_is_known() ||
-			       (r_type == elfcpp::R_X86_64_GOTTPOFF &&
+			       ((r_type == elfcpp::R_X86_64_GOTTPOFF ||
+				 r_type == elfcpp::R_X86_64_CODE_4_GOTTPOFF||
+				 r_type == elfcpp::R_X86_64_CODE_6_GOTTPOFF) &&
 			        gsym->is_undefined() &&
 				parameters->options().output_is_executable()));
+	size_t r_offset = reloc.get_r_offset();
 	const tls::Tls_optimization optimized_type
-	    = Target_x86_64<size>::optimize_tls_reloc(is_final, r_type);
+	    = Target_x86_64<size>::optimize_tls_reloc(is_final, r_type,
+						      r_offset,
+						      reloc_view + r_offset);
 	switch (r_type)
 	  {
 	  case elfcpp::R_X86_64_TLSGD:       // General-dynamic
@@ -3899,6 +3966,7 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
 	    break;
 
 	  case elfcpp::R_X86_64_GOTPC32_TLSDESC:
+	  case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
 	    target->define_tls_base_symbol(symtab, layout);
 	    if (optimized_type == tls::TLSOPT_NONE)
 	      {
@@ -3947,6 +4015,8 @@ Target_x86_64<size>::Scan::global(Symbol_table* symtab,
 	    break;
 
 	  case elfcpp::R_X86_64_GOTTPOFF:    // Initial-exec
+	  case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+	  case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
 	    layout->set_has_static_tls();
 	    if (optimized_type == tls::TLSOPT_NONE)
 	      {
@@ -4420,6 +4490,7 @@ Target_x86_64<size>::Relocate::relocate(
     case elfcpp::R_X86_64_GOTPCREL:
     case elfcpp::R_X86_64_GOTPCRELX:
     case elfcpp::R_X86_64_REX_GOTPCRELX:
+    case elfcpp::R_X86_64_CODE_4_GOTPCRELX:
       {
       bool converted_p = false;
 
@@ -4541,11 +4612,14 @@ Target_x86_64<size>::Relocate::relocate(
       // These are initial tls relocs, which are expected when linking
     case elfcpp::R_X86_64_TLSGD:            // Global-dynamic
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:  // Global-dynamic (from ~oliva url)
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
     case elfcpp::R_X86_64_TLSDESC_CALL:
     case elfcpp::R_X86_64_TLSLD:            // Local-dynamic
     case elfcpp::R_X86_64_DTPOFF32:
     case elfcpp::R_X86_64_DTPOFF64:
     case elfcpp::R_X86_64_GOTTPOFF:         // Initial-exec
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
     case elfcpp::R_X86_64_TPOFF32:          // Local-exec
       this->relocate_tls(relinfo, target, relnum, rela, r_type, gsym, psymval,
 			 view, address, view_size);
@@ -4617,8 +4691,10 @@ Target_x86_64<size>::Relocate::relocate_tls(
   const bool is_final = (gsym == NULL
 			 ? !parameters->options().shared()
 			 : gsym->final_value_is_known());
+  size_t r_offset = rela.get_r_offset();
   tls::Tls_optimization optimized_type
-      = Target_x86_64<size>::optimize_tls_reloc(is_final, r_type);
+      = Target_x86_64<size>::optimize_tls_reloc(is_final, r_type,
+						r_offset, view);
   switch (r_type)
     {
     case elfcpp::R_X86_64_TLSGD:            // Global-dynamic
@@ -4685,6 +4761,7 @@ Target_x86_64<size>::Relocate::relocate_tls(
       break;
 
     case elfcpp::R_X86_64_GOTPC32_TLSDESC:  // Global-dynamic (from ~oliva url)
+    case elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC:
     case elfcpp::R_X86_64_TLSDESC_CALL:
       if (!is_executable && optimized_type == tls::TLSOPT_TO_LE)
 	{
@@ -4710,7 +4787,8 @@ Target_x86_64<size>::Relocate::relocate_tls(
 				   ? GOT_TYPE_TLS_OFFSET
 				   : GOT_TYPE_TLS_DESC);
 	  unsigned int got_offset = 0;
-	  if (r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC
+	  if ((r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC
+	       || r_type == elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC)
 	      && optimized_type == tls::TLSOPT_NONE)
 	    {
 	      // We created GOT entries in the .got.tlsdesc portion of
@@ -4741,7 +4819,8 @@ Target_x86_64<size>::Relocate::relocate_tls(
 	    }
 	  else if (optimized_type == tls::TLSOPT_NONE)
 	    {
-	      if (r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC)
+	      if (r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC
+		  || r_type == elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC)
 		{
 		  // Relocate the field with the offset of the pair of GOT
 		  // entries.
@@ -4826,6 +4905,8 @@ Target_x86_64<size>::Relocate::relocate_tls(
       break;
 
     case elfcpp::R_X86_64_GOTTPOFF:         // Initial-exec
+    case elfcpp::R_X86_64_CODE_4_GOTTPOFF:
+    case elfcpp::R_X86_64_CODE_6_GOTTPOFF:
       if (gsym != NULL
 	  && gsym->is_undefined()
 	  && parameters->options().output_is_executable())
@@ -5032,7 +5113,8 @@ Target_x86_64<size>::Relocate::tls_desc_gd_to_ie(
     typename elfcpp::Elf_types<size>::Elf_Addr address,
     section_size_type view_size)
 {
-  if (r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC)
+  if (r_type == elfcpp::R_X86_64_GOTPC32_TLSDESC
+      || r_type == elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC)
     {
       // LP64: leaq foo@tlsdesc(%rip), %rax
       //       ==> movq foo@gottpoff(%rip), %rax
@@ -5041,7 +5123,8 @@ Target_x86_64<size>::Relocate::tls_desc_gd_to_ie(
       tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, -3);
       tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, 4);
       tls::check_tls(relinfo, relnum, rela.get_r_offset(),
-		     (((view[-3] & 0xfb) == 0x48
+		     ((r_type == elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC
+		       || (view[-3] & 0xfb) == 0x48
 		       || (size == 32 && (view[-3] & 0xfb) == 0x40))
 		      && view[-2] == 0x8d
 		      && (view[-1] & 0xc7) == 0x05));
@@ -5108,6 +5191,22 @@ Target_x86_64<size>::Relocate::tls_desc_gd_to_le(
 		      && view[-2] == 0x8d
 		      && (view[-1] & 0xc7) == 0x05));
       view[-3] = (view[-3] & 0x48) | ((view[-3] >> 2) & 1);
+      view[-2] = 0xc7;
+      view[-1] = 0xc0 | ((view[-1] >> 3) & 7);
+      value -= tls_segment->memsz();
+      Relocate_functions<size, false>::rela32(view, value, 0);
+    }
+  else if (r_type == elfcpp::R_X86_64_CODE_4_GOTPC32_TLSDESC)
+    {
+      // REX2: lea foo@tlsdesc(%rip), %reg
+      //       ==> mov foo@tpoff, %reg
+      tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, -3);
+      tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, 4);
+      tls::check_tls(relinfo, relnum, rela.get_r_offset(),
+		     (view[-2] == 0x8d
+		      && (view[-1] & 0xc7) == 0x05));
+      unsigned char rex2_mask = 4 | 4 << 4;
+      view[-3] = (view[-3] & ~rex2_mask) | ((view[-3] & rex2_mask) >> 2);
       view[-2] = 0xc7;
       view[-1] = 0xc0 | ((view[-1] >> 3) & 7);
       value -= tls_segment->memsz();
@@ -5212,7 +5311,7 @@ Target_x86_64<size>::Relocate::tls_ie_to_le(
     size_t relnum,
     Output_segment* tls_segment,
     const elfcpp::Rela<size, false>& rela,
-    unsigned int,
+    unsigned int r_type,
     typename elfcpp::Elf_types<size>::Elf_Addr value,
     unsigned char* view,
     section_size_type view_size)
@@ -5222,44 +5321,84 @@ Target_x86_64<size>::Relocate::tls_ie_to_le(
 
   // movq foo@gottpoff(%rip),%reg  ==>  movq $YY,%reg
   // addq foo@gottpoff(%rip),%reg  ==>  addq $YY,%reg
+  // addq %reg1,foo@gottpoff(%rip),%reg2  ==>  addq $YY,%reg1,%reg2
+  // addq foo@gottpoff(%rip),%reg1,%reg2  ==>  addq $YY,%reg1,%reg2
 
-  tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, -3);
+  int off1;
+  if (r_type == elfcpp::R_X86_64_CODE_6_GOTTPOFF)
+    off1 = -5;
+  else
+    off1 = -3;
+
+  tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, off1);
   tls::check_range(relinfo, relnum, rela.get_r_offset(), view_size, 4);
 
-  unsigned char op1 = view[-3];
+  unsigned char op1 = view[off1];
   unsigned char op2 = view[-2];
   unsigned char op3 = view[-1];
   unsigned char reg = op3 >> 3;
 
-  if (op2 == 0x8b)
+  if (r_type == elfcpp::R_X86_64_GOTTPOFF)
     {
-      // movq
-      if (op1 == 0x4c)
-	view[-3] = 0x49;
-      else if (size == 32 && op1 == 0x44)
-	view[-3] = 0x41;
-      view[-2] = 0xc7;
-      view[-1] = 0xc0 | reg;
+      if (op2 == 0x8b)
+	{
+	  // movq
+	  if (op1 == 0x4c)
+	    view[-3] = 0x49;
+	  else if (size == 32 && op1 == 0x44)
+	    view[-3] = 0x41;
+	  view[-2] = 0xc7;
+	  view[-1] = 0xc0 | reg;
+	}
+      else if (reg == 4)
+	{
+	  // Special handling for %rsp.
+	  if (op1 == 0x4c)
+	    view[-3] = 0x49;
+	  else if (size == 32 && op1 == 0x44)
+	    view[-3] = 0x41;
+	  view[-2] = 0x81;
+	  view[-1] = 0xc0 | reg;
+	}
+      else
+	{
+	  // addq
+	  if (op1 == 0x4c)
+	    view[-3] = 0x4d;
+	  else if (size == 32 && op1 == 0x44)
+	    view[-3] = 0x45;
+	  view[-2] = 0x8d;
+	  view[-1] = 0x80 | reg | (reg << 3);
+	}
     }
-  else if (reg == 4)
+  else if (r_type == elfcpp::R_X86_64_CODE_4_GOTTPOFF)
     {
-      // Special handling for %rsp.
-      if (op1 == 0x4c)
-	view[-3] = 0x49;
-      else if (size == 32 && op1 == 0x44)
-	view[-3] = 0x41;
-      view[-2] = 0x81;
+      if (op2 == 0x8b)
+	op2 = 0xc7;
+      else
+	op2 = 0x81;
+
+      unsigned char rex2_mask = 4 | 4 << 4;
+      view[-3] = (view[-3] & ~rex2_mask) | ((view[-3] & rex2_mask) >> 2);
+      view[-2] = op2;
       view[-1] = 0xc0 | reg;
     }
   else
     {
-      // addq
-      if (op1 == 0x4c)
-	view[-3] = 0x4d;
-      else if (size == 32 && op1 == 0x44)
-	view[-3] = 0x45;
-      view[-2] = 0x8d;
-      view[-1] = 0x80 | reg | (reg << 3);
+      unsigned char updated_op1 = op1;
+
+      // Set the R bits since they is inverted.
+      updated_op1 |= 1 << 7 | 1 << 4;
+
+      // Update the B bits from the R bits.
+      if ((op1 & (1 << 7)) == 0)
+	updated_op1 &= ~(1 << 5);
+      if ((op1 & (1 << 4)) == 0)
+	updated_op1 |= 1 << 3;
+
+      view[-5] = updated_op1;
+      view[-2] = 0x81;
+      view[-1] = 0xc0 | reg;
     }
 
   if (tls_segment != NULL)
@@ -5652,8 +5791,7 @@ Target_x86_64<size>::do_calls_non_split(Relobj* object, unsigned int shndx,
   *to = "__morestack_non_split";
 }
 
-// The selector for x86_64 object files.  Note this is never instantiated
-// directly.  It's only used in Target_selector_x86_64_nacl, below.
+// The selector for x86_64 object files.
 
 template<int size>
 class Target_selector_x86_64 : public Target_selector_freebsd
@@ -5675,378 +5813,7 @@ public:
 
 };
 
-// NaCl variant.  It uses different PLT contents.
-
-template<int size>
-class Output_data_plt_x86_64_nacl : public Output_data_plt_x86_64<size>
-{
- public:
-  Output_data_plt_x86_64_nacl(Layout* layout,
-			      Output_data_got<64, false>* got,
-			      Output_data_got_plt_x86_64* got_plt,
-			      Output_data_space* got_irelative)
-    : Output_data_plt_x86_64<size>(layout, plt_entry_size,
-				   got, got_plt, got_irelative)
-  { }
-
-  Output_data_plt_x86_64_nacl(Layout* layout,
-			      Output_data_got<64, false>* got,
-			      Output_data_got_plt_x86_64* got_plt,
-			      Output_data_space* got_irelative,
-			      unsigned int plt_count)
-    : Output_data_plt_x86_64<size>(layout, plt_entry_size,
-				   got, got_plt, got_irelative,
-				   plt_count)
-  { }
-
- protected:
-  virtual unsigned int
-  do_get_plt_entry_size() const
-  { return plt_entry_size; }
-
-  virtual void
-  do_add_eh_frame(Layout* layout)
-  {
-    layout->add_eh_frame_for_plt(this,
-				 this->plt_eh_frame_cie,
-				 this->plt_eh_frame_cie_size,
-				 plt_eh_frame_fde,
-				 plt_eh_frame_fde_size);
-  }
-
-  virtual void
-  do_fill_first_plt_entry(unsigned char* pov,
-			  typename elfcpp::Elf_types<size>::Elf_Addr got_addr,
-			  typename elfcpp::Elf_types<size>::Elf_Addr plt_addr);
-
-  virtual unsigned int
-  do_fill_plt_entry(unsigned char* pov,
-		    typename elfcpp::Elf_types<size>::Elf_Addr got_address,
-		    typename elfcpp::Elf_types<size>::Elf_Addr plt_address,
-		    unsigned int got_offset,
-		    unsigned int plt_offset,
-		    unsigned int plt_index);
-
-  virtual void
-  do_fill_tlsdesc_entry(unsigned char* pov,
-			typename elfcpp::Elf_types<size>::Elf_Addr got_address,
-			typename elfcpp::Elf_types<size>::Elf_Addr plt_address,
-			typename elfcpp::Elf_types<size>::Elf_Addr got_base,
-			unsigned int tlsdesc_got_offset,
-			unsigned int plt_offset);
-
- private:
-  // The size of an entry in the PLT.
-  static const int plt_entry_size = 64;
-
-  // The first entry in the PLT.
-  static const unsigned char first_plt_entry[plt_entry_size];
-
-  // Other entries in the PLT for an executable.
-  static const unsigned char plt_entry[plt_entry_size];
-
-  // The reserved TLSDESC entry in the PLT for an executable.
-  static const unsigned char tlsdesc_plt_entry[plt_entry_size];
-
-  // The .eh_frame unwind information for the PLT.
-  static const int plt_eh_frame_fde_size = 32;
-  static const unsigned char plt_eh_frame_fde[plt_eh_frame_fde_size];
-};
-
-template<int size>
-class Target_x86_64_nacl : public Target_x86_64<size>
-{
- public:
-  Target_x86_64_nacl()
-    : Target_x86_64<size>(&x86_64_nacl_info)
-  { }
-
-  virtual Output_data_plt_x86_64<size>*
-  do_make_data_plt(Layout* layout,
-		   Output_data_got<64, false>* got,
-		   Output_data_got_plt_x86_64* got_plt,
-		   Output_data_space* got_irelative)
-  {
-    return new Output_data_plt_x86_64_nacl<size>(layout, got, got_plt,
-						 got_irelative);
-  }
-
-  virtual Output_data_plt_x86_64<size>*
-  do_make_data_plt(Layout* layout,
-		   Output_data_got<64, false>* got,
-		   Output_data_got_plt_x86_64* got_plt,
-		   Output_data_space* got_irelative,
-		   unsigned int plt_count)
-  {
-    return new Output_data_plt_x86_64_nacl<size>(layout, got, got_plt,
-						 got_irelative,
-						 plt_count);
-  }
-
-  virtual std::string
-  do_code_fill(section_size_type length) const;
-
- private:
-  static const Target::Target_info x86_64_nacl_info;
-};
-
-template<>
-const Target::Target_info Target_x86_64_nacl<64>::x86_64_nacl_info =
-{
-  64,			// size
-  false,		// is_big_endian
-  elfcpp::EM_X86_64,	// machine_code
-  false,		// has_make_symbol
-  false,		// has_resolve
-  true,			// has_code_fill
-  true,			// is_default_stack_executable
-  true,			// can_icf_inline_merge_sections
-  '\0',			// wrap_char
-  "/lib64/ld-nacl-x86-64.so.1", // dynamic_linker
-  0x20000,		// default_text_segment_address
-  0x10000,		// abi_pagesize (overridable by -z max-page-size)
-  0x10000,		// common_pagesize (overridable by -z common-page-size)
-  true,                 // isolate_execinstr
-  0x10000000,           // rosegment_gap
-  elfcpp::SHN_UNDEF,	// small_common_shndx
-  elfcpp::SHN_X86_64_LCOMMON,	// large_common_shndx
-  0,			// small_common_section_flags
-  elfcpp::SHF_X86_64_LARGE,	// large_common_section_flags
-  NULL,			// attributes_section
-  NULL,			// attributes_vendor
-  "_start",		// entry_symbol_name
-  32,			// hash_entry_size
-  elfcpp::SHT_X86_64_UNWIND,	// unwind_section_type
-};
-
-template<>
-const Target::Target_info Target_x86_64_nacl<32>::x86_64_nacl_info =
-{
-  32,			// size
-  false,		// is_big_endian
-  elfcpp::EM_X86_64,	// machine_code
-  false,		// has_make_symbol
-  false,		// has_resolve
-  true,			// has_code_fill
-  true,			// is_default_stack_executable
-  true,			// can_icf_inline_merge_sections
-  '\0',			// wrap_char
-  "/lib/ld-nacl-x86-64.so.1", // dynamic_linker
-  0x20000,		// default_text_segment_address
-  0x10000,		// abi_pagesize (overridable by -z max-page-size)
-  0x10000,		// common_pagesize (overridable by -z common-page-size)
-  true,                 // isolate_execinstr
-  0x10000000,           // rosegment_gap
-  elfcpp::SHN_UNDEF,	// small_common_shndx
-  elfcpp::SHN_X86_64_LCOMMON,	// large_common_shndx
-  0,			// small_common_section_flags
-  elfcpp::SHF_X86_64_LARGE,	// large_common_section_flags
-  NULL,			// attributes_section
-  NULL,			// attributes_vendor
-  "_start",		// entry_symbol_name
-  32,			// hash_entry_size
-  elfcpp::SHT_X86_64_UNWIND,	// unwind_section_type
-};
-
-#define	NACLMASK	0xe0            // 32-byte alignment mask.
-
-// The first entry in the PLT.
-
-template<int size>
-const unsigned char
-Output_data_plt_x86_64_nacl<size>::first_plt_entry[plt_entry_size] =
-{
-  0xff, 0x35,                         // pushq contents of memory address
-  0, 0, 0, 0,                         // replaced with address of .got + 8
-  0x4c, 0x8b, 0x1d,                   // mov GOT+16(%rip), %r11
-  0, 0, 0, 0,                         // replaced with address of .got + 16
-  0x41, 0x83, 0xe3, NACLMASK,         // and $-32, %r11d
-  0x4d, 0x01, 0xfb,                   // add %r15, %r11
-  0x41, 0xff, 0xe3,                   // jmpq *%r11
-
-  // 9-byte nop sequence to pad out to the next 32-byte boundary.
-  0x66, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw 0x0(%rax,%rax,1)
-
-  // 32 bytes of nop to pad out to the standard size
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-  0x66,                                  // excess data32 prefix
-  0x90                                   // nop
-};
-
-template<int size>
-void
-Output_data_plt_x86_64_nacl<size>::do_fill_first_plt_entry(
-    unsigned char* pov,
-    typename elfcpp::Elf_types<size>::Elf_Addr got_address,
-    typename elfcpp::Elf_types<size>::Elf_Addr plt_address)
-{
-  memcpy(pov, first_plt_entry, plt_entry_size);
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 2,
-					      (got_address + 8
-					       - (plt_address + 2 + 4)));
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 9,
-					      (got_address + 16
-					       - (plt_address + 9 + 4)));
-}
-
-// Subsequent entries in the PLT.
-
-template<int size>
-const unsigned char
-Output_data_plt_x86_64_nacl<size>::plt_entry[plt_entry_size] =
-{
-  0x4c, 0x8b, 0x1d,              // mov name@GOTPCREL(%rip),%r11
-  0, 0, 0, 0,                    // replaced with address of symbol in .got
-  0x41, 0x83, 0xe3, NACLMASK,    // and $-32, %r11d
-  0x4d, 0x01, 0xfb,              // add %r15, %r11
-  0x41, 0xff, 0xe3,              // jmpq *%r11
-
-  // 15-byte nop sequence to pad out to the next 32-byte boundary.
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-
-  // Lazy GOT entries point here (32-byte aligned).
-  0x68,                       // pushq immediate
-  0, 0, 0, 0,                 // replaced with index into relocation table
-  0xe9,                       // jmp relative
-  0, 0, 0, 0,                 // replaced with offset to start of .plt0
-
-  // 22 bytes of nop to pad out to the standard size.
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-  0x0f, 0x1f, 0x80, 0, 0, 0, 0,          // nopl 0x0(%rax)
-};
-
-template<int size>
-unsigned int
-Output_data_plt_x86_64_nacl<size>::do_fill_plt_entry(
-    unsigned char* pov,
-    typename elfcpp::Elf_types<size>::Elf_Addr got_address,
-    typename elfcpp::Elf_types<size>::Elf_Addr plt_address,
-    unsigned int got_offset,
-    unsigned int plt_offset,
-    unsigned int plt_index)
-{
-  memcpy(pov, plt_entry, plt_entry_size);
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 3,
-					      (got_address + got_offset
-					       - (plt_address + plt_offset
-						  + 3 + 4)));
-
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 33, plt_index);
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 38,
-					      - (plt_offset + 38 + 4));
-
-  return 32;
-}
-
-// The reserved TLSDESC entry in the PLT.
-
-template<int size>
-const unsigned char
-Output_data_plt_x86_64_nacl<size>::tlsdesc_plt_entry[plt_entry_size] =
-{
-  0xff, 0x35,			// pushq x(%rip)
-  0, 0, 0, 0,	// replaced with address of linkmap GOT entry (at PLTGOT + 8)
-  0x4c, 0x8b, 0x1d,		// mov y(%rip),%r11
-  0, 0, 0, 0,	// replaced with offset of reserved TLSDESC_GOT entry
-  0x41, 0x83, 0xe3, NACLMASK,	// and $-32, %r11d
-  0x4d, 0x01, 0xfb,             // add %r15, %r11
-  0x41, 0xff, 0xe3,             // jmpq *%r11
-
-  // 41 bytes of nop to pad out to the standard size.
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-  0x66, 0x66, 0x66, 0x66, 0x66, 0x66,    // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-  0x66, 0x66,                            // excess data32 prefixes
-  0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0, // nopw %cs:0x0(%rax,%rax,1)
-};
-
-template<int size>
-void
-Output_data_plt_x86_64_nacl<size>::do_fill_tlsdesc_entry(
-    unsigned char* pov,
-    typename elfcpp::Elf_types<size>::Elf_Addr got_address,
-    typename elfcpp::Elf_types<size>::Elf_Addr plt_address,
-    typename elfcpp::Elf_types<size>::Elf_Addr got_base,
-    unsigned int tlsdesc_got_offset,
-    unsigned int plt_offset)
-{
-  memcpy(pov, tlsdesc_plt_entry, plt_entry_size);
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 2,
-					      (got_address + 8
-					       - (plt_address + plt_offset
-						  + 2 + 4)));
-  elfcpp::Swap_unaligned<32, false>::writeval(pov + 9,
-					      (got_base
-					       + tlsdesc_got_offset
-					       - (plt_address + plt_offset
-						  + 9 + 4)));
-}
-
-// The .eh_frame unwind information for the PLT.
-
-template<int size>
-const unsigned char
-Output_data_plt_x86_64_nacl<size>::plt_eh_frame_fde[plt_eh_frame_fde_size] =
-{
-  0, 0, 0, 0,				// Replaced with offset to .plt.
-  0, 0, 0, 0,				// Replaced with size of .plt.
-  0,					// Augmentation size.
-  elfcpp::DW_CFA_def_cfa_offset, 16,	// DW_CFA_def_cfa_offset: 16.
-  elfcpp::DW_CFA_advance_loc + 6,	// Advance 6 to __PLT__ + 6.
-  elfcpp::DW_CFA_def_cfa_offset, 24,	// DW_CFA_def_cfa_offset: 24.
-  elfcpp::DW_CFA_advance_loc + 58,	// Advance 58 to __PLT__ + 64.
-  elfcpp::DW_CFA_def_cfa_expression,	// DW_CFA_def_cfa_expression.
-  13,					// Block length.
-  elfcpp::DW_OP_breg7, 8,		// Push %rsp + 8.
-  elfcpp::DW_OP_breg16, 0,		// Push %rip.
-  elfcpp::DW_OP_const1u, 63,		// Push 0x3f.
-  elfcpp::DW_OP_and,			// & (%rip & 0x3f).
-  elfcpp::DW_OP_const1u, 37,            // Push 0x25.
-  elfcpp::DW_OP_ge,			// >= ((%rip & 0x3f) >= 0x25)
-  elfcpp::DW_OP_lit3,			// Push 3.
-  elfcpp::DW_OP_shl,			// << (((%rip & 0x3f) >= 0x25) << 3)
-  elfcpp::DW_OP_plus,			// + ((((%rip&0x3f)>=0x25)<<3)+%rsp+8
-  elfcpp::DW_CFA_nop,			// Align to 32 bytes.
-  elfcpp::DW_CFA_nop
-};
-
-// Return a string used to fill a code section with nops.
-// For NaCl, long NOPs are only valid if they do not cross
-// bundle alignment boundaries, so keep it simple with one-byte NOPs.
-template<int size>
-std::string
-Target_x86_64_nacl<size>::do_code_fill(section_size_type length) const
-{
-  return std::string(length, static_cast<char>(0x90));
-}
-
-// The selector for x86_64-nacl object files.
-
-template<int size>
-class Target_selector_x86_64_nacl
-  : public Target_selector_nacl<Target_selector_x86_64<size>,
-				Target_x86_64_nacl<size> >
-{
- public:
-  Target_selector_x86_64_nacl()
-    : Target_selector_nacl<Target_selector_x86_64<size>,
-			   Target_x86_64_nacl<size> >("x86-64",
-						      size == 64
-						      ? "elf64-x86-64-nacl"
-						      : "elf32-x86-64-nacl",
-						      size == 64
-						      ? "elf_x86_64_nacl"
-						      : "elf32_x86_64_nacl")
-  { }
-};
-
-Target_selector_x86_64_nacl<64> target_selector_x86_64;
-Target_selector_x86_64_nacl<32> target_selector_x32;
+Target_selector_x86_64<64> target_selector_x86_64;
+Target_selector_x86_64<32> target_selector_x32;
 
 } // End anonymous namespace.

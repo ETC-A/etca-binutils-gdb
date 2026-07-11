@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2014-2023 Free Software Foundation, Inc.
+   Copyright 2014-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -58,14 +58,14 @@ func1 (void *ptr)
 
 /* Finds and returns an invalid pointer, mmaps in a page, grabs a pointer
    to it then unmaps the page again.  This is almost certainly "undefined"
-   behaviour, but should be good enough for this small test program.  */
+   behavior, but should be good enough for this small test program.  */
 
 static void *
 make_invalid_ptr (void)
 {
   int page_size, ans;
   void *ptr;
-  
+
   page_size = getpagesize ();
   ptr =  mmap (0, page_size, PROT_NONE,
 	       MAP_PRIVATE | MAP_ANONYMOUS,
@@ -77,13 +77,13 @@ make_invalid_ptr (void)
   return ptr;
 }
 
-int 
+int
 main (void)
 {
   void *invalid_ptr;
 
   invalid_ptr = make_invalid_ptr ();
   func1 (invalid_ptr);
-  
+
   return 0;
 }

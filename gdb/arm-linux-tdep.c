@@ -1,6 +1,6 @@
 /* GNU/Linux on ARM target support.
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "target.h"
 #include "value.h"
 #include "gdbtypes.h"
@@ -41,6 +41,7 @@
 #include "arm-tdep.h"
 #include "arm-linux-tdep.h"
 #include "linux-tdep.h"
+#include "solib-svr4-linux.h"
 #include "glibc-tdep.h"
 #include "arch-utils.h"
 #include "inferior.h"
@@ -55,7 +56,6 @@
 #include "stap-probe.h"
 #include "parser-defs.h"
 #include "user-regs.h"
-#include <ctype.h>
 #include "elf/common.h"
 
 /* Under ARM GNU/Linux the traditional way of performing a breakpoint
@@ -93,20 +93,21 @@ static const gdb_byte arm_linux_thumb2_be_breakpoint[] = { 0xf7, 0xf0, 0xa0, 0x0
 
 static const gdb_byte arm_linux_thumb2_le_breakpoint[] = { 0xf0, 0xf7, 0x00, 0xa0 };
 
-/* Description of the longjmp buffer.  The buffer is treated as an array of 
+/* Description of the longjmp buffer.  The buffer is treated as an array of
    elements of size ARM_LINUX_JB_ELEMENT_SIZE.
 
    The location of saved registers in this buffer (in particular the PC
-   to use after longjmp is called) varies depending on the ABI (in 
-   particular the FP model) and also (possibly) the C Library.
-
-   For glibc, eglibc, and uclibc the following holds:  If the FP model is 
-   SoftVFP or VFP (which implies EABI) then the PC is at offset 9 in the 
-   buffer.  This is also true for the SoftFPA model.  However, for the FPA 
-   model the PC is at offset 21 in the buffer.  */
+   to use after longjmp is called) varies depending on the ABI (in
+   particular the FP model) and also (possibly) the C Library.  */
 #define ARM_LINUX_JB_ELEMENT_SIZE	ARM_INT_REGISTER_SIZE
+/* For the FPA model the PC is at offset 21 in the buffer.  */
 #define ARM_LINUX_JB_PC_FPA		21
-#define ARM_LINUX_JB_PC_EABI		9
+/* For glibc 2.20 and later the PC is at offset 1, see glibc commit 80a56cc3ee
+   ("ARM: Add SystemTap probes to longjmp and setjmp.").
+   For newlib and uclibc, this is not correct, we need osabi settings to deal
+   with those, see PR31854 and PR31856.  Likewise for older versions of
+   glibc.  */
+#define ARM_LINUX_JB_PC_EABI		1
 
 /*
    Dynamic Linking on ARM GNU/Linux
@@ -143,7 +144,7 @@ static const gdb_byte arm_linux_thumb2_le_breakpoint[] = { 0xf0, 0xf7, 0x00, 0xa
    with the real function address.  Subsequent calls go through steps
    1, 2 and 3 and end up calling the real code.
 
-   1) In the code: 
+   1) In the code:
 
    b    function_call
    bl   function_call
@@ -277,7 +278,7 @@ static struct arm_get_next_pcs_ops arm_linux_get_next_pcs_ops = {
 };
 
 static void
-arm_linux_sigtramp_cache (frame_info_ptr this_frame,
+arm_linux_sigtramp_cache (const frame_info_ptr &this_frame,
 			  struct trad_frame_cache *this_cache,
 			  CORE_ADDR func, int regs_offset)
 {
@@ -300,7 +301,7 @@ arm_linux_sigtramp_cache (frame_info_ptr this_frame,
 /* See arm-linux.h for stack layout details.  */
 static void
 arm_linux_sigreturn_init (const struct tramp_frame *self,
-			  frame_info_ptr this_frame,
+			  const frame_info_ptr &this_frame,
 			  struct trad_frame_cache *this_cache,
 			  CORE_ADDR func)
 {
@@ -320,7 +321,7 @@ arm_linux_sigreturn_init (const struct tramp_frame *self,
 
 static void
 arm_linux_rt_sigreturn_init (const struct tramp_frame *self,
-			  frame_info_ptr this_frame,
+			  const frame_info_ptr &this_frame,
 			  struct trad_frame_cache *this_cache,
 			  CORE_ADDR func)
 {
@@ -343,7 +344,7 @@ arm_linux_rt_sigreturn_init (const struct tramp_frame *self,
 
 static void
 arm_linux_restart_syscall_init (const struct tramp_frame *self,
-				frame_info_ptr this_frame,
+				const frame_info_ptr &this_frame,
 				struct trad_frame_cache *this_cache,
 				CORE_ADDR func)
 {
@@ -732,7 +733,7 @@ arm_linux_core_read_description (struct gdbarch *gdbarch,
 				 struct target_ops *target,
 				 bfd *abfd)
 {
-  gdb::optional<gdb::byte_vector> auxv = target_read_auxv_raw (target);
+  std::optional<gdb::byte_vector> auxv = target_read_auxv_raw (target);
   CORE_ADDR arm_hwcap = linux_get_hwcap (auxv, target, gdbarch);
 
   if (arm_hwcap & HWCAP_VFP)
@@ -740,7 +741,7 @@ arm_linux_core_read_description (struct gdbarch *gdbarch,
       /* NEON implies VFPv3-D32 or no-VFP unit.  Say that we only support
 	 Neon with VFPv3-D32.  */
       if (arm_hwcap & HWCAP_NEON)
-	return aarch32_read_description ();
+	return aarch32_read_description (false);
       else if ((arm_hwcap & (HWCAP_VFPv3 | HWCAP_VFPv3D16)) == HWCAP_VFPv3)
 	return arm_read_description (ARM_FP_TYPE_VFPV3, false);
 
@@ -756,7 +757,7 @@ arm_linux_core_read_description (struct gdbarch *gdbarch,
    will return to ARM or Thumb code.  Return 0 if it is not a
    rt_sigreturn/sigreturn syscall.  */
 static int
-arm_linux_sigreturn_return_addr (frame_info_ptr frame,
+arm_linux_sigreturn_return_addr (const frame_info_ptr &frame,
 				 unsigned long svc_number,
 				 CORE_ADDR *pc, int *is_thumb)
 {
@@ -813,6 +814,32 @@ arm_linux_sigreturn_next_pc (struct regcache *regcache,
   return next_pc;
 }
 
+/* Return true if we're at execve syscall-exit-stop.  */
+
+static bool
+is_execve_syscall_exit (struct regcache *regs)
+{
+  ULONGEST reg = -1;
+
+  /* Check that lr is 0.  */
+  regcache_cooked_read_unsigned (regs, ARM_LR_REGNUM, &reg);
+  if (reg != 0)
+    return false;
+
+  /* Check that r0-r8 is 0.  */
+  for (int i = 0; i <= 8; ++i)
+    {
+      reg = -1;
+      regcache_cooked_read_unsigned (regs, ARM_A1_REGNUM + i, &reg);
+      if (reg != 0)
+	return false;
+    }
+
+  return true;
+}
+
+#define arm_sys_execve 11
+
 /* At a ptrace syscall-stop, return the syscall number.  This either
    comes from the SWI instruction (OABI) or from r7 (EABI).
 
@@ -830,6 +857,9 @@ arm_linux_get_syscall_number (struct gdbarch *gdbarch,
   int is_thumb;
   ULONGEST svc_number = -1;
 
+  if (is_execve_syscall_exit (regs))
+    return arm_sys_execve;
+
   regcache_cooked_read_unsigned (regs, ARM_PC_REGNUM, &pc);
   regcache_cooked_read_unsigned (regs, ARM_PS_REGNUM, &cpsr);
   is_thumb = (cpsr & t_bit) != 0;
@@ -840,14 +870,19 @@ arm_linux_get_syscall_number (struct gdbarch *gdbarch,
     }
   else
     {
-      enum bfd_endian byte_order_for_code = 
+      enum bfd_endian byte_order_for_code =
 	gdbarch_byte_order_for_code (gdbarch);
 
       /* PC gets incremented before the syscall-stop, so read the
 	 previous instruction.  */
-      unsigned long this_instr = 
-	read_memory_unsigned_integer (pc - 4, 4, byte_order_for_code);
-
+      unsigned long this_instr;
+      {
+	ULONGEST val;
+	if (!safe_read_memory_unsigned_integer (pc - 4, 4, byte_order_for_code,
+						&val))
+	  return -1;
+	this_instr = val;
+      }
       unsigned long svc_operand = (0x00ffffff & this_instr);
 
       if (svc_operand)
@@ -869,8 +904,10 @@ static CORE_ADDR
 arm_linux_get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self)
 {
   CORE_ADDR next_pc = 0;
-  CORE_ADDR pc = regcache_read_pc (self->regcache);
-  int is_thumb = arm_is_thumb (self->regcache);
+  regcache *regcache
+    = gdb::checked_static_cast<struct regcache *> (self->regcache);
+  CORE_ADDR pc = regcache_read_pc (regcache);
+  int is_thumb = arm_is_thumb (regcache);
   ULONGEST svc_number = 0;
 
   if (is_thumb)
@@ -880,10 +917,10 @@ arm_linux_get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self)
     }
   else
     {
-      struct gdbarch *gdbarch = self->regcache->arch ();
-      enum bfd_endian byte_order_for_code = 
+      struct gdbarch *gdbarch = regcache->arch ();
+      enum bfd_endian byte_order_for_code =
 	gdbarch_byte_order_for_code (gdbarch);
-      unsigned long this_instr = 
+      unsigned long this_instr =
 	read_memory_unsigned_integer (pc, 4, byte_order_for_code);
 
       unsigned long svc_operand = (0x00ffffff & this_instr);
@@ -903,8 +940,7 @@ arm_linux_get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self)
     {
       /* SIGRETURN or RT_SIGRETURN may affect the arm thumb mode, so
 	 update IS_THUMB.   */
-      next_pc = arm_linux_sigreturn_next_pc (self->regcache, svc_number,
-					     &is_thumb);
+      next_pc = arm_linux_sigreturn_next_pc (regcache, svc_number, &is_thumb);
     }
 
   /* Addresses for calling Thumb functions have the bit 0 set.  */
@@ -999,7 +1035,7 @@ arm_linux_copy_svc (struct gdbarch *gdbarch, struct regcache *regs,
       gdb_assert (inferior_thread ()->control.step_resume_breakpoint
 		  == NULL);
 
-      sal = find_pc_line (return_to, 0);
+      sal = find_sal_for_pc (return_to, 0);
       sal.pc = return_to;
       sal.section = find_pc_overlay (return_to);
       sal.explicit_pc = 1;
@@ -1011,9 +1047,6 @@ arm_linux_copy_svc (struct gdbarch *gdbarch, struct regcache *regs,
 	  inferior_thread ()->control.step_resume_breakpoint
 	    = set_momentary_breakpoint (gdbarch, sal, get_frame_id (frame),
 					bp_step_resume).release ();
-
-	  /* set_momentary_breakpoint invalidates FRAME.  */
-	  frame = NULL;
 
 	  /* We need to make sure we actually insert the momentary
 	     breakpoint set above.  */
@@ -1130,13 +1163,13 @@ arm_linux_displaced_step_copy_insn (struct gdbarch *gdbarch,
 /* Implementation of `gdbarch_stap_is_single_operand', as defined in
    gdbarch.h.  */
 
-static int
+static bool
 arm_stap_is_single_operand (struct gdbarch *gdbarch, const char *s)
 {
-  return (*s == '#' || *s == '$' || isdigit (*s) /* Literal number.  */
+  return (*s == '#' || *s == '$' || c_isdigit (*s) /* Literal number.  */
 	  || *s == '[' /* Register indirection or
 			  displacement.  */
-	  || isalpha (*s)); /* Register value.  */
+	  || c_isalpha (*s)); /* Register value.  */
 }
 
 /* This routine is used to parse a special token in ARM's assembly.
@@ -1160,7 +1193,7 @@ arm_stap_parse_special_token (struct gdbarch *gdbarch,
       /* Used to save the register name.  */
       const char *start;
       char *regname;
-      int len, offset;
+      int offset;
       int got_minus = 0;
       long displacement;
 
@@ -1168,17 +1201,17 @@ arm_stap_parse_special_token (struct gdbarch *gdbarch,
       start = tmp;
 
       /* Register name.  */
-      while (isalnum (*tmp))
+      while (c_isalnum (*tmp))
 	++tmp;
 
       if (*tmp != ',')
 	return {};
 
-      len = tmp - start;
+      size_t len = tmp - start;
       regname = (char *) alloca (len + 2);
 
       offset = 0;
-      if (isdigit (*start))
+      if (c_isdigit (*start))
 	{
 	  /* If we are dealing with a register whose name begins with a
 	     digit, it means we should prefix the name with the letter
@@ -1193,7 +1226,8 @@ arm_stap_parse_special_token (struct gdbarch *gdbarch,
       len += offset;
       regname[len] = '\0';
 
-      if (user_reg_map_name_to_regnum (gdbarch, regname, len) == -1)
+      if (user_reg_map_name_to_regnum (gdbarch, { regname, len })
+	  == -1)
 	error (_("Invalid register name `%s' on expression `%s'."),
 	       regname, p->saved_arg);
 
@@ -1265,7 +1299,7 @@ arm_canonicalize_syscall (int syscall)
     case 8: return gdb_sys_creat;
     case 9: return gdb_sys_link;
     case 10: return gdb_sys_unlink;
-    case 11: return gdb_sys_execve;
+    case arm_sys_execve: return gdb_sys_execve;
     case 12: return gdb_sys_chdir;
     case 13: return gdb_sys_time;
     case 14: return gdb_sys_mknod;
@@ -1328,8 +1362,8 @@ arm_canonicalize_syscall (int syscall)
     case 86: return gdb_sys_uselib;
     case 87: return gdb_sys_swapon;
     case 88: return gdb_sys_reboot;
-    case 89: return gdb_old_readdir;
-    case 90: return gdb_old_mmap;
+    case 89: return gdb_sys_old_readdir;
+    case 90: return gdb_sys_old_mmap;
     case 91: return gdb_sys_munmap;
     case 92: return gdb_sys_truncate;
     case 93: return gdb_sys_ftruncate;
@@ -1596,7 +1630,9 @@ arm_canonicalize_syscall (int syscall)
     case 363: return gdb_sys_rt_tgsigqueueinfo;
     case 364: return gdb_sys_perf_event_open;
     case 365: return gdb_sys_recvmmsg;
+      */
     case 366: return gdb_sys_accept4;
+      /*
     case 367: return gdb_sys_fanotify_init;
     case 368: return gdb_sys_fanotify_mark;
     case 369: return gdb_sys_prlimit64;
@@ -1612,6 +1648,8 @@ arm_canonicalize_syscall (int syscall)
     case 379: return gdb_sys_finit_module;
       */
     case 384: return gdb_sys_getrandom;
+    case 397: return gdb_sys_statx;
+    case 403: return gdb_sys_clock_gettime64;
     case 983041: /* ARM_breakpoint */ return gdb_sys_no_syscall;
     case 983042: /* ARM_cacheflush */ return gdb_sys_no_syscall;
     case 983043: /* ARM_usr26 */ return gdb_sys_no_syscall;
@@ -1688,7 +1726,7 @@ arm_linux_syscall_record (struct regcache *regcache, unsigned long svc_number)
 /* Implement the skip_trampoline_code gdbarch method.  */
 
 static CORE_ADDR
-arm_linux_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
+arm_linux_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR pc)
 {
   CORE_ADDR target_pc = arm_skip_stub (frame, pc);
 
@@ -1764,11 +1802,10 @@ arm_linux_init_abi (struct gdbarch_info info,
     }
   tdep->jb_elt_size = ARM_LINUX_JB_ELEMENT_SIZE;
 
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, linux_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_linux_ilp32_svr4_solib_ops);
 
   /* Single stepping.  */
-  set_gdbarch_software_single_step (gdbarch, arm_linux_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, arm_linux_software_single_step);
 
   /* Shared library handling.  */
   set_gdbarch_skip_trampoline_code (gdbarch, arm_linux_skip_trampoline_code);
@@ -1989,9 +2026,7 @@ arm_linux_init_abi (struct gdbarch_info info,
   set_gdbarch_gcc_target_options (gdbarch, arm_linux_gcc_target_options);
 }
 
-void _initialize_arm_linux_tdep ();
-void
-_initialize_arm_linux_tdep ()
+INIT_GDB_FILE (arm_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_arm, 0, GDB_OSABI_LINUX,
 			  arm_linux_init_abi);

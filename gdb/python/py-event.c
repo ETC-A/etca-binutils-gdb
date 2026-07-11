@@ -1,6 +1,6 @@
 /* Python interface to inferior events.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "py-event.h"
 
 void
@@ -32,13 +31,12 @@ create_event_object (PyTypeObject *py_type)
 {
   gdbpy_ref<event_object> event_obj (PyObject_New (event_object, py_type));
   if (event_obj == NULL)
-    return NULL;
+    return nullptr;
 
-  event_obj->dict = PyDict_New ();
-  if (!event_obj->dict)
-    return NULL;
+  if (!event_obj->allocate_dict ())
+    return nullptr;
 
-  return gdbpy_ref<> ((PyObject *) event_obj.release ());
+  return event_obj;
 }
 
 /* Add the attribute ATTR to the event object EVENT.  In
@@ -54,27 +52,11 @@ evpy_add_attribute (PyObject *event, const char *name, PyObject *attr)
 
 /* Initialize the Python event code.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_event (void)
+static int
+gdbpy_initialize_event ()
 {
-  return gdbpy_initialize_event_generic (&event_object_type,
-					 "Event");
+  return gdbpy_type_ready (&event_object_type);
 }
-
-/* Initialize the given event type.  If BASE is not NULL it will
-  be set as the types base.
-  Returns 0 if initialization was successful -1 otherwise.  */
-
-int
-gdbpy_initialize_event_generic (PyTypeObject *type,
-				const char *name)
-{
-  if (PyType_Ready (type) < 0)
-    return -1;
-
-  return gdb_pymodule_addobject (gdb_module, name, (PyObject *) type);
-}
-
 
 /* Notify the list of listens that the given EVENT has occurred.
    returns 0 if emit is successful -1 otherwise.  */
@@ -118,8 +100,7 @@ GDBPY_INITIALIZE_FILE (gdbpy_initialize_event);
 
 static gdb_PyGetSetDef event_object_getset[] =
 {
-  { "__dict__", gdb_py_generic_dict, NULL,
-    "The __dict__ for this event.", &event_object_type },
+  gdbpy_dict_wrapper_cfg_dict_getter ("event"),
   { NULL }
 };
 
@@ -141,8 +122,7 @@ PyTypeObject event_object_type =
   0,                                          /* tp_hash  */
   0,                                          /* tp_call */
   0,                                          /* tp_str */
-  0,                                          /* tp_getattro */
-  0,                                          /* tp_setattro */
+  gdbpy_dict_wrapper_getsetattro,
   0,                                          /* tp_as_buffer */
   Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,   /* tp_flags */
   "GDB event object",                         /* tp_doc */
@@ -159,7 +139,7 @@ PyTypeObject event_object_type =
   0,                                          /* tp_dict */
   0,                                          /* tp_descr_get */
   0,                                          /* tp_descr_set */
-  offsetof (event_object, dict),              /* tp_dictoffset */
+  0,                                          /* tp_dictoffset */
   0,                                          /* tp_init */
   0                                           /* tp_alloc */
 };

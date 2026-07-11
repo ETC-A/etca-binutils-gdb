@@ -1,6 +1,6 @@
 /* Python interface to record targets.
 
-   Copyright 2016-2023 Free Software Foundation, Inc.
+   Copyright 2016-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "py-instruction.h"
 #include "py-record.h"
 #include "py-record-btrace.h"
@@ -49,11 +48,15 @@ static PyTypeObject recpy_gap_type = {
   PyVarObject_HEAD_INIT (NULL, 0)
 };
 
-/* Python RecordGap object.  */
-struct recpy_gap_object
-{
-  PyObject_HEAD
+/* Python RecordAuxiliary type.  */
 
+PyTypeObject recpy_aux_type = {
+  PyVarObject_HEAD_INIT (nullptr, 0)
+};
+
+/* Python RecordGap object.  */
+struct recpy_gap_object : public PyObject
+{
   /* Reason code.  */
   int reason_code;
 
@@ -63,6 +66,8 @@ struct recpy_gap_object
   /* Element number.  */
   Py_ssize_t number;
 };
+
+static_assert (gdb::is_python_allocatable_v<recpy_gap_object>);
 
 /* Implementation of record.method.  */
 
@@ -105,6 +110,19 @@ recpy_goto (PyObject *self, PyObject *value)
 
   if (obj->method == RECORD_METHOD_BTRACE)
     return recpy_bt_goto (self, value);
+
+  return PyErr_Format (PyExc_NotImplementedError, _("Not implemented."));
+}
+
+/* Implementation of record.clear () -> None.  */
+
+static PyObject *
+recpy_clear (PyObject *self, PyObject *value)
+{
+  const recpy_record_object * const obj = (recpy_record_object *) self;
+
+  if (obj->method == RECORD_METHOD_BTRACE)
+    return recpy_bt_clear (self, value);
 
   return PyErr_Format (PyExc_NotImplementedError, _("Not implemented."));
 }
@@ -390,8 +408,8 @@ recpy_element_hash (PyObject *self)
   return obj->number;
 }
 
-/* Implementation of operator == and != of RecordInstruction and
-   RecordFunctionSegment.  */
+/* Implementation of operator == and != of RecordInstruction,
+   RecordFunctionSegment and RecordAuxiliary.  */
 
 static PyObject *
 recpy_element_richcompare (PyObject *self, PyObject *other, int op)
@@ -400,10 +418,7 @@ recpy_element_richcompare (PyObject *self, PyObject *other, int op)
   const recpy_element_object * const obj2 = (recpy_element_object *) other;
 
   if (Py_TYPE (self) != Py_TYPE (other))
-    {
-      Py_INCREF (Py_NotImplemented);
-      return Py_NotImplemented;
-    }
+    return py_notimplemented ().release ();
 
   switch (op)
   {
@@ -411,24 +426,23 @@ recpy_element_richcompare (PyObject *self, PyObject *other, int op)
       if (obj1->thread == obj2->thread
 	  && obj1->method == obj2->method
 	  && obj1->number == obj2->number)
-	Py_RETURN_TRUE;
+	return py_true ().release ();
       else
-	Py_RETURN_FALSE;
+	return py_false ().release ();
 
     case Py_NE:
       if (obj1->thread != obj2->thread
 	  || obj1->method != obj2->method
 	  || obj1->number != obj2->number)
-	Py_RETURN_TRUE;
+	return py_true ().release ();
       else
-	Py_RETURN_FALSE;
+	return py_false ().release ();
 
     default:
       break;
   }
 
-  Py_INCREF (Py_NotImplemented);
-  return Py_NotImplemented;
+  return py_notimplemented ().release ();
 }
 
 /* Create a new gdb.RecordGap object.  */
@@ -479,12 +493,47 @@ recpy_gap_reason_string (PyObject *self, void *closure)
   return PyUnicode_FromString (obj->reason_string);
 }
 
+/* Create a new gdb.Auxiliary object.  */
+
+PyObject *
+recpy_aux_new (thread_info *thread, enum record_method method,
+	       Py_ssize_t number)
+{
+  recpy_element_object * const obj = PyObject_New (recpy_element_object,
+						   &recpy_aux_type);
+
+  if (obj == NULL)
+   return NULL;
+
+  obj->thread = thread;
+  obj->method = method;
+  obj->number = number;
+
+  return (PyObject *) obj;
+}
+
+/* Implementation of Auxiliary.data [buffer].  */
+
+static PyObject *
+recpy_aux_data (PyObject *self, void *closure)
+{
+  const recpy_element_object * const obj = (recpy_element_object *) self;
+
+  if (obj->method == RECORD_METHOD_BTRACE)
+    return recpy_bt_aux_data (self, closure);
+
+  return PyErr_Format (PyExc_NotImplementedError, _("Not implemented."));
+}
+
 /* Record method list.  */
 
 static PyMethodDef recpy_record_methods[] = {
   { "goto", recpy_goto, METH_VARARGS,
     "goto (instruction|function_call) -> None.\n\
 Rewind to given location."},
+  { "clear", recpy_clear, METH_VARARGS,
+    "clear () -> None.\n\
+Clears the trace."},
   { NULL }
 };
 
@@ -544,10 +593,18 @@ static gdb_PyGetSetDef recpy_gap_getset[] = {
   { NULL }
 };
 
+/* RecordAuxiliary member list.  */
+
+static gdb_PyGetSetDef recpy_aux_getset[] = {
+  { "number", recpy_element_number, nullptr, "element number", nullptr},
+  { "data", recpy_aux_data, nullptr, "data", nullptr},
+  { nullptr }
+};
+
 /* Sets up the record API in the gdb module.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_record (void)
+static int
+gdbpy_initialize_record ()
 {
   recpy_record_type.tp_new = PyType_GenericNew;
   recpy_record_type.tp_flags = Py_TPFLAGS_DEFAULT;
@@ -583,10 +640,20 @@ gdbpy_initialize_record (void)
   recpy_gap_type.tp_doc = "GDB recorded gap object";
   recpy_gap_type.tp_getset = recpy_gap_getset;
 
-  if (PyType_Ready (&recpy_record_type) < 0
-      || PyType_Ready (&recpy_insn_type) < 0
-      || PyType_Ready (&recpy_func_type) < 0
-      || PyType_Ready (&recpy_gap_type) < 0)
+  recpy_aux_type.tp_new = PyType_GenericNew;
+  recpy_aux_type.tp_flags = Py_TPFLAGS_DEFAULT;
+  recpy_aux_type.tp_basicsize = sizeof (recpy_element_object);
+  recpy_aux_type.tp_name = "gdb.RecordAuxiliary";
+  recpy_aux_type.tp_doc = "GDB recorded auxiliary object";
+  recpy_aux_type.tp_getset = recpy_aux_getset;
+  recpy_aux_type.tp_richcompare = recpy_element_richcompare;
+  recpy_aux_type.tp_hash = recpy_element_hash;
+
+  if (gdbpy_type_ready (&recpy_record_type) < 0
+      || gdbpy_type_ready (&recpy_insn_type) < 0
+      || gdbpy_type_ready (&recpy_func_type) < 0
+      || gdbpy_type_ready (&recpy_gap_type) < 0
+      || gdbpy_type_ready (&recpy_aux_type) < 0)
     return -1;
   else
     return 0;
@@ -599,7 +666,6 @@ gdbpy_start_recording (PyObject *self, PyObject *args)
 {
   const char *method = NULL;
   const char *format = NULL;
-  PyObject *ret = NULL;
 
   if (!PyArg_ParseTuple (args, "|ss", &method, &format))
     return NULL;
@@ -607,14 +673,12 @@ gdbpy_start_recording (PyObject *self, PyObject *args)
   try
     {
       record_start (method, format, 0);
-      ret = gdbpy_current_recording (self, args);
+      return gdbpy_current_recording (self, args);
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
-
-  return ret;
 }
 
 /* Implementation of gdb.current_recording (self) -> gdb.Record.  */
@@ -625,9 +689,12 @@ gdbpy_current_recording (PyObject *self, PyObject *args)
   recpy_record_object *ret = NULL;
 
   if (find_record_target () == NULL)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   ret = PyObject_New (recpy_record_object, &recpy_record_type);
+  if (ret == nullptr)
+    return nullptr;
+
   ret->thread = inferior_thread ();
   ret->method = target_record_method (ret->thread->ptid);
 
@@ -645,10 +712,10 @@ gdbpy_stop_recording (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 GDBPY_INITIALIZE_FILE (gdbpy_initialize_record);

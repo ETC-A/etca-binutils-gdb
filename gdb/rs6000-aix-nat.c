@@ -1,6 +1,6 @@
 /* IBM RS/6000 native-dependent code for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "target.h"
 #include "gdbcore.h"
 #include "symfile.h"
 #include "objfiles.h"
 #include "bfd.h"
-#include "gdb-stabs.h"
 #include "regcache.h"
 #include "arch-utils.h"
 #include "inf-child.h"
@@ -43,6 +41,7 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include "gdbsupport/eintr.h"
 
 #include <a.out.h>
 #include <sys/file.h>
@@ -77,7 +76,7 @@
 #ifndef ARCH3264
 # define ARCH64() 0
 #else
-# define ARCH64() (register_size (target_gdbarch (), 0) == 8)
+# define ARCH64() (register_size (current_inferior ()->arch (), 0) == 8)
 #endif
 
 class rs6000_nat_target final : public inf_ptrace_target
@@ -102,7 +101,15 @@ public:
      support.  */
   void follow_fork (inferior *, ptid_t, target_waitkind, bool, bool) override;
 
+  /* Keep AIX as well sharable across inferiors while following fork()
+     like child process in sync with Linux.  */
+  bool is_shareable () override
+  { return true; }
+
   const struct target_desc *read_description ()  override;
+
+  int insert_fork_catchpoint (int) override;
+  int remove_fork_catchpoint (int) override;
 
 protected:
 
@@ -477,6 +484,19 @@ rs6000_nat_target::follow_fork (inferior *child_inf, ptid_t child_ptid,
   }
 }
 
+/* Functions for catchpoint in AIX.  */
+int
+rs6000_nat_target::insert_fork_catchpoint (int pid)
+{
+  return 0;
+}
+
+int
+rs6000_nat_target::remove_fork_catchpoint (int pid)
+{
+  return 0;
+}
+
 /* Fetch register REGNO from the inferior.  */
 
 static void
@@ -674,16 +694,16 @@ rs6000_nat_target::read_description ()
    if (ARCH64())
      {
        if (__power_vsx ())
-	 return tdesc_powerpc_vsx64;
+	 return tdesc_powerpc_vsx64.get ();
        else if (__power_vmx ())
-	 return tdesc_powerpc_altivec64;
+	 return tdesc_powerpc_altivec64.get ();
      }
    else
      {
        if (__power_vsx ())
-	 return tdesc_powerpc_vsx32;
+	 return tdesc_powerpc_vsx32.get ();
        else if (__power_vmx ())
-	 return tdesc_powerpc_altivec32;
+	 return tdesc_powerpc_altivec32.get ();
      }
    return NULL;
 }
@@ -850,12 +870,8 @@ rs6000_nat_target::wait (ptid_t ptid, struct target_waitstatus *ourstatus,
     {
       set_sigint_trap ();
 
-      do
-	{
-	  pid = waitpid (ptid.pid (), &status, 0);
-	  save_errno = errno;
-	}
-      while (pid == -1 && errno == EINTR);
+      pid = gdb::waitpid (ptid.pid (), &status, 0);
+      save_errno = errno;
 
       clear_sigint_trap ();
 
@@ -918,11 +934,8 @@ rs6000_nat_target::wait (ptid_t ptid, struct target_waitstatus *ourstatus,
   /* stop after load" status.  */
   if (status == 0x57c)
     ourstatus->set_loaded ();
-  /* 0x7f is signal 0.  0x17f and 0x137f are status returned
-     if we follow parent, a switch is made to a child post parent
-     execution and child continues its execution [user switches
-     to child and presses continue].  */
-  else if (status == 0x7f || status == 0x17f || status == 0x137f)
+  /* 0x7f is signal 0.  */
+  else if (status == 0x7f)
     ourstatus->set_spurious ();
   /* A normal waitstatus.  Let the usual macros deal with it.  */
   else
@@ -981,7 +994,7 @@ rs6000_nat_target::create_inferior (const char *exec_file,
   info.bfd_arch_info = bfd_get_arch_info (&abfd);
   info.abfd = current_program_space->exec_bfd ();
 
-  if (!gdbarch_update_p (info))
+  if (!gdbarch_update_p (current_inferior (), info))
     internal_error (_("rs6000_create_inferior: failed "
 		      "to select architecture"));
 }
@@ -1040,7 +1053,8 @@ rs6000_nat_target::xfer_shared_libraries
     return TARGET_XFER_E_IO;
 
   gdb::byte_vector ldi_buf = rs6000_ptrace_ldinfo (inferior_ptid);
-  result = rs6000_aix_ld_info_to_xml (target_gdbarch (), ldi_buf.data (),
+  result = rs6000_aix_ld_info_to_xml (current_inferior ()->arch (),
+				      ldi_buf.data (),
 				      readbuf, offset, len, 1);
 
   if (result == 0)
@@ -1052,9 +1066,7 @@ rs6000_nat_target::xfer_shared_libraries
     }
 }
 
-void _initialize_rs6000_nat ();
-void
-_initialize_rs6000_nat ()
+INIT_GDB_FILE (rs6000_nat)
 {
   add_inf_child_target (&the_rs6000_nat_target);
 }

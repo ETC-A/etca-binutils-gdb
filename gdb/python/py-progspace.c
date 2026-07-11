@@ -1,6 +1,6 @@
 /* Python interface to program spaces.
 
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "python-internal.h"
 #include "charset.h"
 #include "progspace.h"
@@ -26,17 +25,14 @@
 #include "arch-utils.h"
 #include "solib.h"
 #include "block.h"
+#include "py-event.h"
+#include "observable.h"
+#include "inferior.h"
 
-struct pspace_object
+struct pspace_object : public gdbpy_dict_wrapper
 {
-  PyObject_HEAD
-
   /* The corresponding pspace.  */
   struct program_space *pspace;
-
-  /* Dictionary holding user-added attributes.
-     This is the __dict__ attribute of the object.  */
-  PyObject *dict;
 
   /* The pretty-printer list of functions.  */
   PyObject *printers;
@@ -52,10 +48,12 @@ struct pspace_object
 
   /* The debug method list.  */
   PyObject *xmethods;
+
+  /* The missing file handler list.  */
+  PyObject *missing_file_handlers;
 };
 
-extern PyTypeObject pspace_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("pspace_object");
+extern PyTypeObject pspace_object_type;
 
 /* Clear the PSPACE pointer in a Pspace object and remove the reference.  */
 struct pspace_deleter
@@ -67,11 +65,11 @@ struct pspace_deleter
        this is one time when the current program space and current inferior
        are not in sync: All inferiors that use PSPACE may no longer exist.
        We don't need to do much here, and since "there is always an inferior"
-       using target_gdbarch suffices.
+       using the current inferior's arch suffices.
        Note: We cannot call get_current_arch because it may try to access
        the target, which may involve accessing data in the pspace currently
        being deleted.  */
-    struct gdbarch *arch = target_gdbarch ();
+    gdbarch *arch = current_inferior ()->arch ();
 
     gdbpy_enter enter_py (arch);
     gdbpy_ref<pspace_object> object (obj);
@@ -108,7 +106,46 @@ pspy_get_filename (PyObject *self, void *closure)
 	return (host_string_to_python_string (objfile_name (objfile))
 		.release ());
     }
-  Py_RETURN_NONE;
+  return py_none ().release ();
+}
+
+/* Implement the gdb.Progspace.symbol_file attribute.  Return the
+   gdb.Objfile corresponding to the currently loaded symbol-file, or None
+   if no symbol-file is loaded.  If the Progspace is invalid then raise an
+   exception.  */
+
+static PyObject *
+pspy_get_symbol_file (PyObject *self, void *closure)
+{
+  pspace_object *obj = (pspace_object *) self;
+
+  PSPY_REQUIRE_VALID (obj);
+
+  struct objfile *objfile = obj->pspace->symfile_object_file;
+
+  if (objfile != nullptr)
+    return objfile_to_objfile_object (objfile).release ();
+
+  return py_none ().release ();
+}
+
+/* Implement the gdb.Progspace.executable_filename attribute.  Return a
+   string containing the name of the current executable, or None if no
+   executable is currently set.  If the Progspace is invalid then raise an
+   exception.  */
+
+static PyObject *
+pspy_get_exec_file (PyObject *self, void *closure)
+{
+  pspace_object *obj = (pspace_object *) self;
+
+  PSPY_REQUIRE_VALID (obj);
+
+  const char *filename = obj->pspace->exec_filename ();
+  if (filename != nullptr)
+    return host_string_to_python_string (filename).release ();
+
+  return py_none ().release ();
 }
 
 static void
@@ -122,56 +159,46 @@ pspy_dealloc (PyObject *self)
   Py_XDECREF (ps_self->frame_unwinders);
   Py_XDECREF (ps_self->type_printers);
   Py_XDECREF (ps_self->xmethods);
+  Py_XDECREF (ps_self->missing_file_handlers);
   Py_TYPE (self)->tp_free (self);
 }
 
 /* Initialize a pspace_object.
    The result is a boolean indicating success.  */
 
-static int
-pspy_initialize (pspace_object *self)
+static bool
+pspy_initialize (gdbpy_ref<pspace_object> &self)
 {
   self->pspace = NULL;
 
-  self->dict = PyDict_New ();
-  if (self->dict == NULL)
-    return 0;
+  if (!self->allocate_dict ())
+    return false;
 
   self->printers = PyList_New (0);
   if (self->printers == NULL)
-    return 0;
+    return false;
 
   self->frame_filters = PyDict_New ();
   if (self->frame_filters == NULL)
-    return 0;
+    return false;
 
   self->frame_unwinders = PyList_New (0);
   if (self->frame_unwinders == NULL)
-    return 0;
+    return false;
 
   self->type_printers = PyList_New (0);
   if (self->type_printers == NULL)
-    return 0;
+    return false;
 
   self->xmethods = PyList_New (0);
   if (self->xmethods == NULL)
-    return 0;
+    return false;
 
-  return 1;
-}
+  self->missing_file_handlers = PyList_New (0);
+  if (self->missing_file_handlers == nullptr)
+    return false;
 
-static PyObject *
-pspy_new (PyTypeObject *type, PyObject *args, PyObject *keywords)
-{
-  gdbpy_ref<pspace_object> self ((pspace_object *) type->tp_alloc (type, 0));
-
-  if (self != NULL)
-    {
-      if (!pspy_initialize (self.get ()))
-	return NULL;
-    }
-
-  return (PyObject *) self.release ();
+  return true;
 }
 
 PyObject *
@@ -311,6 +338,47 @@ pspy_get_xmethods (PyObject *o, void *ignore)
   return self->xmethods;
 }
 
+/* Return the list of missing debug handlers for this program space.  */
+
+static PyObject *
+pspy_get_missing_file_handlers (PyObject *o, void *ignore)
+{
+  pspace_object *self = (pspace_object *) o;
+
+  Py_INCREF (self->missing_file_handlers);
+  return self->missing_file_handlers;
+}
+
+/* Set this program space's list of missing debug handlers to HANDLERS.  */
+
+static int
+pspy_set_missing_file_handlers (PyObject *o, PyObject *handlers,
+				 void *ignore)
+{
+  pspace_object *self = (pspace_object *) o;
+
+  if (handlers == nullptr)
+    {
+      PyErr_SetString (PyExc_TypeError,
+		       "cannot delete the missing debug handlers list");
+      return -1;
+    }
+
+  if (!PyList_Check (handlers))
+    {
+      PyErr_SetString (PyExc_TypeError,
+		       "the missing debug handlers attribute must be a list");
+      return -1;
+    }
+
+  /* Take care in case the LHS and RHS are related somehow.  */
+  gdbpy_ref<> tmp (self->missing_file_handlers);
+  Py_INCREF (handlers);
+  self->missing_file_handlers = handlers;
+
+  return 0;
+}
+
 /* Set the 'type_printers' attribute.  */
 
 static int
@@ -355,9 +423,9 @@ pspy_get_objfiles (PyObject *self_, PyObject *args)
 
   if (self->pspace != NULL)
     {
-      for (objfile *objf : self->pspace->objfiles ())
+      for (objfile &objf : self->pspace->objfiles ())
 	{
-	  gdbpy_ref<> item = objfile_to_objfile_object (objf);
+	  gdbpy_ref<> item = objfile_to_objfile_object (&objf);
 
 	  if (item == nullptr
 	      || PyList_Append (list.get (), item.get ()) == -1)
@@ -388,8 +456,32 @@ pspy_solib_name (PyObject *o, PyObject *args)
 
   const char *soname = solib_name_from_address (self->pspace, pc);
   if (soname == nullptr)
-    Py_RETURN_NONE;
+    return py_none ().release ();
   return host_string_to_python_string (soname).release ();
+}
+
+/* Implement objfile_for_address.  */
+
+static PyObject *
+pspy_objfile_for_address (PyObject *o, PyObject *args)
+{
+  CORE_ADDR addr;
+  PyObject *addr_obj;
+
+  pspace_object *self = (pspace_object *) o;
+
+  PSPY_REQUIRE_VALID (self);
+
+  if (!PyArg_ParseTuple (args, "O", &addr_obj))
+    return nullptr;
+  if (get_addr_from_python (addr_obj, &addr) < 0)
+    return nullptr;
+
+  struct objfile *objf = self->pspace->objfile_for_address (addr);
+  if (objf == nullptr)
+    return py_none ().release ();
+
+  return objfile_to_objfile_object (objf).release ();
 }
 
 /* Return the innermost lexical block containing the specified pc value,
@@ -415,23 +507,23 @@ pspy_block_for_pc (PyObject *o, PyObject *args)
       scoped_restore_current_program_space saver;
 
       set_current_program_space (self->pspace);
-      cust = find_pc_compunit_symtab (pc);
+      cust = find_compunit_symtab_for_pc (pc);
 
       if (cust != NULL && cust->objfile () != NULL)
 	block = block_for_pc (pc);
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   if (cust == NULL || cust->objfile () == NULL)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   if (block)
-    return block_to_block_object (block, cust->objfile ());
+    return block_to_block_object (block, cust->objfile ()).release ();
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implementation of the find_pc_line function.
@@ -441,7 +533,6 @@ static PyObject *
 pspy_find_pc_line (PyObject *o, PyObject *args)
 {
   CORE_ADDR pc;
-  PyObject *result = NULL; /* init for gcc -Wall */
   PyObject *pc_obj;
   pspace_object *self = (pspace_object *) o;
 
@@ -459,15 +550,13 @@ pspy_find_pc_line (PyObject *o, PyObject *args)
 
       set_current_program_space (self->pspace);
 
-      sal = find_pc_line (pc, 0);
-      result = symtab_and_line_to_sal_object (sal);
+      sal = find_sal_for_pc (pc, 0);
+      return symtab_and_line_to_sal_object (sal).release ();
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
-
-  return result;
 }
 
 /* Implementation of is_valid (self) -> Boolean.
@@ -479,9 +568,9 @@ pspy_is_valid (PyObject *o, PyObject *args)
   pspace_object *self = (pspace_object *) o;
 
   if (self->pspace == NULL)
-    Py_RETURN_FALSE;
+    return py_false ().release ();
 
-  Py_RETURN_TRUE;
+  return py_true ().release ();
 }
 
 
@@ -495,21 +584,24 @@ gdbpy_ref<>
 pspace_to_pspace_object (struct program_space *pspace)
 {
   PyObject *result = (PyObject *) pspy_pspace_data_key.get (pspace);
-  if (result == NULL)
-    {
-      gdbpy_ref<pspace_object> object
-	((pspace_object *) PyObject_New (pspace_object, &pspace_object_type));
-      if (object == NULL)
-	return NULL;
-      if (!pspy_initialize (object.get ()))
-	return NULL;
+  if (result != nullptr)
+    return gdbpy_ref<>::new_reference (result);
 
-      object->pspace = pspace;
-      pspy_pspace_data_key.set (pspace, object.get ());
-      result = (PyObject *) object.release ();
-    }
+  gdbpy_ref<pspace_object> object
+    (PyObject_New (pspace_object, &pspace_object_type));
+  if (object == nullptr)
+    return nullptr;
 
-  return gdbpy_ref<>::new_reference (result);
+  if (!pspy_initialize (object))
+    return nullptr;
+
+  object->pspace = pspace;
+
+  /* PyObject_New initializes the new object with a refcount of 1.  This counts
+     for the reference we are keeping in the pspace data.  */
+  pspy_pspace_data_key.set (pspace, object.get ());
+
+  return gdbpy_ref<>::new_reference (object.release ());
 }
 
 /* See python-internal.h.  */
@@ -529,14 +621,128 @@ gdbpy_is_progspace (PyObject *obj)
   return PyObject_TypeCheck (obj, &pspace_object_type);
 }
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_pspace (void)
+/* Emit an ExecutableChangedEvent event to REGISTRY.  Return 0 on success,
+   or a negative value on error.  PSPACE is the program_space in which the
+   current executable has changed, and RELOAD_P is true if the executable
+   path stayed the same, but the file on disk changed, or false if the
+   executable path actually changed.  */
+
+static int
+emit_executable_changed_event (eventregistry_object *registry,
+			       struct program_space *pspace, bool reload_p)
 {
-  if (PyType_Ready (&pspace_object_type) < 0)
+  gdbpy_ref<> event_obj
+    = create_event_object (&executable_changed_event_object_type);
+  if (event_obj == nullptr)
     return -1;
 
-  return gdb_pymodule_addobject (gdb_module, "Progspace",
-				 (PyObject *) &pspace_object_type);
+  gdbpy_ref<> py_pspace = pspace_to_pspace_object (pspace);
+  if (py_pspace == nullptr
+      || evpy_add_attribute (event_obj.get (), "progspace",
+			     py_pspace.get ()) < 0)
+    return -1;
+
+  gdbpy_ref<> py_reload_p (PyBool_FromLong (reload_p ? 1 : 0));
+  if (py_reload_p == nullptr
+      || evpy_add_attribute (event_obj.get (), "reload",
+			     py_reload_p.get ()) < 0)
+    return -1;
+
+  return evpy_emit_event (event_obj.get (), registry);
+}
+
+/* Listener for the executable_changed observable, this is called when the
+   current executable within PSPACE changes.  RELOAD_P is true if the
+   executable path stayed the same but the file changed on disk.  RELOAD_P
+   is false if the executable path was changed.  */
+
+static void
+gdbpy_executable_changed (struct program_space *pspace, bool reload_p)
+{
+  if (!gdb_python_initialized)
+    return;
+
+  gdbpy_enter enter_py;
+
+  if (!evregpy_no_listeners_p (gdb_py_events.executable_changed))
+    if (emit_executable_changed_event (gdb_py_events.executable_changed,
+				       pspace, reload_p) < 0)
+      gdbpy_print_stack ();
+}
+
+/* Helper function to emit NewProgspaceEvent (when ADDING_P is true) or
+   FreeProgspaceEvent events (when ADDING_P is false).  */
+
+static void
+gdbpy_program_space_event (program_space *pspace, bool adding_p)
+{
+  if (!gdb_python_initialized)
+    return;
+
+  gdbpy_enter enter_py;
+
+  eventregistry_object *registry;
+  PyTypeObject *event_type;
+  if (adding_p)
+    {
+      registry = gdb_py_events.new_progspace;
+      event_type = &new_progspace_event_object_type;
+    }
+  else
+    {
+      registry = gdb_py_events.free_progspace;
+      event_type = &free_progspace_event_object_type;
+    }
+
+  if (evregpy_no_listeners_p (registry))
+    return;
+
+  gdbpy_ref<> pspace_obj = pspace_to_pspace_object (pspace);
+  if (pspace_obj == nullptr)
+    {
+      gdbpy_print_stack ();
+      return;
+    }
+
+  gdbpy_ref<> event = create_event_object (event_type);
+  if (event == nullptr
+      || evpy_add_attribute (event.get (), "progspace",
+			     pspace_obj.get ()) < 0
+      || evpy_emit_event (event.get (), registry) < 0)
+    gdbpy_print_stack ();
+}
+
+/* Emit a NewProgspaceEvent to indicate PSPACE has been created.  */
+
+static void
+gdbpy_new_program_space_event (program_space *pspace)
+{
+  gdbpy_program_space_event (pspace, true);
+}
+
+/* Emit a FreeProgspaceEvent to indicate PSPACE is just about to be removed
+   from GDB.  */
+
+static void
+gdbpy_free_program_space_event (program_space *pspace)
+{
+  gdbpy_program_space_event (pspace, false);
+}
+
+static int
+gdbpy_initialize_pspace ()
+{
+  gdb::observers::executable_changed.attach (gdbpy_executable_changed,
+					     "py-progspace");
+  gdb::observers::new_program_space.attach (gdbpy_new_program_space_event,
+					    "py-progspace");
+  gdb::observers::free_program_space.attach (gdbpy_free_program_space_event,
+					     "py-progspace");
+
+  if (gdbpy_type_ready (&pspace_object_type) < 0)
+    return -1;
+
+  return 0;
 }
 
 GDBPY_INITIALIZE_FILE (gdbpy_initialize_pspace);
@@ -545,10 +751,14 @@ GDBPY_INITIALIZE_FILE (gdbpy_initialize_pspace);
 
 static gdb_PyGetSetDef pspace_getset[] =
 {
-  { "__dict__", gdb_py_generic_dict, NULL,
-    "The __dict__ for this progspace.", &pspace_object_type },
+  gdbpy_dict_wrapper_cfg_dict_getter ("progspace"),
   { "filename", pspy_get_filename, NULL,
-    "The progspace's main filename, or None.", NULL },
+    "The filename of the progspace's main symbol file, or None.", nullptr },
+  { "symbol_file", pspy_get_symbol_file, nullptr,
+    "The gdb.Objfile for the progspace's main symbol file, or None.",
+    nullptr},
+  { "executable_filename", pspy_get_exec_file, nullptr,
+    "The filename for the progspace's executable, or None.", nullptr},
   { "pretty_printers", pspy_get_printers, pspy_set_printers,
     "Pretty printers.", NULL },
   { "frame_filters", pspy_get_frame_filters, pspy_set_frame_filters,
@@ -559,6 +769,8 @@ static gdb_PyGetSetDef pspace_getset[] =
     "Type printers.", NULL },
   { "xmethods", pspy_get_xmethods, NULL,
     "Debug methods.", NULL },
+  { "missing_file_handlers", pspy_get_missing_file_handlers,
+    pspy_set_missing_file_handlers, "Missing file handlers.", NULL },
   { NULL }
 };
 
@@ -569,6 +781,9 @@ static PyMethodDef progspace_object_methods[] =
   { "solib_name", pspy_solib_name, METH_VARARGS,
     "solib_name (Long) -> String.\n\
 Return the name of the shared library holding a given address, or None." },
+  { "objfile_for_address", pspy_objfile_for_address, METH_VARARGS,
+    "objfile_for_address (int) -> gdb.Objfile\n\
+Return the objfile containing the given address, or None." },
   { "block_for_pc", pspy_block_for_pc, METH_VARARGS,
     "Return the block containing the given pc value, or None." },
   { "find_pc_line", pspy_find_pc_line, METH_VARARGS,
@@ -598,8 +813,7 @@ PyTypeObject pspace_object_type =
   0,				  /*tp_hash */
   0,				  /*tp_call*/
   0,				  /*tp_str*/
-  0,				  /*tp_getattro*/
-  0,				  /*tp_setattro*/
+  gdbpy_dict_wrapper_getsetattro,
   0,				  /*tp_as_buffer*/
   Py_TPFLAGS_DEFAULT,		  /*tp_flags*/
   "GDB progspace object",	  /* tp_doc */
@@ -616,8 +830,8 @@ PyTypeObject pspace_object_type =
   0,				  /* tp_dict */
   0,				  /* tp_descr_get */
   0,				  /* tp_descr_set */
-  offsetof (pspace_object, dict), /* tp_dictoffset */
+  0,				  /* tp_dictoffset */
   0,				  /* tp_init */
   0,				  /* tp_alloc */
-  pspy_new,			  /* tp_new */
+  0,				  /* tp_new */
 };

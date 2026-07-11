@@ -1,4 +1,4 @@
-/* Copyright (C) 2019-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_FORWARD_SCOPE_EXIT_H
-#define COMMON_FORWARD_SCOPE_EXIT_H
+#ifndef GDBSUPPORT_FORWARD_SCOPE_EXIT_H
+#define GDBSUPPORT_FORWARD_SCOPE_EXIT_H
 
 #include "gdbsupport/scope-exit.h"
 #include <functional>
@@ -52,9 +52,9 @@
       obj.release ();  // Optional cancel if needed.
 
    forward_scope_exit is also handy when you would need to wrap a
-   scope_exit in a gdb::optional:
+   scope_exit in a std::optional:
 
-      gdb::optional<longjmp_breakpoint_cleanup> cleanup;
+      std::optional<longjmp_breakpoint_cleanup> cleanup;
       if (some condition)
 	cleanup.emplace (thread);
       ...
@@ -62,7 +62,7 @@
 	cleanup->release ();
 
    since with scope exit, you would have to know the scope_exit's
-   callable template type when you create the gdb::optional:
+   callable template type when you create the std::optional:
 
      gdb:optional<scope_exit<what goes here?>>
 
@@ -79,38 +79,37 @@ namespace detail
    Those are used to generate the constructor.  */
 
 template<typename Function, Function *function, typename Signature>
-struct forward_scope_exit;
+struct forward_scope_exit_policy;
 
 template<typename Function, Function *function,
 	 typename Res, typename... Args>
-class forward_scope_exit<Function, function, Res (Args...)>
-  : public scope_exit_base<forward_scope_exit<Function,
-					      function,
-					      Res (Args...)>>
+class forward_scope_exit_policy<Function, function, Res (Args...)>
 {
-  /* For access to on_exit().  */
-  friend scope_exit_base<forward_scope_exit<Function,
-					    function,
-					    Res (Args...)>>;
-
 public:
-  explicit forward_scope_exit (Args ...args)
+  explicit forward_scope_exit_policy (Args ...args)
     : m_bind_function (function, args...)
   {
     /* Nothing.  */
   }
 
-private:
+  DISABLE_COPY_AND_ASSIGN (forward_scope_exit_policy);
+
   void on_exit ()
   {
     m_bind_function ();
   }
 
+private:
   /* The function and the arguments passed to the ctor, all packed in
      a std::bind.  */
   decltype (std::bind (function, std::declval<Args> ()...))
     m_bind_function;
 };
+
+template<typename Function, Function *function, typename Signature>
+using forward_scope_exit
+	= scope_exit_base<forward_scope_exit_policy<Function, function,
+						    Signature>>;
 
 } /* namespace detail */
 
@@ -120,4 +119,4 @@ private:
 #define FORWARD_SCOPE_EXIT(FUNC) \
   detail::forward_scope_exit<decltype (FUNC), FUNC, decltype (FUNC)>
 
-#endif /* COMMON_FORWARD_SCOPE_EXIT_H */
+#endif /* GDBSUPPORT_FORWARD_SCOPE_EXIT_H */

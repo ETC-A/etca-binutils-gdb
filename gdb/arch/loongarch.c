@@ -1,4 +1,4 @@
-/* Copyright (C) 2022-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,9 +15,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "loongarch.h"
-#include <stdlib.h>
 #include <unordered_map>
 
 /* Target description features.  */
@@ -25,6 +23,9 @@
 #include "../features/loongarch/base32.c"
 #include "../features/loongarch/base64.c"
 #include "../features/loongarch/fpu.c"
+#include "../features/loongarch/lsx.c"
+#include "../features/loongarch/lasx.c"
+#include "../features/loongarch/lbt.c"
 
 #ifndef GDBSERVER
 #define STATIC_IN_GDB static
@@ -63,6 +64,13 @@ loongarch_create_target_description (const struct loongarch_gdbarch_features fea
   /* For now we only support creating single float and double float.  */
   regnum = create_feature_loongarch_fpu (tdesc.get (), regnum);
 
+  /* For now we only support creating lsx and lasx.  */
+  regnum = create_feature_loongarch_lsx (tdesc.get (), regnum);
+  regnum = create_feature_loongarch_lasx (tdesc.get (), regnum);
+
+  /* For now we only support creating scr registers, eflags and ftop.  */
+  regnum = create_feature_loongarch_lbt (tdesc.get (), regnum);
+
   return tdesc;
 }
 
@@ -81,7 +89,7 @@ struct loongarch_gdbarch_features_hasher
 /* Cache of previously seen target descriptions, indexed by the feature set
    that created them.  */
 static std::unordered_map<loongarch_gdbarch_features,
-			  const target_desc_up,
+			  const_target_desc_up,
 			  loongarch_gdbarch_features_hasher> loongarch_tdesc_cache;
 
 const target_desc *
@@ -90,18 +98,11 @@ loongarch_lookup_target_description (const struct loongarch_gdbarch_features fea
   /* Lookup in the cache.  If we find it then return the pointer out of
      the target_desc_up (which is a unique_ptr).  This is safe as the
      loongarch_tdesc_cache will exist until GDB exits.  */
-  const auto it = loongarch_tdesc_cache.find (features);
-  if (it != loongarch_tdesc_cache.end ())
-    return it->second.get ();
+  const_target_desc_up &tdesc = loongarch_tdesc_cache[features];
+  if (tdesc == nullptr)
+    tdesc = loongarch_create_target_description (features);
 
-  target_desc_up tdesc (loongarch_create_target_description (features));
-
-  /* Add to the cache, and return a pointer borrowed from the
-     target_desc_up.  This is safe as the cache (and the pointers
-     contained within it) are not deleted until GDB exits.  */
-  target_desc *ptr = tdesc.get ();
-  loongarch_tdesc_cache.emplace (features, std::move (tdesc));
-  return ptr;
+  return tdesc.get ();
 }
 
 #endif /* !GDBSERVER */

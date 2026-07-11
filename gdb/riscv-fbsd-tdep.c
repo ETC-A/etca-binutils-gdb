@@ -1,5 +1,5 @@
 /* Target-dependent code for FreeBSD on RISC-V processors.
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "fbsd-tdep.h"
 #include "osabi.h"
 #include "riscv-tdep.h"
@@ -108,7 +108,7 @@ riscv_fbsd_iterate_over_regset_sections (struct gdbarch *gdbarch,
 
 static void
 riscv_fbsd_sigframe_init (const struct tramp_frame *self,
-			  frame_info_ptr this_frame,
+			  const frame_info_ptr &this_frame,
 			  struct trad_frame_cache *this_cache,
 			  CORE_ADDR func)
 {
@@ -166,10 +166,8 @@ static CORE_ADDR
 riscv_fbsd_get_thread_local_address (struct gdbarch *gdbarch, ptid_t ptid,
 				     CORE_ADDR lm_addr, CORE_ADDR offset)
 {
-  struct regcache *regcache;
-
-  regcache = get_thread_arch_regcache (current_inferior ()->process_target (),
-				       ptid, gdbarch);
+  regcache *regcache
+    = get_thread_arch_regcache (current_inferior (), ptid, gdbarch);
 
   target_fetch_registers (regcache, RISCV_TP_REGNUM);
 
@@ -191,12 +189,11 @@ riscv_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   /* Generic FreeBSD support.  */
   fbsd_init_abi (info, gdbarch);
 
-  set_gdbarch_software_single_step (gdbarch, riscv_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, riscv_software_single_step);
 
-  set_solib_svr4_fetch_link_map_offsets (gdbarch,
-					 (riscv_isa_xlen (gdbarch) == 4
-					  ? svr4_ilp32_fetch_link_map_offsets
-					  : svr4_lp64_fetch_link_map_offsets));
+  set_solib_svr4_ops (gdbarch, (riscv_isa_xlen (gdbarch) == 4
+				? make_svr4_ilp32_solib_ops
+				: make_svr4_lp64_solib_ops));
 
   tramp_frame_prepend_unwinder (gdbarch, &riscv_fbsd_sigframe);
 
@@ -209,9 +206,7 @@ riscv_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 					riscv_fbsd_get_thread_local_address);
 }
 
-void _initialize_riscv_fbsd_tdep ();
-void
-_initialize_riscv_fbsd_tdep ()
+INIT_GDB_FILE (riscv_fbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_riscv, 0, GDB_OSABI_FREEBSD,
 			  riscv_fbsd_init_abi);

@@ -1,8 +1,8 @@
 dnl Autoconf configure snippets for common.
-dnl Copyright (C) 1995-2023 Free Software Foundation, Inc.
+dnl Copyright (C) 1995-2026 Free Software Foundation, Inc.
 dnl
 dnl This file is part of GDB.
-dnl 
+dnl
 dnl This program is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
 dnl the Free Software Foundation; either version 3 of the License, or
@@ -21,7 +21,6 @@ AC_DEFUN([GDB_AC_COMMON], [
   # Set the 'development' global.
   . $srcdir/../bfd/development.sh
 
-  AC_HEADER_STDC
   AC_FUNC_ALLOCA
 
   WIN32APILIBS=
@@ -40,20 +39,49 @@ AC_DEFUN([GDB_AC_COMMON], [
   dnl by the users of common.m4.
   AM_LANGINFO_CODESET
 
-  AC_CHECK_HEADERS(linux/perf_event.h locale.h memory.h signal.h dnl
-		   sys/resource.h sys/socket.h dnl
-		   sys/un.h sys/wait.h dnl
-		   thread_db.h wait.h dnl
-		   termios.h dnl
-		   dlfcn.h dnl
-		   linux/elf.h proc_service.h dnl
-		   poll.h sys/poll.h sys/select.h)
+AC_CHECK_HEADERS([ \
+  dlfcn.h \
+  linux/elf.h \
+  linux/perf_event.h  \
+  locale.h \
+  memory.h \
+  poll.h \
+  proc_service.h \
+  signal.h \
+  sys/poll.h \
+  sys/resource.h \
+  sys/select.h \
+  sys/socket.h \
+  sys/un.h \
+  sys/wait.h \
+  termios.h \
+  thread_db.h \
+  wait.h \
+])
 
   AC_FUNC_MMAP
   AC_FUNC_FORK
-  AC_CHECK_FUNCS([fdwalk getrlimit pipe pipe2 poll socketpair sigaction \
-		  ptrace64 sbrk setns sigaltstack sigprocmask \
-		  setpgid setpgrp getrusage getauxval sigtimedwait])
+  # Some systems (e.g. Solaris) have `socketpair' in libsocket.
+  AC_SEARCH_LIBS(socketpair, socket)
+  AC_CHECK_FUNCS([ \
+    fdwalk \
+    getauxval \
+    getrlimit \
+    getrusage \
+    pipe \
+    pipe2 \
+    poll \
+    ptrace64 \
+    sbrk \
+    setns \
+    setpgid \
+    setpgrp \
+    sigaction \
+    sigaltstack \
+    sigprocmask \
+    sigtimedwait \
+    socketpair \
+  ])
 
   # This is needed for RHEL 5 and uclibc-ng < 1.0.39.
   # These did not define ADDR_NO_RANDOMIZE in sys/personality.h,
@@ -87,10 +115,11 @@ AC_DEFUN([GDB_AC_COMMON], [
     no) want_threading=no ;;
     *) AC_MSG_ERROR([bad value $enableval for threading]) ;;
     esac],
-    [want_threading=yes])
+    [want_threading=auto])
 
   # Check for std::thread.  This does not work on some platforms, like
-  # mingw and DJGPP.
+  # mingw using the win32 threads model with gcc older than 13, and
+  # DJGPP.
   AC_LANG_PUSH([C++])
   AX_PTHREAD([threads=yes], [threads=no])
   save_LIBS="$LIBS"
@@ -112,6 +141,7 @@ AC_DEFUN([GDB_AC_COMMON], [
     # endif
     #endif	/* __MINGW32__ || __CYGWIN__ */
     #include <thread>
+    #include <mutex>
     void callback() { }]],
   [[std::thread t(callback);]])],
 				gdb_cv_cxx_std_thread=yes,
@@ -125,10 +155,16 @@ AC_DEFUN([GDB_AC_COMMON], [
   LIBS="$save_LIBS"
   CXXFLAGS="$save_CXXFLAGS"
 
-  if test "$want_threading" = "yes"; then
+  if test "$want_threading" != "no"; then
     if test "$gdb_cv_cxx_std_thread" = "yes"; then
       AC_DEFINE(CXX_STD_THREAD, 1,
 		[Define to 1 if std::thread works.])
+    else
+	if test "$want_threading" = "yes"; then
+	    AC_MSG_ERROR([std::thread does not work; disable threading])
+	else
+	    AC_MSG_WARN([std::thread does not work; disabling threading])
+	fi
     fi
   fi
   AC_LANG_POP
@@ -140,11 +176,11 @@ AC_DEFUN([GDB_AC_COMMON], [
     [gdb_cv_func_sigsetjmp],
     [AC_COMPILE_IFELSE(
        [AC_LANG_PROGRAM(
-          [#include <setjmp.h>],
-          [sigjmp_buf env;
-           while (! sigsetjmp (env, 1))
-             siglongjmp (env, 1);]
-        )],
+	  [#include <setjmp.h>],
+	  [sigjmp_buf env;
+	   while (! sigsetjmp (env, 1))
+	     siglongjmp (env, 1);]
+	)],
        [gdb_cv_func_sigsetjmp=yes],
        [gdb_cv_func_sigsetjmp=no]
      )]
@@ -189,6 +225,8 @@ AC_DEFUN([GDB_AC_COMMON], [
       LIBS="$LIBS $LIBIPT"
       AC_CHECK_FUNCS(pt_insn_event)
       AC_CHECK_MEMBERS([struct pt_insn.enabled, struct pt_insn.resynced], [], [],
+		       [#include <intel-pt.h>])
+      AC_CHECK_MEMBERS([struct pt_event.variant.ptwrite], [], [],
 		       [#include <intel-pt.h>])
       LIBS=$save_LIBS
     fi
@@ -253,7 +291,7 @@ AC_DEFUN([GDB_AC_COMMON], [
 ])
 
 dnl Check that the provided value ($1) is either "yes" or "no".  If not,
-dnl emit an error message mentionning the configure option $2, and abort
+dnl emit an error message mentioning the configure option $2, and abort
 dnl the script.
 AC_DEFUN([GDB_CHECK_YES_NO_VAL],
 	 [
@@ -267,7 +305,7 @@ AC_DEFUN([GDB_CHECK_YES_NO_VAL],
 	  ])
 
 dnl Check that the provided value ($1) is either "yes", "no" or "auto".  If not,
-dnl emit an error message mentionning the configure option $2, and abort
+dnl emit an error message mentioning the configure option $2, and abort
 dnl the script.
 AC_DEFUN([GDB_CHECK_YES_NO_AUTO_VAL],
 	 [

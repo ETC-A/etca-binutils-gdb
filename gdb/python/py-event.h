@@ -1,6 +1,6 @@
 /* Python interface to inferior events.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef PYTHON_PY_EVENT_H
-#define PYTHON_PY_EVENT_H
+#ifndef GDB_PYTHON_PY_EVENT_H
+#define GDB_PYTHON_PY_EVENT_H
 
 #include "py-events.h"
 #include "command.h"
@@ -27,17 +27,12 @@
 
 /* Declare all event types.  */
 #define GDB_PY_DEFINE_EVENT_TYPE(name, py_name, doc, base) \
-  extern PyTypeObject name##_event_object_type		    \
-	CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object");
+  extern PyTypeObject name##_event_object_type;
 #include "py-event-types.def"
 #undef GDB_PY_DEFINE_EVENT_TYPE
 
-struct event_object
-{
-  PyObject_HEAD
-
-  PyObject *dict;
-};
+struct event_object : public gdbpy_dict_wrapper
+{};
 
 extern int emit_continue_event (ptid_t ptid);
 extern int emit_exited_event (const LONGEST *exit_code, struct inferior *inf);
@@ -55,7 +50,7 @@ enum inferior_call_kind
 
 extern int emit_inferior_call_event (inferior_call_kind kind,
 				     ptid_t thread, CORE_ADDR addr);
-extern int emit_register_changed_event (frame_info_ptr frame,
+extern int emit_register_changed_event (const frame_info_ptr &frame,
 					int regnum);
 extern int emit_memory_changed_event (CORE_ADDR addr, ssize_t len);
 extern int evpy_emit_event (PyObject *event,
@@ -78,13 +73,10 @@ extern gdbpy_ref<> create_thread_event_object (PyTypeObject *py_type,
 
 extern int emit_new_objfile_event (struct objfile *objfile);
 extern int emit_free_objfile_event (struct objfile *objfile);
-extern int emit_clear_objfiles_event (void);
+extern int emit_clear_objfiles_event (program_space *pspace);
 
 extern void evpy_dealloc (PyObject *self);
 extern int evpy_add_attribute (PyObject *event,
-			       const char *name, PyObject *attr)
-  CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION;
-int gdbpy_initialize_event_generic (PyTypeObject *type, const char *name)
-  CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION;
+			       const char *name, PyObject *attr);
 
-#endif /* PYTHON_PY_EVENT_H */
+#endif /* GDB_PYTHON_PY_EVENT_H */

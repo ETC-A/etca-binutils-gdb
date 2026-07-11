@@ -1,6 +1,6 @@
 /* MI Command Set - MI parser.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -19,12 +19,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "mi-cmds.h"
 #include "mi-parse.h"
-#include "charset.h"
 
-#include <ctype.h>
 #include "cli/cli-utils.h"
 #include "language.h"
 
@@ -63,7 +60,7 @@ mi_parse_escape (const char **string_ptr)
 	  while (++count < 3)
 	    {
 	      c = (**string_ptr);
-	      if (isdigit (c) && c != '8' && c != '9')
+	      if (c_isdigit (c) && c != '8' && c != '9')
 		{
 		  (*string_ptr)++;
 		  i *= 8;
@@ -164,7 +161,7 @@ mi_parse::parse_argv ()
 		return;
 	      }
 	    /* Insist on trailing white space.  */
-	    if (chp[1] != '\0' && !isspace (chp[1]))
+	    if (chp[1] != '\0' && !c_isspace (chp[1]))
 	      {
 		freeargv (argv);
 		return;
@@ -195,7 +192,7 @@ mi_parse::parse_argv ()
 	    int len;
 	    const char *start = chp;
 
-	    while (*chp != '\0' && !isspace (*chp))
+	    while (*chp != '\0' && !c_isspace (*chp))
 	      {
 		chp++;
 	      }
@@ -287,12 +284,11 @@ mi_parse::set_language (const char *arg, const char **endp)
     *endp = arg;
 }
 
-std::unique_ptr<struct mi_parse>
-mi_parse::make (const char *cmd, std::string *token)
+/* See mi-parse.h.  */
+
+mi_parse::mi_parse (const char *cmd, std::string *token)
 {
   const char *chp;
-
-  std::unique_ptr<struct mi_parse> parse (new struct mi_parse);
 
   /* Before starting, skip leading white space.  */
   cmd = skip_spaces (cmd);
@@ -306,26 +302,26 @@ mi_parse::make (const char *cmd, std::string *token)
   if (*chp != '-')
     {
       chp = skip_spaces (chp);
-      parse->command = make_unique_xstrdup (chp);
-      parse->op = CLI_COMMAND;
+      this->command = make_unique_xstrdup (chp);
+      this->op = CLI_COMMAND;
 
-      return parse;
+      return;
     }
 
   /* Extract the command.  */
   {
     const char *tmp = chp + 1;	/* discard ``-'' */
 
-    for (; *chp && !isspace (*chp); chp++)
+    for (; *chp && !c_isspace (*chp); chp++)
       ;
-    parse->command = make_unique_xstrndup (tmp, chp - tmp);
+    this->command = make_unique_xstrndup (tmp, chp - tmp);
   }
 
   /* Find the command in the MI table.  */
-  parse->cmd = mi_cmd_lookup (parse->command.get ());
-  if (parse->cmd == NULL)
+  this->cmd = mi_cmd_lookup (this->command.get ());
+  if (this->cmd == NULL)
     throw_error (UNDEFINED_COMMAND_ERROR,
-		 _("Undefined MI command: %s"), parse->command.get ());
+		 _("Undefined MI command: %s"), this->command.get ());
 
   /* Skip white space following the command.  */
   chp = skip_spaces (chp);
@@ -349,13 +345,13 @@ mi_parse::make (const char *cmd, std::string *token)
 
       if (strncmp (chp, "--all ", as) == 0)
 	{
-	  parse->all = 1;
+	  this->all = 1;
 	  chp += as;
 	}
       /* See if --all is the last token in the input.  */
-      if (strcmp (chp, "--all") == 0)
+      if (streq (chp, "--all"))
 	{
-	  parse->all = 1;
+	  this->all = 1;
 	  chp += strlen (chp);
 	}
       if (strncmp (chp, "--thread-group ", tgs) == 0)
@@ -364,7 +360,7 @@ mi_parse::make (const char *cmd, std::string *token)
 
 	  option = "--thread-group";
 	  chp += tgs;
-	  parse->set_thread_group (chp, &endp);
+	  this->set_thread_group (chp, &endp);
 	  chp = endp;
 	}
       else if (strncmp (chp, "--thread ", ts) == 0)
@@ -373,7 +369,7 @@ mi_parse::make (const char *cmd, std::string *token)
 
 	  option = "--thread";
 	  chp += ts;
-	  parse->set_thread (chp, &endp);
+	  this->set_thread (chp, &endp);
 	  chp = endp;
 	}
       else if (strncmp (chp, "--frame ", fs) == 0)
@@ -382,116 +378,108 @@ mi_parse::make (const char *cmd, std::string *token)
 
 	  option = "--frame";
 	  chp += fs;
-	  parse->set_frame (chp, &endp);
+	  this->set_frame (chp, &endp);
 	  chp = endp;
 	}
       else if (strncmp (chp, "--language ", ls) == 0)
 	{
 	  option = "--language";
 	  chp += ls;
-	  parse->set_language (chp, &chp);
+	  this->set_language (chp, &chp);
 	}
       else
 	break;
 
-      if (*chp != '\0' && !isspace (*chp))
+      if (*chp != '\0' && !c_isspace (*chp))
 	error (_("Invalid value for the '%s' option"), option);
       chp = skip_spaces (chp);
     }
 
   /* Save the rest of the arguments for the command.  */
-  parse->m_args = chp;
+  this->m_args = chp;
 
   /* Fully parsed, flag as an MI command.  */
-  parse->op = MI_COMMAND;
-  return parse;
+  this->op = MI_COMMAND;
 }
 
 /* See mi-parse.h.  */
 
-std::unique_ptr<struct mi_parse>
-mi_parse::make (gdb::unique_xmalloc_ptr<char> command,
-		std::vector<gdb::unique_xmalloc_ptr<char>> args)
+mi_parse::mi_parse (gdb::unique_xmalloc_ptr<char> command,
+		    std::vector<gdb::unique_xmalloc_ptr<char>> args)
 {
-  std::unique_ptr<struct mi_parse> parse (new struct mi_parse);
+  this->command = std::move (command);
+  this->token = "";
 
-  parse->command = std::move (command);
-  parse->token = "";
-
-  if (parse->command.get ()[0] != '-')
+  if (this->command.get ()[0] != '-')
     throw_error (UNDEFINED_COMMAND_ERROR,
 		 _("MI command '%s' does not start with '-'"),
-		 parse->command.get ());
+		 this->command.get ());
 
   /* Find the command in the MI table.  */
-  parse->cmd = mi_cmd_lookup (parse->command.get () + 1);
-  if (parse->cmd == NULL)
+  this->cmd = mi_cmd_lookup (this->command.get () + 1);
+  if (this->cmd == NULL)
     throw_error (UNDEFINED_COMMAND_ERROR,
-		 _("Undefined MI command: %s"), parse->command.get ());
+		 _("Undefined MI command: %s"), this->command.get ());
 
   /* This over-allocates slightly, but it seems unimportant.  */
-  parse->argv = XCNEWVEC (char *, args.size () + 1);
+  this->argv = XCNEWVEC (char *, args.size () + 1);
 
   for (size_t i = 0; i < args.size (); ++i)
     {
       const char *chp = args[i].get ();
 
       /* See if --all is the last token in the input.  */
-      if (strcmp (chp, "--all") == 0)
+      if (streq (chp, "--all"))
 	{
-	  parse->all = 1;
+	  this->all = 1;
 	}
-      else if (strcmp (chp, "--thread-group") == 0)
+      else if (streq (chp, "--thread-group"))
 	{
 	  ++i;
 	  if (i == args.size ())
-	    error ("No argument to '--thread-group'");
-	  parse->set_thread_group (args[i].get (), nullptr);
+	    error (_("No argument to '--thread-group'"));
+	  this->set_thread_group (args[i].get (), nullptr);
 	}
-      else if (strcmp (chp, "--thread") == 0)
+      else if (streq (chp, "--thread"))
 	{
 	  ++i;
 	  if (i == args.size ())
-	    error ("No argument to '--thread'");
-	  parse->set_thread (args[i].get (), nullptr);
+	    error (_("No argument to '--thread'"));
+	  this->set_thread (args[i].get (), nullptr);
 	}
-      else if (strcmp (chp, "--frame") == 0)
+      else if (streq (chp, "--frame"))
 	{
 	  ++i;
 	  if (i == args.size ())
-	    error ("No argument to '--frame'");
-	  parse->set_frame (args[i].get (), nullptr);
+	    error (_("No argument to '--frame'"));
+	  this->set_frame (args[i].get (), nullptr);
 	}
-      else if (strcmp (chp, "--language") == 0)
+      else if (streq (chp, "--language"))
 	{
 	  ++i;
 	  if (i == args.size ())
-	    error ("No argument to '--language'");
-	  parse->set_language (args[i].get (), nullptr);
+	    error (_("No argument to '--language'"));
+	  this->set_language (args[i].get (), nullptr);
 	}
       else
-	parse->argv[parse->argc++] = args[i].release ();
+	this->argv[this->argc++] = args[i].release ();
     }
 
   /* Fully parsed, flag as an MI command.  */
-  parse->op = MI_COMMAND;
-  return parse;
+  this->op = MI_COMMAND;
 }
 
 enum print_values
 mi_parse_print_values (const char *name)
 {
-   if (strcmp (name, "0") == 0
-       || strcmp (name, mi_no_values) == 0)
-     return PRINT_NO_VALUES;
-   else if (strcmp (name, "1") == 0
-	    || strcmp (name, mi_all_values) == 0)
-     return PRINT_ALL_VALUES;
-   else if (strcmp (name, "2") == 0
-	    || strcmp (name, mi_simple_values) == 0)
-     return PRINT_SIMPLE_VALUES;
-   else
-     error (_("Unknown value for PRINT_VALUES: must be: \
+  if (streq (name, "0") || streq (name, mi_no_values))
+    return PRINT_NO_VALUES;
+  else if (streq (name, "1") || streq (name, mi_all_values))
+    return PRINT_ALL_VALUES;
+  else if (streq (name, "2") || streq (name, mi_simple_values))
+    return PRINT_SIMPLE_VALUES;
+  else
+    error (_("Unknown value for PRINT_VALUES: must be: \
 0 or \"%s\", 1 or \"%s\", 2 or \"%s\""),
-	    mi_no_values, mi_all_values, mi_simple_values);
+	   mi_no_values, mi_all_values, mi_simple_values);
 }

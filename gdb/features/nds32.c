@@ -1,11 +1,10 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: nds32.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_nds32;
+const_target_desc_up tdesc_nds32;
 static void
 initialize_tdesc_nds32 (void)
 {
@@ -88,5 +87,5 @@ initialize_tdesc_nds32 (void)
   tdesc_create_reg (feature, "itb", 66, 1, NULL, 32, "int");
   tdesc_create_reg (feature, "ifc_lp", 67, 1, NULL, 32, "int");
 
-  tdesc_nds32 = result.release ();
+  tdesc_nds32 = std::move (result);
 }

@@ -3,6 +3,9 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
+/* Additional directories to look for separate debug info. */
+#undef ADDITIONAL_DEBUG_DIRS
+
 /* Directories from which to load auto-loaded scripts. */
 #undef AUTO_LOAD_DIR
 
@@ -36,12 +39,18 @@
 /* Define to BFD's default target vector. */
 #undef DEFAULT_BFD_VEC
 
+/* defined if dwarf format was requested. */
+#undef DWARF_FORMAT_AVAILABLE
+
 /* Handle .ctf type-info sections */
 #undef ENABLE_LIBCTF
 
 /* Define to 1 if translation of program messages to the user's native
    language is requested. */
 #undef ENABLE_NLS
+
+/* Additional targets configured into GDB. */
+#undef ENABLE_TARGETS
 
 /* The .gdbearlyinit filename. */
 #undef GDBEARLYINIT
@@ -87,8 +96,28 @@
 /* Define if amd-dbgapi is being linked in. */
 #undef HAVE_AMD_DBGAPI
 
+/* Define to 1 if you have the <asm/termios.h> header file. */
+#undef HAVE_ASM_TERMIOS_H
+
 /* Define to 1 if you have the `btowc' function. */
 #undef HAVE_BTOWC
+
+/* Define to 1 if you have the Mac OS X function
+   CFLocaleCopyPreferredLanguages in the CoreFoundation framework. */
+#undef HAVE_CFLOCALECOPYPREFERREDLANGUAGES
+
+/* Define to 1 if you have the Mac OS X function CFPreferencesCopyAppValue in
+   the CoreFoundation framework. */
+#undef HAVE_CFPREFERENCESCOPYAPPVALUE
+
+/* Define if cfsetispeed/cfsetospeed accept arbitrary baud rates. */
+#undef HAVE_CFSETSPEED_ARBITRARY
+
+/* Define to 1 if you have the `clearenv' function. */
+#undef HAVE_CLEARENV
+
+/* Define if compiling support to gdb compile. */
+#undef HAVE_COMPILE
 
 /* Define to 1 if you have the <cursesX.h> header file. */
 #undef HAVE_CURSESX_H
@@ -96,8 +125,12 @@
 /* Define to 1 if you have the <curses.h> header file. */
 #undef HAVE_CURSES_H
 
-/* define if the compiler supports basic C++11 syntax */
-#undef HAVE_CXX11
+/* define if the compiler supports basic C++17 syntax */
+#undef HAVE_CXX17
+
+/* Define if the GNU dcgettext() function is already present or preinstalled.
+   */
+#undef HAVE_DCGETTEXT
 
 /* Define to 1 if you have the declaration of `ADDR_NO_RANDOMIZE', and to 0 if
    you don't. */
@@ -163,9 +196,6 @@
 /* Define if <sys/procfs.h> has elf_fpregset_t. */
 #undef HAVE_ELF_FPREGSET_T
 
-/* Define to 1 if you have the <elf_hp.h> header file. */
-#undef HAVE_ELF_HP_H
-
 /* Define to 1 if your system has the etext variable. */
 #undef HAVE_ETEXT
 
@@ -202,6 +232,9 @@
 /* Define to 1 if you have the `getrusage' function. */
 #undef HAVE_GETRUSAGE
 
+/* Define if the GNU gettext() function is already present or preinstalled. */
+#undef HAVE_GETTEXT
+
 /* Define to 1 if you have the `getuid' function. */
 #undef HAVE_GETUID
 
@@ -211,10 +244,7 @@
 /* Define if Guile interpreter is being linked in. */
 #undef HAVE_GUILE
 
-/* Define if Guile supports manual finalization. */
-#undef HAVE_GUILE_MANUAL_FINALIZATION
-
-/* Define if you have the iconv() function. */
+/* Define if you have the iconv() function and it works. */
 #undef HAVE_ICONV
 
 /* Define to 1 if you have the `iconvlist' function. */
@@ -222,6 +252,9 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the <IOKit/serial/ioss.h> header file. */
+#undef HAVE_IOKIT_SERIAL_IOSS_H
 
 /* Define to 1 if you have the `kinfo_getfile' function. */
 #undef HAVE_KINFO_GETFILE
@@ -232,8 +265,8 @@
 /* Define if your <locale.h> file defines LC_MESSAGES. */
 #undef HAVE_LC_MESSAGES
 
-/* Define if you have the babeltrace library. */
-#undef HAVE_LIBBABELTRACE
+/* Define to 1 if you have the `atomic' library (-latomic). */
+#undef HAVE_LIBATOMIC
 
 /* Define if libbacktrace is being used. */
 #undef HAVE_LIBBACKTRACE
@@ -243,6 +276,9 @@
 
 /* Define to 1 if debuginfod is enabled. */
 #undef HAVE_LIBDEBUGINFOD
+
+/* Define to 1 if debuginfod section downloading is supported. */
+#undef HAVE_LIBDEBUGINFOD_FIND_SECTION
 
 /* Define if you have the expat library. */
 #undef HAVE_LIBEXPAT
@@ -388,9 +424,6 @@
 /* Define to 1 if you have the `sbrk' function. */
 #undef HAVE_SBRK
 
-/* Define to 1 if you have the `scm_new_smob' function. */
-#undef HAVE_SCM_NEW_SMOB
-
 /* Define to 1 if you have the `setlocale' function. */
 #undef HAVE_SETLOCALE
 
@@ -460,6 +493,9 @@
 /* Define to 1 if `pl_tdname' is a member of `struct ptrace_lwpinfo'. */
 #undef HAVE_STRUCT_PTRACE_LWPINFO_PL_TDNAME
 
+/* Define to 1 if `variant.ptwrite' is a member of `struct pt_event'. */
+#undef HAVE_STRUCT_PT_EVENT_VARIANT_PTWRITE
+
 /* Define to 1 if `enabled' is a member of `struct pt_insn'. */
 #undef HAVE_STRUCT_PT_INSN_ENABLED
 
@@ -480,6 +516,9 @@
 
 /* Define to 1 if `st_blocks' is a member of `struct stat'. */
 #undef HAVE_STRUCT_STAT_ST_BLOCKS
+
+/* Define to 1 if `c_ospeed' is a member of `struct termios'. */
+#undef HAVE_STRUCT_TERMIOS_C_OSPEED
 
 /* Define to 1 if `td_pcb' is a member of `struct thread'. */
 #undef HAVE_STRUCT_THREAD_TD_PCB
@@ -561,9 +600,6 @@
 
 /* Define to 1 if you have the <vfork.h> header file. */
 #undef HAVE_VFORK_H
-
-/* Define to 1 if you have the `waitpid' function. */
-#undef HAVE_WAITPID
 
 /* Define to 1 if you have the <wait.h> header file. */
 #undef HAVE_WAIT_H
@@ -674,6 +710,9 @@
 /* Define if the python directory should be relocated when GDB is moved. */
 #undef PYTHON_PATH_RELOCATABLE
 
+/* Define if GDB should be built against the Python limited C API. */
+#undef Py_LIMITED_API
+
 /* Relocated directory for source files. */
 #undef RELOC_SRCDIR
 
@@ -698,9 +737,6 @@
 /* The size of `unsigned __int128', as computed by sizeof. */
 #undef SIZEOF_UNSIGNED___INT128
 
-/* The size of `void *', as computed by sizeof. */
-#undef SIZEOF_VOID_P
-
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
    automatically deduced at runtime.
@@ -711,6 +747,9 @@
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
+
+/* Which binary file formats were requested at configure time. */
+#undef SUPPORTED_BINARY_FILE_FORMATS
 
 /* automatically load a system-wide gdbinit file */
 #undef SYSTEM_GDBINIT

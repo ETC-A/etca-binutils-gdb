@@ -1,6 +1,6 @@
 /* Exception (throw catch) mechanism, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,17 +17,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "exceptions.h"
-#include "breakpoint.h"
 #include "target.h"
 #include "inferior.h"
 #include "annotate.h"
 #include "ui-out.h"
 #include "serial.h"
-#include "gdbthread.h"
 #include "ui.h"
-#include "gdbsupport/gdb_optional.h"
+#include <optional>
+#include "cli/cli-style.h"
 
 static void
 print_flush (void)
@@ -38,7 +36,7 @@ print_flush (void)
   if (deprecated_error_begin_hook)
     deprecated_error_begin_hook ();
 
-  gdb::optional<target_terminal::scoped_restore_terminal_state> term_state;
+  std::optional<target_terminal::scoped_restore_terminal_state> term_state;
   if (target_supports_terminal_ours ())
     {
       term_state.emplace ();
@@ -68,6 +66,12 @@ print_flush (void)
 static void
 print_exception (struct ui_file *file, const struct gdb_exception &e)
 {
+  /* Exceptions are always created using styling.  If styling is not
+     desired, then it has to be removed here.  */
+  no_terminal_escape_file<wrapped_file<ui_file *>> strip_escapes (file);
+  if (!file->can_emit_style_escape ())
+    file = &strip_escapes;
+
   /* KLUDGE: cagney/2005-01-13: Write the string out one line at a time
      as that way the MI's behavior is preserved.  */
   const char *start;
@@ -83,7 +87,7 @@ print_exception (struct ui_file *file, const struct gdb_exception &e)
 	  end++;
 	  file->write (start, end - start);
 	}
-    }					    
+    }
   gdb_printf (file, "\n");
 
   /* Now append the annotation.  */
@@ -108,6 +112,7 @@ exception_print (struct ui_file *file, const struct gdb_exception &e)
   if (e.reason < 0 && e.message != NULL)
     {
       print_flush ();
+      print_error_prefix (file);
       print_exception (file, e);
     }
 }
@@ -121,6 +126,7 @@ exception_fprintf (struct ui_file *file, const struct gdb_exception &e,
       va_list args;
 
       print_flush ();
+      print_error_prefix (file);
 
       /* Print the prefix.  */
       va_start (args, prefix);

@@ -1,5 +1,5 @@
 /* Support for printing Modula 2 types for GDB, the GNU debugger.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,10 +16,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "event-top.h"
 #include "language.h"
-#include "gdbsupport/gdb_obstack.h"
-#include "bfd.h"		/* Binary File Description */
+#include "bfd.h"
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "expression.h"
@@ -27,8 +26,6 @@
 #include "gdbcore.h"
 #include "m2-lang.h"
 #include "target.h"
-#include "language.h"
-#include "demangle.h"
 #include "c-lang.h"
 #include "typeprint.h"
 #include "cp-abi.h"
@@ -165,8 +162,7 @@ m2_language::print_typedef (struct type *type, struct symbol *new_symbol,
   type = check_typedef (type);
   gdb_printf (stream, "TYPE ");
   if (!new_symbol->type ()->name ()
-      || strcmp ((new_symbol->type ())->name (),
-		 new_symbol->linkage_name ()) != 0)
+      || !streq ((new_symbol->type ())->name (), new_symbol->linkage_name ()))
     gdb_printf (stream, "%s = ", new_symbol->print_name ());
   else
     gdb_printf (stream, "<builtin> = ");
@@ -355,7 +351,7 @@ m2_is_long_set (struct type *type)
 	  if (type->field (i).type ()->code () != TYPE_CODE_SET)
 	    return 0;
 	  if (type->field (i).name () != NULL
-	      && (strcmp (type->field (i).name (), "") != 0))
+	      && (!streq (type->field (i).name (), "")))
 	    return 0;
 	  range = type->field (i).type ()->index_type ();
 	  if ((i > TYPE_N_BASECLASSES (type))
@@ -389,7 +385,7 @@ m2_get_discrete_bounds (struct type *type, LONGEST *lowp, LONGEST *highp)
 	      return 0;
 	    }
 	}
-      /* fall through */
+      [[fallthrough]];
     default:
       return get_discrete_bounds (type, lowp, highp);
     }
@@ -493,9 +489,9 @@ m2_is_unbounded_array (struct type *type)
        */
       if (type->num_fields () != 2)
 	return 0;
-      if (strcmp (type->field (0).name (), "_m2_contents") != 0)
+      if (!streq (type->field (0).name (), "_m2_contents"))
 	return 0;
-      if (strcmp (type->field (1).name (), "_m2_high") != 0)
+      if (!streq (type->field (1).name (), "_m2_high"))
 	return 0;
       if (type->field (0).type ()->code () != TYPE_CODE_PTR)
 	return 0;
@@ -570,19 +566,18 @@ m2_record_fields (struct type *type, struct ui_file *stream, int show,
 	  m2_print_type (type->field (i).type (),
 			 "",
 			 stream, 0, level + 4, flags);
-	  if (TYPE_FIELD_PACKED (type, i))
+	  if (type->field (i).is_packed ())
 	    {
 	      /* It is a bitfield.  This code does not attempt
 		 to look at the bitpos and reconstruct filler,
 		 unnamed fields.  This would lead to misleading
 		 results if the compiler does not put out fields
 		 for such things (I don't know what it does).  */
-	      gdb_printf (stream, " : %d",
-			  TYPE_FIELD_BITSIZE (type, i));
+	      gdb_printf (stream, " : %d", type->field (i).bitsize ());
 	    }
 	  gdb_printf (stream, ";\n");
 	}
-      
+
       gdb_printf (stream, "%*sEND ", level, "");
     }
 }

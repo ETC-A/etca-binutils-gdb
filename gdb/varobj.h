@@ -1,5 +1,5 @@
 /* GDB variable objects API.
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -14,8 +14,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef VAROBJ_H
-#define VAROBJ_H 1
+#ifndef GDB_VAROBJ_H
+#define GDB_VAROBJ_H
 
 #include "symtab.h"
 #include "gdbtypes.h"
@@ -120,7 +120,7 @@ struct varobj
 
   /* The value of this expression or subexpression.  A NULL value
      indicates there was an error getting this value.
-     Invariant: if varobj_value_is_changeable_p (this) is non-zero, 
+     Invariant: if varobj_value_is_changeable_p (this) is non-zero,
      the value is either NULL, or not lazy.  */
   value_ref_ptr value;
 
@@ -147,7 +147,7 @@ struct varobj
   std::string print_value;
 
   /* Is this variable frozen.  Frozen variables are never implicitly
-     updated by -var-update * 
+     updated by -var-update *
      or -var-update <direct-or-indirect-parent>.  */
   bool frozen = false;
 
@@ -355,4 +355,4 @@ extern void varobj_restrict_range (const std::vector<varobj *> &children,
 
 extern bool varobj_default_is_path_expr_parent (const struct varobj *var);
 
-#endif /* VAROBJ_H */
+#endif /* GDB_VAROBJ_H */

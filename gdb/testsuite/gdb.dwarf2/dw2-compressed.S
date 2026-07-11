@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2008-2023 Free Software Foundation, Inc.
+   Copyright 2008-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 
 /* This tests that gdb can read compressed sections.  The contents
    are the same as dw2-basic.S, but the .debug_abbrev section has been
-   comrpessed using zlib.  */
+   compressed using zlib.  */
 
 /* Dummy function to provide debug information for.  */
 
@@ -90,7 +90,7 @@ func_cu1:
 	.byte		1			/* Minimum insn length */
 	.byte		1			/* default_is_stmt */
 	.byte		1			/* line_base */
- 	.byte		1			/* line_range */
+	.byte		1			/* line_range */
 	.byte		0x10			/* opcode_base */
 
 	/* Standard lengths */
@@ -218,4 +218,8 @@ func_cu1:
 	.byte		0x9c
 	.byte		0x00
 	.byte		0x92
+#ifdef __arm__
+	.section	.note.GNU-stack,"",%progbits
+#else
 	.section	.note.GNU-stack,"",@progbits
+#endif

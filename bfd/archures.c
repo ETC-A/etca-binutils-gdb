@@ -1,5 +1,5 @@
 /* BFD library support routines for architectures.
-   Copyright (C) 1990-2023 Free Software Foundation, Inc.
+   Copyright (C) 1990-2026 Free Software Foundation, Inc.
    Hacked by John Gilmore and Steve Chamberlain of Cygnus Support.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -327,12 +327,12 @@ DESCRIPTION
 .#define bfd_mach_arm_6M        20
 .#define bfd_mach_arm_6SM       21
 .#define bfd_mach_arm_7EM       22
-.#define bfd_mach_arm_8         23
+.#define bfd_mach_arm_8A        23
 .#define bfd_mach_arm_8R        24
 .#define bfd_mach_arm_8M_BASE   25
 .#define bfd_mach_arm_8M_MAIN   26
 .#define bfd_mach_arm_8_1M_MAIN 27
-.#define bfd_mach_arm_9         28
+.#define bfd_mach_arm_9A        28
 .  bfd_arch_nds32,     {* Andes NDS32.  *}
 .#define bfd_mach_n1		1
 .#define bfd_mach_n1h		2
@@ -517,6 +517,17 @@ DESCRIPTION
 .  bfd_arch_lm32,      {* Lattice Mico32.  *}
 .#define bfd_mach_lm32		1
 .  bfd_arch_microblaze,{* Xilinx MicroBlaze.  *}
+.  bfd_arch_kvx,        {* Kalray VLIW core of the MPPA processor family *}
+.#define bfd_mach_kv3_unknown       0
+.#define bfd_mach_kv3_1             1
+.#define bfd_mach_kv3_1_64          2
+.#define bfd_mach_kv3_1_usr         3
+.#define bfd_mach_kv3_2             4
+.#define bfd_mach_kv3_2_64          5
+.#define bfd_mach_kv3_2_usr         6
+.#define bfd_mach_kv4_1             7
+.#define bfd_mach_kv4_1_64          8
+.#define bfd_mach_kv4_1_usr         9
 .  bfd_arch_tilepro,   {* Tilera TILEPro.  *}
 .  bfd_arch_tilegx,    {* Tilera TILE-Gx.  *}
 .#define bfd_mach_tilepro	1
@@ -527,10 +538,6 @@ DESCRIPTION
 .#define bfd_mach_aarch64_8R	1
 .#define bfd_mach_aarch64_ilp32	32
 .#define bfd_mach_aarch64_llp64 64
-.  bfd_arch_nios2,     {* Nios II.  *}
-.#define bfd_mach_nios2		0
-.#define bfd_mach_nios2r1	1
-.#define bfd_mach_nios2r2	2
 .  bfd_arch_visium,    {* Visium.  *}
 .#define bfd_mach_visium	1
 .  bfd_arch_wasm32,    {* WebAssembly.  *}
@@ -555,17 +562,36 @@ DESCRIPTION
 .#define bfd_mach_loongarch64	2
 .  bfd_arch_amdgcn,     {* AMDGCN *}
 .#define bfd_mach_amdgcn_unknown 0x000
-.#define bfd_mach_amdgcn_gfx900  0x02c
-.#define bfd_mach_amdgcn_gfx904  0x02e
-.#define bfd_mach_amdgcn_gfx906  0x02f
-.#define bfd_mach_amdgcn_gfx908  0x030
-.#define bfd_mach_amdgcn_gfx90a  0x03f
-.#define bfd_mach_amdgcn_gfx1010 0x033
-.#define bfd_mach_amdgcn_gfx1011 0x034
-.#define bfd_mach_amdgcn_gfx1012 0x035
-.#define bfd_mach_amdgcn_gfx1030 0x036
-.#define bfd_mach_amdgcn_gfx1031 0x037
-.#define bfd_mach_amdgcn_gfx1032 0x038
+.#define bfd_mach_amdgcn_gfx9_generic    0x051
+.#define bfd_mach_amdgcn_gfx900          0x02c
+.#define bfd_mach_amdgcn_gfx904          0x02e
+.#define bfd_mach_amdgcn_gfx906          0x02f
+.#define bfd_mach_amdgcn_gfx908          0x030
+.#define bfd_mach_amdgcn_gfx90a          0x03f
+.#define bfd_mach_amdgcn_gfx9_4_generic  0x05f
+.#define bfd_mach_amdgcn_gfx942          0x04c
+.#define bfd_mach_amdgcn_gfx950          0x04f
+.#define bfd_mach_amdgcn_gfx10_1_generic 0x052
+.#define bfd_mach_amdgcn_gfx1010         0x033
+.#define bfd_mach_amdgcn_gfx1011         0x034
+.#define bfd_mach_amdgcn_gfx1012         0x035
+.#define bfd_mach_amdgcn_gfx10_3_generic 0x053
+.#define bfd_mach_amdgcn_gfx1030         0x036
+.#define bfd_mach_amdgcn_gfx1031         0x037
+.#define bfd_mach_amdgcn_gfx1032         0x038
+.#define bfd_mach_amdgcn_gfx11_generic   0x054
+.#define bfd_mach_amdgcn_gfx1100         0x041
+.#define bfd_mach_amdgcn_gfx1101         0x046
+.#define bfd_mach_amdgcn_gfx1102         0x047
+.#define bfd_mach_amdgcn_gfx1150         0x043
+.#define bfd_mach_amdgcn_gfx1151         0x04a
+.#define bfd_mach_amdgcn_gfx1152         0x055
+.#define bfd_mach_amdgcn_gfx1153         0x058
+.#define bfd_mach_amdgcn_gfx12_generic   0x059
+.#define bfd_mach_amdgcn_gfx1200         0x048
+.#define bfd_mach_amdgcn_gfx1201         0x04e
+.#define bfd_mach_amdgcn_gfx12_5_generic 0x05b
+.#define bfd_mach_amdgcn_gfx1250         0x049
 .  bfd_arch_last
 .  };
 */
@@ -645,6 +671,7 @@ extern const bfd_arch_info_type bfd_iamcu_arch;
 extern const bfd_arch_info_type bfd_ia64_arch;
 extern const bfd_arch_info_type bfd_ip2k_arch;
 extern const bfd_arch_info_type bfd_iq2000_arch;
+extern const bfd_arch_info_type bfd_kvx_arch;
 extern const bfd_arch_info_type bfd_lm32_arch;
 extern const bfd_arch_info_type bfd_loongarch_arch;
 extern const bfd_arch_info_type bfd_m32c_arch;
@@ -669,7 +696,6 @@ extern const bfd_arch_info_type bfd_msp430_arch;
 extern const bfd_arch_info_type bfd_mt_arch;
 extern const bfd_arch_info_type bfd_nds32_arch;
 extern const bfd_arch_info_type bfd_nfp_arch;
-extern const bfd_arch_info_type bfd_nios2_arch;
 extern const bfd_arch_info_type bfd_ns32k_arch;
 extern const bfd_arch_info_type bfd_or1k_arch;
 extern const bfd_arch_info_type bfd_pdp11_arch;
@@ -734,6 +760,7 @@ static const bfd_arch_info_type * const bfd_archures_list[] =
     &bfd_ia64_arch,
     &bfd_ip2k_arch,
     &bfd_iq2000_arch,
+    &bfd_kvx_arch,
     &bfd_lm32_arch,
     &bfd_loongarch_arch,
     &bfd_m32c_arch,
@@ -758,7 +785,6 @@ static const bfd_arch_info_type * const bfd_archures_list[] =
     &bfd_mt_arch,
     &bfd_nds32_arch,
     &bfd_nfp_arch,
-    &bfd_nios2_arch,
     &bfd_ns32k_arch,
     &bfd_or1k_arch,
     &bfd_pdp11_arch,
@@ -935,6 +961,7 @@ bfd_arch_get_compatible (const bfd *abfd,
      to assume that they know what they are doing.  */
   if (accept_unknowns
       || ubfd->plugin_format == bfd_plugin_yes
+      || ubfd->plugin_format == bfd_plugin_yes_unused
       || strcmp (bfd_get_target (ubfd), "binary") == 0)
     return kbfd->arch_info;
   return NULL;

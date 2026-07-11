@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2013-2023 Free Software Foundation, Inc.
+# Copyright (C) 2013-2026 Free Software Foundation, Inc.
 #
 # This file is part of GDB.
 #
@@ -40,7 +40,7 @@ ARGS_PART = r"(?P<args>\(.*\))"
 # We strip the indentation so here we only need the caret.
 INTRO_PART = r"^"
 
-POINTER_PART = r"\s*(\*)?\s*"
+POINTER_PART = r"\s*(\*|\&)?\s*"
 
 # Match a C++ symbol, including scope operators and template
 # parameters.  E.g., 'std::vector<something>'.
@@ -73,17 +73,18 @@ METHOD = re.compile(
     + METHOD_TRAILER
 )
 
+# Space-separated symbols.
+CP_SYMBOLS = CP_SYMBOL + r"(\s+" + CP_SYMBOL + r")*"
+
 # Regular expression used to dissect argument types.
 ARGTYPES = re.compile(
     "^("
     + r"(?P<E>enum\s+"
     + SYMBOL
-    + r"\s*)("
-    + SYMBOL
-    + ")?"
-    + r"|(?P<T>.*(enum\s+)?"
-    + SYMBOL
-    + r".*(\s|\*|&))"
+    + r")"
+    + r"|(?P<T>"
+    + CP_SYMBOLS
+    + r"(\s|\*|&)+)"
     + SYMBOL
     + ")$"
 )
@@ -148,8 +149,9 @@ def parse_argtypes(typestr: str):
     typestr = re.sub(r"^\((.*)\)$", r"\1", typestr)
     result: list[str] = []
     for item in re.split(r",\s*", typestr):
-        if item == "void" or item == "":
+        if item == "":
             continue
+
         m = ARGTYPES.match(item)
         if m:
             if m.group("E"):
@@ -199,6 +201,7 @@ def write_declaration(f: TextIO, name: str, return_type: str, argtypes: List[str
 
 # Write out a delegation function.
 def write_delegator(f: TextIO, name: str, return_type: str, argtypes: List[str]):
+    print("", file=f)
     names = write_function_header(
         f, False, "target_ops::" + name, return_type, argtypes
     )
@@ -208,7 +211,7 @@ def write_delegator(f: TextIO, name: str, return_type: str, argtypes: List[str])
     print("this->beneath ()->" + name + " (", file=f, end="")
     print(", ".join(names), file=f, end="")
     print(");", file=f)
-    print("}\n", file=f)
+    print("}", file=f)
 
 
 # Write out a default function.
@@ -220,6 +223,7 @@ def write_tdefault(
     return_type: str,
     argtypes: List[str],
 ):
+    print("", file=f)
     name = "dummy_target::" + name
     names = write_function_header(f, False, name, return_type, argtypes)
     if style == "FUNC":
@@ -238,7 +242,7 @@ def write_tdefault(
         pass
     else:
         raise RuntimeError("unrecognized style: " + style)
-    print("}\n", file=f)
+    print("}", file=f)
 
 
 def munge_type(typename: str):
@@ -246,6 +250,9 @@ def munge_type(typename: str):
     if m:
         return m.group("arg")
     typename = typename.rstrip()
+    # There's no reason to have these keywords in the name, and their
+    # presence makes it harder to change styles.
+    typename = re.sub("\\b(struct|enum|class|union) ", "", typename)
     typename = re.sub("[ ()<>:]", "_", typename)
     typename = re.sub("[*]", "p", typename)
     typename = re.sub("&", "r", typename)
@@ -263,49 +270,54 @@ def munge_type(typename: str):
 def write_debugmethod(
     f: TextIO, content: str, name: str, return_type: str, argtypes: List[str]
 ):
+    print("", file=f)
     debugname = "debug_target::" + name
     names = write_function_header(f, False, debugname, return_type, argtypes)
-    if return_type != "void":
-        print("  " + return_type + " result;", file=f)
     print(
-        '  gdb_printf (gdb_stdlog, "-> %s->'
-        + name
-        + ' (...)\\n", this->beneath ()->shortname ());',
+        f'  target_debug_printf_nofunc ("-> %s->{name} (...)", this->beneath ()->shortname ());',
         file=f,
     )
 
     # Delegate to the beneath target.
-    print("  ", file=f, end="")
     if return_type != "void":
-        print("result = ", file=f, end="")
+        print("  " + return_type + " result", file=f)
+        print("    = ", file=f, end="")
+    else:
+        print("  ", file=f, end="")
     print("this->beneath ()->" + name + " (", file=f, end="")
     print(", ".join(names), file=f, end="")
     print(");", file=f)
 
-    # Now print the arguments.
+    # Generate the debug printf call.
+    args_fmt = ", ".join(["%s"] * len(argtypes))
+    args = "".join(
+        [
+            (",\n\t      {printer} (arg{i}).c_str ()").format(
+                printer=munge_type(t), i=i
+            )
+            for i, t in enumerate(argtypes)
+        ]
+    )
+
+    if return_type != "void":
+        ret_fmt = " = %s"
+        ret = ",\n\t      {printer} (result).c_str ()".format(
+            printer=munge_type(return_type)
+        )
+    else:
+        ret_fmt = ""
+        ret = ""
+
     print(
-        '  gdb_printf (gdb_stdlog, "<- %s->'
-        + name
-        + ' (", this->beneath ()->shortname ());',
+        f'  target_debug_printf_nofunc ("<- %s->{name} ({args_fmt}){ret_fmt}",\n'
+        f"\t      this->beneath ()->shortname (){args}{ret});",
         file=f,
     )
-    for i in range(len(argtypes)):
-        if i > 0:
-            print('  gdb_puts (", ", gdb_stdlog);', file=f)
-        printer = munge_type(argtypes[i])
-        print("  " + printer + " (" + names[i] + ");", file=f)
-    if return_type != "void":
-        print('  gdb_puts (") = ", gdb_stdlog);', file=f)
-        printer = munge_type(return_type)
-        print("  " + printer + " (result);", file=f)
-        print('  gdb_puts ("\\n", gdb_stdlog);', file=f)
-    else:
-        print('  gdb_puts (")\\n", gdb_stdlog);', file=f)
 
     if return_type != "void":
         print("  return result;", file=f)
 
-    print("}\n", file=f)
+    print("}", file=f)
 
 
 def print_class(
@@ -314,6 +326,7 @@ def print_class(
     delegators: List[str],
     entries: Dict[str, Entry],
 ):
+    print("", file=f)
     print("struct " + class_name + " : public target_ops", file=f)
     print("{", file=f)
     print("  const target_info &info () const override;", file=f)
@@ -326,7 +339,7 @@ def print_class(
         entry = entries[name]
         write_declaration(f, name, entry.return_type, entry.argtypes)
 
-    print("};\n", file=f)
+    print("};", file=f)
 
 
 delegators: List[str] = []
@@ -349,7 +362,7 @@ for current_line in scan_target_h():
 
     delegators.append(name)
 
-with open("target-delegates.c", "w") as f:
+with open("target-delegates-gen.c", "w") as f:
     print(
         gdbcopyright.copyright(
             "make-target-delegates.py", "Boilerplate target methods for GDB"

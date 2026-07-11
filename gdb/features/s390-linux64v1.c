@@ -1,16 +1,17 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: s390-linux64v1.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_s390_linux64v1;
+const_target_desc_up tdesc_s390_linux64v1;
 static void
 initialize_tdesc_s390_linux64v1 (void)
 {
   target_desc_up result = allocate_target_description ();
   set_tdesc_architecture (result.get (), bfd_scan_arch ("s390:31-bit"));
+
+  set_tdesc_osabi (result.get (), GDB_OSABI_LINUX);
 
   struct tdesc_feature *feature;
 
@@ -91,5 +92,5 @@ initialize_tdesc_s390_linux64v1 (void)
   tdesc_create_reg (feature, "orig_r2", 67, 1, "system", 32, "uint32");
   tdesc_create_reg (feature, "last_break", 68, 0, "system", 32, "code_ptr");
 
-  tdesc_s390_linux64v1 = result.release ();
+  tdesc_s390_linux64v1 = std::move (result);
 }

@@ -1,6 +1,6 @@
 /* Target-dependent code for PowerPC systems running FreeBSD.
 
-   Copyright (C) 2013-2023 Free Software Foundation, Inc.
+   Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "frame-unwind.h"
@@ -150,7 +150,7 @@ static const int ppcfbsd_sigreturn_offset[] = {
 
 static int
 ppcfbsd_sigtramp_frame_sniffer (const struct frame_unwind *self,
-				frame_info_ptr this_frame,
+				const frame_info_ptr &this_frame,
 				void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -197,7 +197,7 @@ ppcfbsd_sigtramp_frame_sniffer (const struct frame_unwind *self,
 }
 
 static struct trad_frame_cache *
-ppcfbsd_sigtramp_frame_cache (frame_info_ptr this_frame, void **this_cache)
+ppcfbsd_sigtramp_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   ppc_gdbarch_tdep *tdep = gdbarch_tdep<ppc_gdbarch_tdep> (gdbarch);
@@ -243,7 +243,7 @@ ppcfbsd_sigtramp_frame_cache (frame_info_ptr this_frame, void **this_cache)
 }
 
 static void
-ppcfbsd_sigtramp_frame_this_id (frame_info_ptr this_frame,
+ppcfbsd_sigtramp_frame_this_id (const frame_info_ptr &this_frame,
 				void **this_cache, struct frame_id *this_id)
 {
   struct trad_frame_cache *cache =
@@ -253,7 +253,7 @@ ppcfbsd_sigtramp_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-ppcfbsd_sigtramp_frame_prev_register (frame_info_ptr this_frame,
+ppcfbsd_sigtramp_frame_prev_register (const frame_info_ptr &this_frame,
 				      void **this_cache, int regnum)
 {
   struct trad_frame_cache *cache =
@@ -262,15 +262,16 @@ ppcfbsd_sigtramp_frame_prev_register (frame_info_ptr this_frame,
   return trad_frame_get_register (cache, this_frame, regnum);
 }
 
-static const struct frame_unwind ppcfbsd_sigtramp_frame_unwind = {
+static const struct frame_unwind_legacy ppcfbsd_sigtramp_frame_unwind (
   "ppc freebsd sigtramp",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   ppcfbsd_sigtramp_frame_this_id,
   ppcfbsd_sigtramp_frame_prev_register,
   NULL,
   ppcfbsd_sigtramp_frame_sniffer
-};
+);
 
 static enum return_value_convention
 ppcfbsd_return_value (struct gdbarch *gdbarch, struct value *function,
@@ -288,11 +289,9 @@ ppcfbsd_get_thread_local_address (struct gdbarch *gdbarch, ptid_t ptid,
 				  CORE_ADDR lm_addr, CORE_ADDR offset)
 {
   ppc_gdbarch_tdep *tdep = gdbarch_tdep<ppc_gdbarch_tdep> (gdbarch);
-  struct regcache *regcache;
   int tp_offset, tp_regnum;
-
-  regcache = get_thread_arch_regcache (current_inferior ()->process_target (),
-				       ptid, gdbarch);
+  regcache *regcache
+    = get_thread_arch_regcache (current_inferior (), ptid, gdbarch);
 
   if (tdep->wordsize == 4)
     {
@@ -333,8 +332,7 @@ ppcfbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
       set_gdbarch_return_value (gdbarch, ppcfbsd_return_value);
 
       set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-      set_solib_svr4_fetch_link_map_offsets (gdbarch,
-					     svr4_ilp32_fetch_link_map_offsets);
+      set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
 
       frame_unwind_append_unwinder (gdbarch, &ppcfbsd_sigtramp_frame_unwind);
       set_gdbarch_gcore_bfd_target (gdbarch, "elf32-powerpc");
@@ -348,8 +346,7 @@ ppcfbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 					    ppc64_elf_make_msymbol_special);
 
       set_gdbarch_skip_trampoline_code (gdbarch, ppc64_skip_trampoline_code);
-      set_solib_svr4_fetch_link_map_offsets (gdbarch,
-					     svr4_lp64_fetch_link_map_offsets);
+      set_solib_svr4_ops (gdbarch, make_svr4_lp64_solib_ops);
       set_gdbarch_gcore_bfd_target (gdbarch, "elf64-powerpc");
     }
 
@@ -362,9 +359,7 @@ ppcfbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 					ppcfbsd_get_thread_local_address);
 }
 
-void _initialize_ppcfbsd_tdep ();
-void
-_initialize_ppcfbsd_tdep ()
+INIT_GDB_FILE (ppcfbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_powerpc, bfd_mach_ppc, GDB_OSABI_FREEBSD,
 			  ppcfbsd_init_abi);

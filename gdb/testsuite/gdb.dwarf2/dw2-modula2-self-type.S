@@ -1,4 +1,4 @@
-/* Copyright 2010-2023 Free Software Foundation, Inc.
+/* Copyright 2010-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -114,11 +114,19 @@ die221:
 
 	.byte	0x0
 
-	.section	.debug_str
+#ifdef __arm__
+	.section	.debug_str,"MS",%progbits,1
+#else
+	.section	.debug_str,"MS",@progbits,1
+#endif
 .LASF1:
 	.string	"2.mod"
 .LASF0:
 	.string	"GNU Modula-2 0.78 (20100402) grafted onto GCC 4.1.2"
 .LASF2:
 	.string	""
+#ifdef __arm__
+	.section	.note.GNU-stack,"",%progbits
+#else
 	.section	.note.GNU-stack,"",@progbits
+#endif

@@ -1,5 +1,5 @@
 /* C preprocessor macro expansion for GDB.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/gdb_obstack.h"
 #include "macrotab.h"
 #include "macroexp.h"
@@ -40,7 +39,7 @@ struct shared_macro_buffer
   /* The number of characters in the string.  */
   int len;
 
-  /* For detecting token splicing. 
+  /* For detecting token splicing.
 
      This is the index in TEXT of the first character of the token
      that abuts the end of TEXT.  If TEXT contains no tokens, then we
@@ -50,7 +49,7 @@ struct shared_macro_buffer
      know the nature of TEXT.  */
   int last_token = -1;
 
-  /* If this buffer is holding the result from get_token, then this 
+  /* If this buffer is holding the result from get_token, then this
      is non-zero if it is an identifier token, zero otherwise.  */
   int is_identifier = 0;
 
@@ -317,7 +316,7 @@ static int
 get_character_constant (shared_macro_buffer *tok,
 			const char *p, const char *end)
 {
-  /* ISO/IEC 9899:1999 (E)  Section 6.4.4.4  paragraph 1 
+  /* ISO/IEC 9899:1999 (E)  Section 6.4.4.4  paragraph 1
      But of course, what really matters is that we handle it the same
      way GDB's C/C++ lexer does.  So we call parse_escape in utils.c
      to handle escape sequences.  */
@@ -495,7 +494,7 @@ get_token (shared_macro_buffer *tok, shared_macro_buffer *src)
 
   /* From the ISO C standard, ISO/IEC 9899:1999 (E), section 6.4:
 
-     preprocessing-token: 
+     preprocessing-token:
 	 header-name
 	 identifier
 	 pp-number
@@ -533,7 +532,7 @@ get_token (shared_macro_buffer *tok, shared_macro_buffer *src)
 	src->len -= consumed;
 	return 1;
       }
-    else 
+    else
       {
 	/* We have found a "non-whitespace character that cannot be
 	   one of the above."  Make a token out of it.  */
@@ -578,7 +577,7 @@ append_tokens_without_splicing (growable_macro_buffer *dest,
 
   gdb_assert (src->last_token != -1);
   gdb_assert (dest->last_token != -1);
-  
+
   /* First, just try appending the two, and call get_token to see if
      we got a splice.  */
   dest->appendmem (src->text, src->len);
@@ -700,7 +699,7 @@ macro_stringify (const char *str)
 /* Expanding macros!  */
 
 
-/* A singly-linked list of the names of the macros we are currently 
+/* A singly-linked list of the names of the macros we are currently
    expanding --- for detecting expansion loops.  */
 struct macro_name_list {
   const char *name;
@@ -722,7 +721,7 @@ static int
 currently_rescanning (struct macro_name_list *list, const char *name)
 {
   for (; list; list = list->next)
-    if (strcmp (name, list->name) == 0)
+    if (streq (name, list->name))
       return 1;
 
   return 0;
@@ -789,12 +788,10 @@ gather_arguments (const char *name, shared_macro_buffer *src, int nargs,
 
   for (;;)
     {
-      shared_macro_buffer *arg;
       int depth;
 
       /* Initialize the next argument.  */
-      args.emplace_back ();
-      arg = &args.back ();
+      shared_macro_buffer *arg = &args.emplace_back ();
       set_token (arg, src->text, src->text);
 
       /* Gather the argument's tokens.  */
@@ -819,8 +816,7 @@ gather_arguments (const char *name, shared_macro_buffer *src, int nargs,
 		     missing.  Add an empty argument in this case.  */
 		  if (nargs != -1 && args.size () == nargs - 1)
 		    {
-		      args.emplace_back ();
-		      arg = &args.back ();
+		      arg = &args.emplace_back ();
 		      set_token (arg, src->text, src->text);
 		    }
 
@@ -866,7 +862,7 @@ static void scan (growable_macro_buffer *dest,
 		  const macro_scope &scope);
 
 /* A helper function for substitute_args.
-   
+
    ARGV is a vector of all the arguments; ARGC is the number of
    arguments.  IS_VARARGS is true if the macro being substituted is a
    varargs macro; in this case VA_ARG_NAME is the name of the
@@ -887,7 +883,7 @@ find_parameter (const shared_macro_buffer *tok,
     return -1;
 
   for (i = 0; i < argc; ++i)
-    if (tok->len == strlen (argv[i]) 
+    if (tok->len == strlen (argv[i])
 	&& !memcmp (tok->text, argv[i], tok->len))
       return i;
 
@@ -897,7 +893,7 @@ find_parameter (const shared_macro_buffer *tok,
 
   return -1;
 }
- 
+
 /* Helper function for substitute_args that gets the next token and
    updates the passed-in state variables.  */
 
@@ -1235,7 +1231,7 @@ expand (const char *id,
 
       if (def->argc >= 1)
 	{
-	  if (strcmp (def->argv[def->argc - 1], "...") == 0)
+	  if (streq (def->argv[def->argc - 1], "..."))
 	    {
 	      /* In C99-style varargs, substitution is done using
 		 __VA_ARGS__.  */
@@ -1246,8 +1242,7 @@ expand (const char *id,
 	    {
 	      int len = strlen (def->argv[def->argc - 1]);
 
-	      if (len > 3
-		  && strcmp (def->argv[def->argc - 1] + len - 3, "...") == 0)
+	      if (len > 3 && streq (def->argv[def->argc - 1] + len - 3, "..."))
 		{
 		  /* In GNU-style varargs, the name of the
 		     substitution parameter is the name of the formal

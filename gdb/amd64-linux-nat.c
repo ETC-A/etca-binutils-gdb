@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux x86-64.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
    Contributed by Jiri Smid, SuSE Labs.
 
    This file is part of GDB.
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 #include "elf/common.h"
@@ -33,11 +32,15 @@
 #include "amd64-tdep.h"
 #include "amd64-linux-tdep.h"
 #include "i386-linux-tdep.h"
+#include "x86-tdep.h"
 #include "gdbsupport/x86-xstate.h"
 
 #include "x86-linux-nat.h"
 #include "nat/linux-ptrace.h"
 #include "nat/amd64-linux-siginfo.h"
+#include "nat/i386-linux.h"
+
+#include <asm/ldt.h>
 
 /* This definition comes from prctl.h.  Kernels older than 2.5.64
    do not have it.  */
@@ -80,16 +83,21 @@ static int amd64_linux_gregset32_reg_offset[] =
   -1, -1, -1, -1, -1, -1, -1, -1,
   -1, -1, -1, -1, -1, -1, -1, -1, -1,
   -1, -1, -1, -1, -1, -1, -1, -1,
+   /* MPX is deprecated.  Yet we keep this to not give the registers below
+      a new number.  That could break older gdbservers.  */
   -1, -1, -1, -1,		  /* MPX registers BND0 ... BND3.  */
   -1, -1,			  /* MPX registers BNDCFGU, BNDSTATUS.  */
   -1, -1, -1, -1, -1, -1, -1, -1, /* k0 ... k7 (AVX512)  */
   -1, -1, -1, -1, -1, -1, -1, -1, /* zmm0 ... zmm7 (AVX512)  */
   -1,				  /* PKEYS register PKRU  */
-  ORIG_RAX * 8			  /* "orig_eax"  */
+  -1,				  /* SSP register.  */
+  -1, -1,			  /* fs/gs base registers.  */
+  ORIG_RAX * 8,			  /* "orig_eax"  */
+  -1, -1, -1,			  /* TLS GDT regs: i386_tls_gdt_0...2.  */
 };
 
 
-/* Transfering the general-purpose registers between GDB, inferiors
+/* Transferring the general-purpose registers between GDB, inferiors
    and core files.  */
 
 /* See amd64_collect_native_gregset.  This linux specific version handles
@@ -107,7 +115,7 @@ amd64_linux_collect_native_gregset (const struct regcache *regcache,
   if (gdbarch_bfd_arch_info (gdbarch)->bits_per_word == 32)
     {
       /* Sign extend EAX value to avoid potential syscall restart
-	 problems.  
+	 problems.
 
 	 On Linux, when a syscall is interrupted by a signal, the
 	 (kernel function implementing the) syscall may return
@@ -117,7 +125,7 @@ amd64_linux_collect_native_gregset (const struct regcache *regcache,
 	 handler is called, the kernel can then either return -EINTR
 	 or it can cause the syscall to be restarted.  We are
 	 concerned with the latter case here.
-	 
+
 	 On (32-bit) i386, the status (-ERESTARTSYS) is placed in the
 	 EAX register.  When debugging a 32-bit process from a 64-bit
 	 (amd64) GDB, the debugger fetches 64-bit registers even
@@ -134,11 +142,11 @@ amd64_linux_collect_native_gregset (const struct regcache *regcache,
 	 syscall after a signal expects to see a negative value
 	 (specifically -ERESTARTSYS) in the 64-bit RAX register in
 	 order to correctly cause a syscall to be restarted.
-	 
+
 	 The call to amd64_collect_native_gregset, above, is setting
 	 the high 32 bits of RAX (and other registers too) to 0.  For
 	 syscall restart, we need to sign extend EAX so that RAX will
-	 appear as a negative value when EAX is set to -ERESTARTSYS. 
+	 appear as a negative value when EAX is set to -ERESTARTSYS.
 	 This in turn will cause the signal handling code in the
 	 kernel to recognize -ERESTARTSYS which will in turn cause the
 	 syscall to be restarted.
@@ -149,7 +157,7 @@ amd64_linux_collect_native_gregset (const struct regcache *regcache,
 
       if (regnum == -1 || regnum == I386_EAX_REGNUM)
 	{
-	  void *ptr = ((gdb_byte *) gregs 
+	  void *ptr = ((gdb_byte *) gregs
 		       + amd64_linux_gregset32_reg_offset[I386_EAX_REGNUM]);
 
 	  *(int64_t *) ptr = *(int32_t *) ptr;
@@ -177,7 +185,7 @@ fill_gregset (const struct regcache *regcache,
   amd64_linux_collect_native_gregset (regcache, gregsetp, regnum);
 }
 
-/* Transfering floating-point registers between GDB, inferiors and cores.  */
+/* Transferring floating-point registers between GDB, inferiors and cores.  */
 
 /* Fill GDB's register cache with the floating-point and SSE register
    values in *FPREGSETP.  */
@@ -210,6 +218,7 @@ void
 amd64_linux_nat_target::fetch_registers (struct regcache *regcache, int regnum)
 {
   struct gdbarch *gdbarch = regcache->arch ();
+  const i386_gdbarch_tdep *tdep = gdbarch_tdep<i386_gdbarch_tdep> (gdbarch);
   int tid;
 
   /* GNU/Linux LWP ID's are process ID's.  */
@@ -231,29 +240,44 @@ amd64_linux_nat_target::fetch_registers (struct regcache *regcache, int regnum)
 
   if (regnum == -1 || !amd64_native_gregset_supplies_p (gdbarch, regnum))
     {
-      elf_fpregset_t fpregs;
+      if (regnum == -1 || i386_is_tls_regnum_p (regnum))
+	{
+	  if (tdep->i386_linux_tls)
+	    i386_fetch_tls_regs (regcache, tid, regnum);
+	  if (regnum != -1)
+	    return;
+	}
 
       if (have_ptrace_getregset == TRIBOOL_TRUE)
 	{
-	  char xstateregs[X86_XSTATE_MAX_SIZE];
-	  struct iovec iov;
+	  if ((regnum == -1 && tdep->ssp_regnum != -1)
+	      || (regnum != -1 && regnum == tdep->ssp_regnum))
+	    {
+	      x86_linux_fetch_ssp (regcache, tid);
+	      if (regnum != -1)
+		return;
+	    }
 
 	  /* Pre-4.14 kernels have a bug (fixed by commit 0852b374173b
 	     "x86/fpu: Add FPU state copying quirk to handle XRSTOR failure on
 	     Intel Skylake CPUs") that sometimes causes the mxcsr location in
 	     xstateregs not to be copied by PTRACE_GETREGSET.  Make sure that
 	     the location is at least initialized with a defined value.  */
-	  memset (xstateregs, 0, sizeof (xstateregs));
-	  iov.iov_base = xstateregs;
-	  iov.iov_len = sizeof (xstateregs);
+	  gdb::byte_vector xstateregs (tdep->xsave_layout.sizeof_xsave, 0);
+	  struct iovec iov;
+
+	  iov.iov_base = xstateregs.data ();
+	  iov.iov_len = xstateregs.size ();
 	  if (ptrace (PTRACE_GETREGSET, tid,
 		      (unsigned int) NT_X86_XSTATE, (long) &iov) < 0)
 	    perror_with_name (_("Couldn't get extended state status"));
 
-	  amd64_supply_xsave (regcache, -1, xstateregs);
+	  amd64_supply_xsave (regcache, -1, xstateregs.data ());
 	}
       else
 	{
+	  elf_fpregset_t fpregs;
+
 	  if (ptrace (PTRACE_GETFPREGS, tid, 0, (long) &fpregs) < 0)
 	    perror_with_name (_("Couldn't get floating point status"));
 
@@ -270,6 +294,7 @@ void
 amd64_linux_nat_target::store_registers (struct regcache *regcache, int regnum)
 {
   struct gdbarch *gdbarch = regcache->arch ();
+  const i386_gdbarch_tdep *tdep = gdbarch_tdep<i386_gdbarch_tdep> (gdbarch);
   int tid;
 
   /* GNU/Linux LWP ID's are process ID's.  */
@@ -295,20 +320,34 @@ amd64_linux_nat_target::store_registers (struct regcache *regcache, int regnum)
 
   if (regnum == -1 || !amd64_native_gregset_supplies_p (gdbarch, regnum))
     {
-      elf_fpregset_t fpregs;
+      if (regnum == -1 || i386_is_tls_regnum_p (regnum))
+	{
+	  if (tdep->i386_linux_tls)
+	    i386_store_tls_regs (regcache, tid, regnum);
+	  if (regnum != -1)
+	    return;
+	}
 
       if (have_ptrace_getregset == TRIBOOL_TRUE)
 	{
-	  char xstateregs[X86_XSTATE_MAX_SIZE];
+	  gdb::byte_vector xstateregs (tdep->xsave_layout.sizeof_xsave);
+	  if ((regnum == -1 && tdep->ssp_regnum != -1)
+	      || (regnum != -1 && regnum == tdep->ssp_regnum))
+	    {
+	      x86_linux_store_ssp (regcache, tid);
+	      if (regnum != -1)
+		return;
+	    }
+
 	  struct iovec iov;
 
-	  iov.iov_base = xstateregs;
-	  iov.iov_len = sizeof (xstateregs);
+	  iov.iov_base = xstateregs.data ();
+	  iov.iov_len = xstateregs.size ();
 	  if (ptrace (PTRACE_GETREGSET, tid,
 		      (unsigned int) NT_X86_XSTATE, (long) &iov) < 0)
 	    perror_with_name (_("Couldn't get extended state status"));
 
-	  amd64_collect_xsave (regcache, regnum, xstateregs, 0);
+	  amd64_collect_xsave (regcache, regnum, xstateregs.data (), 0);
 
 	  if (ptrace (PTRACE_SETREGSET, tid,
 		      (unsigned int) NT_X86_XSTATE, (long) &iov) < 0)
@@ -316,6 +355,8 @@ amd64_linux_nat_target::store_registers (struct regcache *regcache, int regnum)
 	}
       else
 	{
+	  elf_fpregset_t fpregs;
+
 	  if (ptrace (PTRACE_GETFPREGS, tid, 0, (long) &fpregs) < 0)
 	    perror_with_name (_("Couldn't get floating point status"));
 
@@ -335,7 +376,7 @@ ps_err_e
 ps_get_thread_area (struct ps_prochandle *ph,
 		    lwpid_t lwpid, int idx, void **base)
 {
-  if (gdbarch_bfd_arch_info (ph->thread->inf->gdbarch)->bits_per_word == 32)
+  if (gdbarch_bfd_arch_info (ph->thread->inf->arch ())->bits_per_word == 32)
     {
       unsigned int base_addr;
       ps_err_e result;
@@ -422,9 +463,7 @@ amd64_linux_nat_target::low_siginfo_fixup (siginfo_t *ptrace,
     return false;
 }
 
-void _initialize_amd64_linux_nat ();
-void
-_initialize_amd64_linux_nat ()
+INIT_GDB_FILE (amd64_linux_nat)
 {
   amd64_native_gregset32_reg_offset = amd64_linux_gregset32_reg_offset;
   amd64_native_gregset32_num_regs = I386_LINUX_NUM_REGS;

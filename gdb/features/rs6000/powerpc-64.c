@@ -1,11 +1,10 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: powerpc-64.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_powerpc_64;
+const_target_desc_up tdesc_powerpc_64;
 static void
 initialize_tdesc_powerpc_64 (void)
 {
@@ -89,5 +88,5 @@ initialize_tdesc_powerpc_64 (void)
   tdesc_create_reg (feature, "f31", 63, 1, NULL, 64, "ieee_double");
   tdesc_create_reg (feature, "fpscr", 70, 1, "float", 32, "int");
 
-  tdesc_powerpc_64 = result.release ();
+  tdesc_powerpc_64 = std::move (result);
 }

@@ -1,4 +1,4 @@
-# Copyright 2023 Free Software Foundation, Inc.
+# Copyright 2023-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,10 +17,14 @@
 
 require is_x86_like_target
 
-set srcfile_flags {debug}
-set srcfile2_flags {debug}
+set srcfile_flags {}
+lappend srcfile_flags debug
+lappend srcfile_flags nopie
 
-if [info exists COMPILE] {
+set srcfile2_flags $srcfile_flags
+set ldflags $srcfile_flags
+
+if {[info exists COMPILE]} {
     standard_testfile unwind-on-each-insn.c unwind-on-each-insn-foo.c
     # When updating the .s file, use these flags to generate the file:
     #lappend srcfile2_flags additional_flags=-save-temps

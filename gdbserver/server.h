@@ -1,5 +1,5 @@
 /* Common definitions for remote server for GDB.
-   Copyright (C) 1993-2023 Free Software Foundation, Inc.
+   Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,7 +29,7 @@
 
 #include <config.h>
 
-gdb_static_assert (sizeof (CORE_ADDR) >= sizeof (void *));
+static_assert (sizeof (CORE_ADDR) >= sizeof (void *));
 
 #include "gdbsupport/version.h"
 
@@ -68,6 +68,7 @@ void initialize_low ();
 extern bool server_waiting;
 
 extern bool disable_packet_vCont;
+extern bool disable_packet_vCont_step;
 extern bool disable_packet_Tthread;
 extern bool disable_packet_qC;
 extern bool disable_packet_qfThreadInfo;
@@ -95,7 +96,6 @@ extern int in_queued_stop_replies (ptid_t ptid);
 
 #include "utils.h"
 #include "debug.h"
-#include "gdbsupport/gdb_vecs.h"
 
 /* Maximum number of bytes to read/write at once.  The value here
    is chosen to fill up a packet (the headers account for the 32).  */
@@ -104,7 +104,7 @@ extern int in_queued_stop_replies (ptid_t ptid);
 /* Buffer sizes for transferring memory, registers, etc.   Set to a constant
    value to accommodate multiple register formats.  This value must be at least
    as large as the largest register set supported by gdbserver.  */
-#define PBUFSIZ 18432
+#define PBUFSIZ 131104
 
 /* Definition for an unknown syscall, used basically in error-cases.  */
 #define UNKNOWN_SYSCALL (-1)
@@ -130,7 +130,7 @@ extern unsigned long signal_pid;
 struct client_state
 {
   client_state ():
-    own_buf ((char *) xmalloc (PBUFSIZ + 1)) 
+    own_buf ((char *) xmalloc (PBUFSIZ + 1))
   {}
 
   /* The thread set with an `Hc' packet.  `Hc' is deprecated in favor of
@@ -192,6 +192,21 @@ struct client_state
   /* If true, memory tagging features are supported.  */
   bool memory_tagging_feature = false;
 
+  /* If true then E.errtext style errors are supported everywhere,
+     including for the qRcmd and m packet.  When false E.errtext errors
+     are not supported with qRcmd and m packets, but are still supported
+     everywhere else.  This is for backward compatibility reasons.  */
+  bool error_message_supported = false;
+
+  /* If true then we've agreed that the debugger will send all inferior
+     arguments as a single string.  When false the debugger will attempt
+     to split the inferior arguments before sending them.  */
+  bool single_inferior_argument = false;
+
+  /* When true, GDB supports receiving multiple watchpoint addresses within
+     a 'T' stop reply packet.  When false, GDB only expects (at most) a
+     single watchpoint address, and gdbserver must select one.  */
+  bool multiple_wp_addr_feature = false;
 };
 
 client_state &get_client_state ();
@@ -199,4 +214,6 @@ client_state &get_client_state ();
 #include "gdbthread.h"
 #include "inferiors.h"
 
+#else
+#  error gdbserver/server.h should not be included manually
 #endif /* GDBSERVER_SERVER_H */

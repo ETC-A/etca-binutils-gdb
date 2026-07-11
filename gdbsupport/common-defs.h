@@ -1,6 +1,6 @@
 /* Common definitions.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,23 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_COMMON_DEFS_H
-#define COMMON_COMMON_DEFS_H
+#ifndef GDBSUPPORT_COMMON_DEFS_H
+#define GDBSUPPORT_COMMON_DEFS_H
+
+#if defined (__SANITIZE_THREAD__) && defined (__GNUC__) \
+  && !defined (__clang__) && __GNUC__ <= 13
+
+/* Work around PR gcc/110799.  */
+#pragma GCC optimize("-fno-hoist-adjacent-loads")
+#endif
+
+#if defined (__GNUC__) && !defined (__clang__) \
+  && ((__GNUC__ >= 12 && __GNUC__ <= 15)       \
+      || (__GNUC__ == 16 && __GNUC_MINOR__ < 1))
+/* Work around PR gcc/120987 starting gcc 12, and assume it will be fixed in
+   the gcc 16.1 release.  */
+#pragma GCC optimize("-fno-ipa-modref")
+#endif
 
 #include <gdbsupport/config.h>
 
@@ -96,7 +111,7 @@
 #include <stdint.h>
 #include <string.h>
 #ifdef HAVE_STRINGS_H
-#include <strings.h>	/* for strcasecmp and strncasecmp */
+#include <strings.h>
 #endif
 #include <errno.h>
 #if HAVE_ALLOCA_H
@@ -146,7 +161,7 @@
    and builds with -O2, and ... the assert doesn't trigger, because it's
    optimized away by gcc.
 
-   There's no suppported recipe to prevent the assertion from being optimized
+   There's no supported recipe to prevent the assertion from being optimized
    away (other than: build with -O0, or remove the nonnull attribute).  Note
    that -fno-delete-null-pointer-checks does not help.  A patch was submitted
    to improve gcc documentation to point this out more clearly (
@@ -187,17 +202,8 @@
 #undef ATTRIBUTE_NONNULL
 #define ATTRIBUTE_NONNULL(m)
 
-#if GCC_VERSION >= 3004
 #define ATTRIBUTE_UNUSED_RESULT __attribute__ ((__warn_unused_result__))
-#else
-#define ATTRIBUTE_UNUSED_RESULT
-#endif
-
-#if (GCC_VERSION > 4000)
 #define ATTRIBUTE_USED __attribute__ ((__used__))
-#else
-#define ATTRIBUTE_USED
-#endif
 
 #include "libiberty.h"
 #include "pathmax.h"
@@ -210,16 +216,17 @@
 #include "errors.h"
 #include "print-utils.h"
 #include "common-debug.h"
-#include "cleanups.h"
 #include "common-exceptions.h"
 #include "gdbsupport/poison.h"
 
-#define EXTERN_C extern "C"
-#define EXTERN_C_PUSH extern "C" {
-#define EXTERN_C_POP }
-
 /* Pull in gdb::unique_xmalloc_ptr.  */
 #include "gdbsupport/gdb_unique_ptr.h"
+
+/* Note that there's no simple way to enforce the use of the c-ctype
+   functions.  We can't poison the <ctype.h> functions (see
+   safe-ctype.h) because that will provoke errors from libstdc++
+   headers.  */
+#include "c-ctype.h"
 
 /* sbrk on macOS is not useful for our purposes, since sbrk(0) always
    returns the same value.  brk/sbrk on macOS is just an emulation
@@ -230,4 +237,6 @@
 #define HAVE_USEFUL_SBRK 1
 #endif
 
-#endif /* COMMON_COMMON_DEFS_H */
+#else
+#  error gdbsupport/common-defs.h should not be included manually
+#endif /* GDBSUPPORT_COMMON_DEFS_H */

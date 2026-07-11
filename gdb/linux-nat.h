@@ -1,6 +1,6 @@
 /* Native debugging support for GNU/Linux (LWP layer).
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef LINUX_NAT_H
-#define LINUX_NAT_H
+#ifndef GDB_LINUX_NAT_H
+#define GDB_LINUX_NAT_H
 
 #include "nat/linux-nat.h"
 #include "inf-ptrace.h"
@@ -68,11 +68,9 @@ public:
 
   const char *thread_name (struct thread_info *) override;
 
-  struct address_space *thread_address_space (ptid_t) override;
-
   bool stopped_by_watchpoint () override;
 
-  bool stopped_data_address (CORE_ADDR *) override;
+  std::vector<CORE_ADDR> stopped_data_addresses () override;
 
   bool stopped_by_sw_breakpoint () override;
   bool supports_stopped_by_sw_breakpoint () override;
@@ -80,7 +78,9 @@ public:
   bool stopped_by_hw_breakpoint () override;
   bool supports_stopped_by_hw_breakpoint () override;
 
-  void thread_events (int) override;
+  void thread_events (bool) override;
+
+  bool supports_set_thread_options (gdb_thread_options options) override;
 
   bool can_async_p () override;
 
@@ -100,13 +100,16 @@ public:
   bool filesystem_is_local () override;
 
   int fileio_open (struct inferior *inf, const char *filename,
-		   int flags, int mode, int warn_if_slow,
-		   fileio_error *target_errno) override;
+		   fileio_open_flags flags, fileio_mode_flags mode,
+		   bool warn_if_slow, fileio_error *target_errno) override;
 
-  gdb::optional<std::string>
+  std::optional<std::string>
     fileio_readlink (struct inferior *inf,
 		     const char *filename,
 		     fileio_error *target_errno) override;
+
+  int fileio_lstat (struct inferior *inf, const char *filename,
+		   struct stat *sb, fileio_error *target_errno) override;
 
   int fileio_unlink (struct inferior *inf,
 		     const char *filename,
@@ -129,8 +132,14 @@ public:
 
   void follow_fork (inferior *, ptid_t, target_waitkind, bool, bool) override;
 
+  void follow_clone (ptid_t) override;
+
   std::vector<static_tracepoint_marker>
     static_tracepoint_markers_by_strid (const char *id) override;
+
+  /* Linux ptrace targets are shareable.  */
+  bool is_shareable () override final
+  { return true; }
 
   /* Methods that are meant to overridden by the concrete
      arch-specific target instance.  */
@@ -160,6 +169,12 @@ public:
 
   /* The method to call, if any, when a new clone event is detected.  */
   virtual void low_new_clone (struct lwp_info *parent, pid_t child_lwp)
+  {}
+
+  /* The method to call, if any, when we have a new (from run/attach,
+     not fork) process to debug.  The process is ptrace-stopped when
+     this is called.  */
+  virtual void low_init_process (pid_t pid)
   {}
 
   /* The method to call, if any, when a process is no longer
@@ -268,12 +283,12 @@ struct lwp_info : intrusive_list_node<lwp_info>
      will be recorded here, while 'status == 0' is ambiguous.  */
   struct target_waitstatus waitstatus;
 
-  /* Signal whether we are in a SYSCALL_ENTRY or
-     in a SYSCALL_RETURN event.
-     Values:
-     - TARGET_WAITKIND_SYSCALL_ENTRY
-     - TARGET_WAITKIND_SYSCALL_RETURN */
-  enum target_waitkind syscall_state;
+  /* Signal whether we are in a SYSCALL_ENTRY or SYSCALL_RETURN event.
+
+     Valid values are TARGET_WAITKIND_SYSCALL_ENTRY,
+     TARGET_WAITKIND_SYSCALL_RETURN, or TARGET_WAITKIND_SYSCALL_IGNORE, when
+     not stopped at a syscall.  */
+  target_waitkind syscall_state = TARGET_WAITKIND_IGNORE;
 
   /* The processor core this LWP was last seen on.  */
   int core = -1;
@@ -284,8 +299,7 @@ struct lwp_info : intrusive_list_node<lwp_info>
 
 /* lwp_info iterator and range types.  */
 
-using lwp_info_iterator
-  = reference_to_pointer_iterator<intrusive_list<lwp_info>::iterator>;
+using lwp_info_iterator = intrusive_list<lwp_info>::iterator;
 using lwp_info_range = iterator_range<lwp_info_iterator>;
 using lwp_info_safe_range = basic_safe_range<lwp_info_range>;
 
@@ -297,15 +311,12 @@ lwp_info_range all_lwps ();
 
 lwp_info_safe_range all_lwps_safe ();
 
-/* Does the current host support PTRACE_GETREGSET?  */
-extern enum tribool have_ptrace_getregset;
-
 /* Called from the LWP layer to inform the thread_db layer that PARENT
    spawned CHILD.  Both LWPs are currently stopped.  This function
    does whatever is required to have the child LWP under the
    thread_db's control --- e.g., enabling event reporting.  Returns
    true on success, false if the process isn't using libpthread.  */
-extern int thread_db_notice_clone (ptid_t parent, ptid_t child);
+extern bool thread_db_notice_clone (ptid_t parent, ptid_t child);
 
 /* Return the number of signals used by the threads library.  */
 extern unsigned int lin_thread_get_thread_signal_num (void);
@@ -337,4 +348,4 @@ void linux_nat_switch_fork (ptid_t new_ptid);
    uninitialized in such case).  */
 bool linux_nat_get_siginfo (ptid_t ptid, siginfo_t *siginfo);
 
-#endif /* LINUX_NAT_H */
+#endif /* GDB_LINUX_NAT_H */

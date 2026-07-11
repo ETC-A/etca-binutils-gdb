@@ -1,6 +1,6 @@
 /* Remote notification in GDB protocol
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef REMOTE_NOTIF_H
-#define REMOTE_NOTIF_H
+#ifndef GDB_REMOTE_NOTIF_H
+#define GDB_REMOTE_NOTIF_H
 
 #include <list>
 #include <memory>
@@ -34,7 +34,7 @@ struct notif_event
 
 /* A unique pointer holding a notif_event.  */
 
-typedef std::unique_ptr<notif_event> notif_event_up;
+using notif_event_up = std::unique_ptr<notif_event>;
 
 /* ID of the notif_client.  */
 
@@ -67,7 +67,7 @@ struct notif_client
      something wrong, throw an exception.  */
   void (*ack) (remote_target *remote,
 	       const notif_client *self, const char *buf,
-	       struct notif_event *event);
+	       notif_event_up event);
 
   /* Check this notification client can get pending events in
      'remote_notif_process'.  */
@@ -111,14 +111,14 @@ struct remote_notif_state
      this notification (which is done by
      remote.c:remote_notif_pending_replies).  */
 
-  struct notif_event *pending_event[REMOTE_NOTIF_LAST] {};
+  notif_event_up pending_event[REMOTE_NOTIF_LAST];
 };
 
 void remote_notif_ack (remote_target *remote, const notif_client *nc,
 		       const char *buf);
-struct notif_event *remote_notif_parse (remote_target *remote,
-					const notif_client *nc,
-					const char *buf);
+notif_event_up remote_notif_parse (remote_target *remote,
+				   const notif_client *nc,
+				   const char *buf);
 
 void handle_notification (struct remote_notif_state *notif_state,
 			  const char *buf);
@@ -131,4 +131,4 @@ extern const notif_client notif_client_stop;
 
 extern bool notif_debug;
 
-#endif /* REMOTE_NOTIF_H */
+#endif /* GDB_REMOTE_NOTIF_H */

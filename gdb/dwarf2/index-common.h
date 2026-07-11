@@ -1,6 +1,6 @@
 /* Things needed for both reading and writing DWARF indices.
 
-   Copyright (C) 1994-2023 Free Software Foundation, Inc.
+   Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef DWARF_INDEX_COMMON_H
-#define DWARF_INDEX_COMMON_H
+#ifndef GDB_DWARF2_INDEX_COMMON_H
+#define GDB_DWARF2_INDEX_COMMON_H
+
+#include "hashtab.h"
 
 /* The suffix for an index file.  */
 #define INDEX4_SUFFIX ".gdb-index"
@@ -27,16 +29,7 @@
 
 /* All offsets in the index are of this type.  It must be
    architecture-independent.  */
-typedef uint32_t offset_type;
-
-/* Unpack a 32-bit little-endian value.  */
-
-static inline offset_type
-gdb_index_unpack (const gdb_byte *value)
-{
-  return (offset_type) extract_unsigned_integer (value, sizeof (offset_type),
-						 BFD_ENDIAN_LITTLE);
-}
+using offset_type = uint32_t;
 
 /* The hash function for strings in the mapped index.  This is the same as
    SYMBOL_HASH_NEXT, but we keep a separate copy to maintain control over the
@@ -54,6 +47,6 @@ uint32_t dwarf5_djb_hash (const char *str_);
 
 /* Symbol name hashing function as specified by DWARF-5.  */
 
-uint32_t dwarf5_djb_hash (gdb::string_view str_);
+uint32_t dwarf5_djb_hash (std::string_view str_);
 
-#endif /* DWARF_INDEX_COMMON_H */
+#endif /* GDB_DWARF2_INDEX_COMMON_H */

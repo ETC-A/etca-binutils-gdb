@@ -15,7 +15,7 @@
 @SET_MAKE@
 
 #
-#  Copyright (C) 2006-2023 Free Software Foundation, Inc.
+#  Copyright (C) 2006-2026 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -123,11 +123,19 @@ noinst_PROGRAMS = ld-new$(EXEEXT) incremental-dump$(EXEEXT)
 @GCC_TRUE@@NATIVE_LINKER_TRUE@@THREADS_TRUE@am__append_7 = bootstrap-test-treehash-chunksize
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/../config/ax_pthread.m4 \
+am__aclocal_m4_deps =  \
+	$(top_srcdir)/../config/ax_cxx_compile_stdcxx.m4 \
+	$(top_srcdir)/../config/ax_pthread.m4 \
 	$(top_srcdir)/../config/depstand.m4 \
 	$(top_srcdir)/../config/gettext-sister.m4 \
+	$(top_srcdir)/../config/gettext.m4 \
+	$(top_srcdir)/../config/iconv.m4 \
+	$(top_srcdir)/../config/intlmacosx.m4 \
 	$(top_srcdir)/../config/lcmessage.m4 \
 	$(top_srcdir)/../config/lead-dot.m4 \
+	$(top_srcdir)/../config/lib-ld.m4 \
+	$(top_srcdir)/../config/lib-link.m4 \
+	$(top_srcdir)/../config/lib-prefix.m4 \
 	$(top_srcdir)/../config/nls.m4 \
 	$(top_srcdir)/../config/override.m4 \
 	$(top_srcdir)/../config/pkg.m4 \
@@ -165,14 +173,13 @@ am__objects_1 = archive.$(OBJEXT) attributes.$(OBJEXT) \
 	gdb-index.$(OBJEXT) gold.$(OBJEXT) gold-threads.$(OBJEXT) \
 	icf.$(OBJEXT) incremental.$(OBJEXT) int_encoding.$(OBJEXT) \
 	layout.$(OBJEXT) mapfile.$(OBJEXT) merge.$(OBJEXT) \
-	nacl.$(OBJEXT) object.$(OBJEXT) options.$(OBJEXT) \
-	output.$(OBJEXT) parameters.$(OBJEXT) plugin.$(OBJEXT) \
-	readsyms.$(OBJEXT) reduced_debug_output.$(OBJEXT) \
-	reloc.$(OBJEXT) resolve.$(OBJEXT) script-sections.$(OBJEXT) \
-	script.$(OBJEXT) stringpool.$(OBJEXT) symtab.$(OBJEXT) \
-	target.$(OBJEXT) target-select.$(OBJEXT) timer.$(OBJEXT) \
-	version.$(OBJEXT) workqueue.$(OBJEXT) \
-	workqueue-threads.$(OBJEXT)
+	object.$(OBJEXT) options.$(OBJEXT) output.$(OBJEXT) \
+	parameters.$(OBJEXT) plugin.$(OBJEXT) readsyms.$(OBJEXT) \
+	reduced_debug_output.$(OBJEXT) reloc.$(OBJEXT) \
+	resolve.$(OBJEXT) script-sections.$(OBJEXT) script.$(OBJEXT) \
+	stringpool.$(OBJEXT) symtab.$(OBJEXT) target.$(OBJEXT) \
+	target-select.$(OBJEXT) timer.$(OBJEXT) version.$(OBJEXT) \
+	workqueue.$(OBJEXT) workqueue-threads.$(OBJEXT)
 am__objects_2 =
 am__objects_3 = yyscript.$(OBJEXT)
 am_libgold_a_OBJECTS = $(am__objects_1) $(am__objects_2) \
@@ -545,6 +552,7 @@ GMSGFMT = @GMSGFMT@
 GOLD_LDADD = @GOLD_LDADD@
 GOLD_LDFLAGS = @GOLD_LDFLAGS@
 GREP = @GREP@
+HAVE_CXX11 = @HAVE_CXX11@
 INCINTL = @INCINTL@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
@@ -552,15 +560,20 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 INSTOBJEXT = @INSTOBJEXT@
+INTLLIBS = @INTLLIBS@
+INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
 JANSSON_CFLAGS = @JANSSON_CFLAGS@
 JANSSON_LIBS = @JANSSON_LIBS@
 LDFLAGS = @LDFLAGS@
 LFS_CFLAGS = @LFS_CFLAGS@
+LIBICONV = @LIBICONV@
 LIBINTL = @LIBINTL@
 LIBINTL_DEP = @LIBINTL_DEP@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LN_S = @LN_S@
+LTLIBICONV = @LTLIBICONV@
+LTLIBINTL = @LTLIBINTL@
 LTLIBOBJS = @LTLIBOBJS@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
@@ -722,7 +735,6 @@ CCFILES = \
 	layout.cc \
 	mapfile.cc \
 	merge.cc \
-	nacl.cc \
 	object.cc \
 	options.cc \
 	output.cc \
@@ -771,7 +783,6 @@ HFILES = \
 	layout.h \
 	mapfile.h \
 	merge.h \
-	nacl.h \
 	object.h \
 	options.h \
 	output.h \
@@ -1099,7 +1110,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mapfile.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/merge.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mips.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/nacl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/object.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/options.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/output.Po@am__quote@

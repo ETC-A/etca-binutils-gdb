@@ -1,6 +1,6 @@
 /* Self tests for parsing connection specs for GDB, the GNU debugger.
 
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/selftest.h"
 #include "gdbsupport/netstuff.h"
 #include "diagnostics.h"
@@ -239,9 +238,7 @@ run_tests ()
 } /* namespace parse_connection_spec_tests */
 } /* namespace selftests */
 
-void _initialize_parse_connection_spec_selftests ();
-void
-_initialize_parse_connection_spec_selftests ()
+INIT_GDB_FILE (parse_connection_spec_selftests)
 {
   selftests::register_test ("parse_connection_spec",
 			    selftests::parse_connection_spec_tests::run_tests);

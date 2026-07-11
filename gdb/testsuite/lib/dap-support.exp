@@ -1,4 +1,4 @@
-# Copyright 2022-2023 Free Software Foundation, Inc.
+# Copyright 2022-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,10 +16,28 @@
 # The JSON parser.
 load_lib ton.tcl
 
+# The sequence number for the currently-executing instance of gdb
+# launched via dap_gdb_start.  This is used for log-file checking
+# after the run is complete.  Zero means gdb hasn't started yet.
+set dap_gdb_instance 0
+
 # The sequence number for the next DAP request.  This is used by the
 # automatic sequence-counting code below.  It is reset each time GDB
 # is restarted.
 set dap_seq 1
+
+# Return the current DAP log file.
+proc current_dap_log_file {} {
+    global dap_gdb_instance
+    return [standard_output_file "dap.log.$dap_gdb_instance"]
+}
+
+# Return a new DAP log file.
+proc new_dap_log_file {} {
+    global dap_gdb_instance
+    incr dap_gdb_instance
+    return [current_dap_log_file]
+}
 
 # Start gdb using the DAP interpreter.
 proc dap_gdb_start {} {
@@ -32,7 +50,7 @@ proc dap_gdb_start {} {
     global GDBFLAGS stty_init
     save_vars { GDBFLAGS stty_init } {
 	set stty_init "-echo raw"
-	set logfile [standard_output_file "dap.log.$gdb_instances"]
+	set logfile [new_dap_log_file]
 	append GDBFLAGS " -iex \"set debug dap-log-file $logfile\" -q -i=dap"
 	set res [gdb_spawn]
 	if {$res != 0} {
@@ -99,6 +117,7 @@ proc dap_to_ton {obj} {
 
 # Format the object OBJ, in TON format, as JSON and send it to gdb.
 proc _dap_send_ton {obj} {
+    # tclint-disable-next-line command-args
     set json [namespace eval ton::2json $obj]
     # FIXME this is wrong for non-ASCII characters.
     set len [string length $json]
@@ -111,7 +130,7 @@ proc _dap_send_ton {obj} {
 # omitted.  The sequence number of the request is automatically added,
 # and this is also the return value.  OBJ is assumed to already be in
 # TON form.
-proc _dap_send_request {command {obj {}}} {
+proc dap_send_request {command {obj {}}} {
     # We can construct this directly as a TON object.
     set result $::dap_seq
     incr ::dap_seq
@@ -125,11 +144,14 @@ proc _dap_send_request {command {obj {}}} {
 }
 
 # Read a JSON response from gdb.  This will return a dict on
-# success, or throw an exception on error.
+# success, or throw an exception on error.  On success, the global
+# "last_ton" will be set to the TON form of the result.
 proc _dap_read_json {} {
     set length ""
+    set seen_timeout 0
+    set seen_eof 0
     gdb_expect {
-	-re "^Content-Length: (\[0-9\]+)\r\n" {
+	-re "^Content-Length: (${::decimal})\r\n" {
 	    set length $expect_out(1,string)
 	    exp_continue
 	}
@@ -141,11 +163,18 @@ proc _dap_read_json {} {
 	    # Done.
 	}
 	timeout {
-	    error "timeout reading json header"
+	    set seen_timeout 1
 	}
 	eof {
-	    error "eof reading json header"
+	    set seen_eof 1
 	}
+    }
+
+    if {$seen_timeout} {
+	error "timeout reading json header"
+    }
+    if {$seen_eof} {
+	error "eof reading json header"
     }
 
     if {$length == ""} {
@@ -157,40 +186,54 @@ proc _dap_read_json {} {
 	# Tcl only allows up to 255 characters in a {} expression in a
 	# regexp, so we may need to read in chunks.
 	set this_len [expr {min ($length, 255)}]
+	set seen_timeout 0
+	set seen_eof 0
 	gdb_expect {
 	    -re "^.{$this_len}" {
 		append json $expect_out(0,string)
 	    }
 	    timeout {
-		error "timeout reading json body"
+		set seen_timeout 1
 	    }
 	    eof {
-		error "eof reading json body"
+		set seen_eof 1
 	    }
 	}
+
+	if {$seen_timeout} {
+	    error "timeout reading json header"
+	}
+	if {$seen_eof} {
+	    error "eof reading json header"
+	}
+
 	incr length -$this_len
     }
 
-    set ton [ton::json2ton $json]
-    return [namespace eval ton::2dict $ton]
+    global last_ton
+    set last_ton [ton::json2ton $json]
+    # tclint-disable-next-line command-args
+    return [namespace eval ton::2dict $last_ton]
 }
 
 # Read a sequence of JSON objects from gdb, until a response object is
 # seen.  If the response object has the request sequence number NUM,
 # and is for command CMD, return a list of two elements: the response
 # object and a list of any preceding events, in the order they were
-# emitted.  The objects are dicts.  If a response object is seen but has
-# the wrong sequence number or command, throw an exception
+# emitted.  The objects are dicts.  If a response object is seen but
+# has the wrong sequence number or command, throw an exception If a
+# response is seen, this leaves the global "last_ton" set to the TON
+# for the response.
 
-proc _dap_read_response {cmd num} {
+proc dap_read_response {cmd num} {
     set result {}
     while 1 {
 	set d [_dap_read_json]
 	if {[dict get $d type] == "response"} {
 	    if {[dict get $d request_seq] != $num} {
-		error "saw wrong request_seq in $obj"
+		error "saw wrong request_seq in $d"
 	    } elseif {[dict get $d command] != $cmd} {
-		error "saw wrong command in $obj"
+		error "saw wrong command in $d"
 	    } else {
 		return [list $d $result]
 	    }
@@ -200,17 +243,17 @@ proc _dap_read_response {cmd num} {
     }
 }
 
-# A wrapper for _dap_send_request and _dap_read_response.  This sends a
+# A wrapper for dap_send_request and dap_read_response.  This sends a
 # request to gdb and returns the response as a dict.
 proc dap_request_and_response {command {obj {}}} {
-    set seq [_dap_send_request $command $obj]
-    return [_dap_read_response $command $seq]
+    set seq [dap_send_request $command $obj]
+    return [dap_read_response $command $seq]
 }
 
-# Like dap_request_and_response, but also checks that the response
-# indicates success.  NAME is used to issue a test result.
-proc dap_check_request_and_response {name command {obj {}}} {
-    set response_and_events [dap_request_and_response $command $obj]
+# Wait for a response to the given request, and issue a pass/fail.
+# Returns the response and events like dap_request_and_response.
+proc dap_check_response {name cmd request} {
+    set response_and_events [dap_read_response $cmd $request]
     set response [lindex $response_and_events 0]
     if {[dict get $response success] != "true"} {
 	verbose "request failure: $response"
@@ -221,90 +264,194 @@ proc dap_check_request_and_response {name command {obj {}}} {
     return $response_and_events
 }
 
+# Like dap_request_and_response, but also checks that the response
+# indicates success.  NAME is used to issue a test result.
+proc dap_check_request_and_response {name command {obj {}}} {
+    set seq [dap_send_request $command $obj]
+    return [dap_check_response $name $command $seq]
+}
+
 # Start gdb, send a DAP initialization request and return the
 # response.  This approach lets the caller check the feature list, if
-# desired.  Callers not caring about this should probably use
-# dap_launch.  Returns the empty string on failure.  NAME is used as
-# the test name.
-proc _dap_initialize {name} {
+# desired.  Returns the empty string on failure.  NAME is used as the
+# test name.  EXTRA are other settings to pass via the "initialize"
+# request.
+proc dap_initialize {{name "initialize"} {extra ""}} {
     if {[dap_gdb_start]} {
 	return ""
     }
     return [dap_check_request_and_response $name initialize \
-		{o clientID [s "gdb testsuite"] \
-		     supportsVariableType [l true] \
-		     supportsVariablePaging [l true]}]
+		[format {o clientID [s "gdb testsuite"] \
+			     supportsVariableType [l true] \
+			     supportsVariablePaging [l true] \
+			     supportsMemoryReferences [l true] \
+			     %s} \
+		     $extra]]
 }
 
-# Start gdb, send a DAP initialize request, and then a launch request
-# specifying FILE as the program to use for the inferior.  Returns the
-# empty string on failure, or the response object from the launch
-# request.  If specified, ARGS is a list of command-line arguments,
-# and ENV is a list of pairs of the form {VAR VALUE} that is used to
-# populate the inferior's environment.  After this is called, gdb will
-# be ready to accept breakpoint requests.  If STOP_AT_MAIN is nonzero,
-# pass "stopAtBeginningOfMainSubprogram" to the launch request.
-proc dap_launch {file {args {}} {env {}} {stop_at_main 0}} {
-    if {[_dap_initialize "startup - initialize"] == ""} {
-	return ""
-    }
+# Send a launch request specifying FILE as the program to use for the
+# inferior.  Returns the request ID.  If specified, ARGS is a
+# dictionary of key-value pairs, each passed to the launch request.
+# Valid keys are:
+#
+# * arguments - value is a list of strings passed as command-line
+#   arguments to the inferior
+# * env - value is a list of pairs of the form {VAR VALUE} that is
+#   used to populate the inferior's environment.
+# * stop_at_main - value is ignored, the presence of this means that
+#   "stopAtBeginningOfMainSubprogram" will be passed to the launch
+#   request.
+# * cwd - value is the working directory to use.
+# * ada_source_charset - value is passed as adaSourceCharset
+#
+# After this proc is called, gdb will be ready to accept breakpoint
+# requests.
+proc dap_launch {file {args {}}} {
     set params "o program"
     append params " [format {[%s]} [list s [standard_output_file $file]]]"
 
-    if {[llength $args] > 0} {
-	append params " args"
-	set arglist ""
-	foreach arg $args {
-	    append arglist " \[s [list $arg]\]"
+    foreach {key value} $args {
+	switch -exact -- $key {
+	    arguments {
+		append params " args"
+		set arglist ""
+		foreach arg $value {
+		    append arglist " \[s [list $arg]\]"
+		}
+		append params " \[a $arglist\]"
+	    }
+
+	    env {
+		append params " env"
+		set envlist ""
+		foreach pair $value {
+		    lassign $pair var value
+		    append envlist " $var"
+		    append envlist " [format {[%s]} [list s $value]]"
+		}
+		append params " \[o $envlist\]"
+	    }
+
+	    stop_at_main {
+		append params { stopAtBeginningOfMainSubprogram [l true]}
+	    }
+
+	    cwd {
+		append envlist " cwd [format {[%s]} [list s $value]]"
+	    }
+
+	    ada_source_charset {
+		append envlist " adaSourceCharset [format {[%s]} [list s $value]]"
+	    }
+
+	    default {
+		error "unrecognized parameter $key"
+	    }
 	}
-	append params " \[a $arglist\]"
     }
 
-    if {[llength $env] > 0} {
-	append params " env"
-	set envlist ""
-	foreach pair $env {
-	    lassign $pair var value
-	    append envlist " $var"
-	    append envlist " [format {[%s]} [list s $value]]"
-	}
-	append params " \[o $envlist\]"
-    }
-
-    if {$stop_at_main} {
-	append params { stopAtBeginningOfMainSubprogram [l true]}
-    }
-
-    return [dap_check_request_and_response "startup - launch" launch $params]
+    return [dap_send_request launch $params]
 }
 
 # Start gdb, send a DAP initialize request, and then an attach request
 # specifying PID as the inferior process ID.  Returns the empty string
-# on failure, or the response object from the attach request.
-proc dap_attach {pid} {
-    if {[_dap_initialize "startup - initialize"] == ""} {
+# on failure, or the attach request sequence ID.
+proc dap_attach {pid {prog ""}} {
+    if {[dap_initialize "startup - initialize"] == ""} {
 	return ""
     }
-    return [dap_check_request_and_response "startup - attach" attach \
-		[format {o pid [i %s]} $pid]]
+
+    set args [format {o pid [i %s]} $pid]
+    if {$prog != ""} {
+	append args [format { program [s %s]} $prog]
+    }
+
+    return [dap_send_request attach $args]
+}
+
+# Start gdb, send a DAP initialize request, and then an attach request
+# specifying COREFILE as the core file to attach to.  Returns the
+# empty string on failure, or the attach request sequence ID.
+proc dap_corefile {corefile {prog ""}} {
+    if {[dap_initialize "startup - initialize"] == ""} {
+	return ""
+    }
+
+    set args [format {o coreFile [s "%s"]} $corefile]
+    if {$prog != ""} {
+	append args [format { program [s "%s"]} $prog]
+    }
+
+    return [dap_send_request attach $args]
 }
 
 # Start gdb, send a DAP initialize request, and then an attach request
 # specifying TARGET as the remote target.  Returns the empty string on
-# failure, or the response object from the attach request.
+# failure, or the attach request sequence ID.
 proc dap_target_remote {target} {
-    if {[_dap_initialize "startup - initialize"] == ""} {
+    if {[dap_initialize "startup - initialize"] == ""} {
 	return ""
     }
-    return [dap_check_request_and_response "startup - target" attach \
-		[format {o target [s %s]} $target]]
+    return [dap_send_request attach [format {o target [s %s]} $target]]
+}
+
+# Read the most recent DAP log file and check it for exceptions.  We
+# expect to see exactly EXPECTED_EXCEPTION_COUNT exceptions in the log.
+proc dap_check_log_file { {expected_exception_count 0} } {
+    set fd [open [current_dap_log_file]]
+    set contents [read $fd]
+    close $fd
+
+    set exception_count 0
+    foreach line [split $contents "\n"] {
+	if {[regexp "^Traceback" $line]} {
+	    incr exception_count
+	    if { $exception_count > $expected_exception_count} {
+		break
+	    }
+	}
+    }
+
+    if {$exception_count == $expected_exception_count} {
+	pass "exceptions in log file"
+    } else {
+	verbose -log --  "--- DAP LOG START ---"
+	verbose -log -- $contents
+	verbose -log --  "--- DAP LOG END ---"
+	if { $expected_exception_count > 0 } {
+	    verbose -log -- [join [list "Expected $expected_exception_count" \
+					"exception(s), saw $exception_count"]]
+	}
+	fail "exceptions in log file"
+    }
+}
+
+# Read the most recent DAP log file and check that regexp RE matches.
+proc dap_check_log_file_re { re } {
+    set fd [open [current_dap_log_file]]
+    set contents [read $fd]
+    close $fd
+
+    set ok [regexp $re $contents]
+    gdb_assert {$ok} "log file matched $re"
 }
 
 # Cleanly shut down gdb.  TERMINATE is passed as the terminateDebuggee
-# parameter to the request.
-proc dap_shutdown {{terminate false}} {
+# parameter to the request.  The EXPECTED_EXCEPTION_COUNT is the
+# number of exceptions that we expect to see in the latest DAP log.
+proc dap_shutdown {{terminate false} {expected_exception_count 0}} {
     dap_check_request_and_response "shutdown" disconnect \
 	[format {o terminateDebuggee [l %s]} $terminate]
+
+    # Check gdb's exit status.
+    global gdb_spawn_id
+    set result [wait -i $gdb_spawn_id]
+    gdb_assert {[lindex $result 2] == 0}
+    gdb_assert {[lindex $result 3] == 0}
+
+    clear_gdb_spawn_id
+
+    dap_check_log_file $expected_exception_count
 }
 
 # Search the event list EVENTS for an output event matching the regexp
@@ -327,7 +474,7 @@ proc dap_search_output {name rx events} {
 # key/value pairs given in ARGS.  NAME is used as the test name.
 proc dap_match_values {name d args} {
     foreach {key value} $args {
-	if {[eval dict get [list $d] $key] != $value} {
+	if {[dict get $d {*}$key] != $value} {
 	    fail "$name (checking $key)"
 	    return ""
 	}
@@ -378,7 +525,7 @@ proc dap_wait_for_event_and_check {name type args} {
 
     set result [_dap_wait_for_event $type]
     set event [lindex $result 0]
-    eval dap_match_values [list $name $event] $args
+    dap_match_values $name $event {*}$args
 
     return $result
 }

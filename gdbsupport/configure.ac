@@ -1,5 +1,5 @@
 dnl Autoconf configure script for GDB support library
-dnl Copyright (C) 2020-2023 Free Software Foundation, Inc.
+dnl Copyright (C) 2020-2026 Free Software Foundation, Inc.
 dnl
 dnl This program is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -16,9 +16,9 @@ dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 dnl Process this file with autoconf to produce a configure script.
 
-AC_INIT([gdbsupport], 1.0)
+AC_INIT([gdbsupport], [1.0])
 AC_CONFIG_SRCDIR(common-defs.h)
-AC_CONFIG_HEADER(config.h:config.in)
+AC_CONFIG_HEADERS([config.h:config.in])
 
 # Set build, build_cpu, build_vendor and build_os.
 AC_CANONICAL_BUILD
@@ -41,9 +41,9 @@ AC_PROG_RANLIB
 AC_USE_SYSTEM_EXTENSIONS
 ACX_LARGEFILE
 
-# We require a C++11 compiler.  Check if one is available, and if
+# We require a C++17 compiler.  Check if one is available, and if
 # necessary, set CXX_DIALECT to some -std=xxx switch.
-AX_CXX_COMPILE_STDCXX(11, , mandatory)
+AX_CXX_COMPILE_STDCXX(17, , mandatory)
 
 dnl Set up for gettext.
 ZW_GNU_GETTEXT_SISTER_DIR
@@ -56,12 +56,36 @@ AM_CONDITIONAL(SELFTEST, $enable_unittests)
 AM_CONDITIONAL(HAVE_PIPE_OR_PIPE2,
    [test x$ac_cv_func_pipe = xyes -o x$ac_cv_func_pipe2 = xyes ])
 
+AC_CHECK_FUNCS([ \
+    waitpid \
+    wait
+  ])
+
 # Check the return and argument types of ptrace.
 GDB_AC_PTRACE
 
 # Detect support warning flags.
 AM_GDB_COMPILER_TYPE
 AM_GDB_WARNINGS
+
+# Check for `struct user_gcs`
+AC_CACHE_CHECK(
+  [for struct user_gcs],
+  [gdb_cv_struct_user_gcs],
+  [AC_COMPILE_IFELSE(
+     [AC_LANG_PROGRAM(
+	[#include <sys/ptrace.h>
+	 #include <asm/ptrace.h>],
+	[struct user_gcs u;]
+      )],
+     [gdb_cv_struct_user_gcs=yes],
+     [gdb_cv_struct_user_gcs=no]
+  )]
+)
+if test "$gdb_cv_struct_user_gcs" = yes; then
+  AC_DEFINE(HAVE_STRUCT_USER_GCS, 1,
+	    [Define to 1 if your system has struct user_gcs.])
+fi
 
 # Set the 'development' global.
 . $srcdir/../bfd/development.sh
@@ -74,7 +98,7 @@ fi
 case ${host} in
   *mingw32*)
     AC_DEFINE(USE_WIN32API, 1,
-              [Define if we should use the Windows API, instead of the
+	      [Define if we should use the Windows API, instead of the
 	       POSIX API.  On Windows, we use the Windows API when
 	       building for MinGW, but the POSIX API when building
 	       for Cygwin.])

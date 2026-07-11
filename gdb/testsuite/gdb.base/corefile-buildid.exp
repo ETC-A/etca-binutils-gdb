@@ -1,4 +1,4 @@
-# Copyright 2019-2023 Free Software Foundation, Inc.
+# Copyright 2019-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,72 +19,88 @@
 
 # Build-id-related tests for core files.
 
-standard_testfile
+standard_testfile .c -shlib-shr.c -shlib.c
 
-# Build a non-shared executable.
+# Reuse the Python script from another test.  This provides a command
+# to remove a particular note from a core file.
+set pyfile [gdb_remote_download host ${srcdir}/${subdir}/corefile-no-threads.py]
 
-proc build_corefile_buildid_exec {} {
-    global testfile srcfile binfile execdir
+# Create a corefile from PROGNAME.  Return the name of the generated
+# corefile, or the empty string if anything goes wrong.
+#
+# The generated corefile must contain a buildid for PROGNAME.  If it
+# doesn't then an empty string will be returned.
+proc create_core_file { progname } {
+    # Generate a corefile.
+    set corefile [core_find $progname]
+    if {$corefile == ""} {
+	untested "could not generate core file"
+	return ""
+    }
+    verbose -log "corefile is $corefile"
 
-    if {[build_executable $testfile.exp $testfile $srcfile debug] == -1} {
-	untested "failed to compile"
-	return false
+    # Check the corefile has a build-id for the executable.
+    if { [catch {exec [gdb_find_eu-unstrip] -n --core $corefile} output] == 0 } {
+	set line [lindex [split $output "\n"] 0]
+	set binfile_re (?:[string_to_regexp $progname]|\\\[(?:exe|pie)\\\])
+	if { ![regexp "^${::hex}\\+${::hex} \[a-f0-9\]+@${::hex}.*$binfile_re$" $line] } {
+	    unsupported "no build-id for executable in corefile"
+	    return ""
+	}
+    } else {
+	unsupported "eu-unstrip tool failed"
+	return ""
     }
 
-    # Move executable to non-default path.
-    set builddir [standard_output_file $execdir]
-    remote_exec build "rm -rf $builddir"
-    remote_exec build "mkdir $builddir"
-    remote_exec build "mv $binfile [file join $builddir [file tail $binfile]]"
-
-    return true
+    return $corefile
 }
 
-# Build a shared executable.
 
-proc build_corefile_buildid_shared {} {
-    global srcdir subdir testfile binfile srcfile sharedir
+# Build a non-shared executable.  MODE is a suffix used to generate
+# the executable name (which should be based on global TESTFILE).
+# Returns an empty list if anything goes wrong, otherwise, returns a
+# list containing the absolute filename of the executable.
 
-    set builddir [standard_output_file $sharedir]
+proc build_corefile_buildid_exec { mode } {
+    set progname $::testfile-$mode
+    if {[build_executable "build non-shared exec" $progname $::srcfile] == -1} {
+	return {}
+    }
+    return [list [standard_output_file $progname]]
+}
 
+# Build a shared executable.  MODE is a suffix used to generate the
+# executable name (which should be based on global TESTFILE).  Returns
+# an empty list if anything goes wrong, otherwise, returns a list
+# containing the absolute filename of the executable (first) followed
+# by all the additional shared libraries.
+
+proc build_corefile_buildid_shared { mode } {
     # Compile DSO.
-    set srcdso [file join $srcdir $subdir $testfile-shlib-shr.c]
-    set objdso [standard_output_file $testfile-shlib-shr.so]
-    if {[gdb_compile_shlib $srcdso $objdso {debug}] != ""} {
-	untested "failed to compile dso"
-	return false
+    set progname $::testfile-$mode
+    set objdso [standard_output_file $::testfile-shlib-shr.so]
+    if {[build_executable "build dso" $objdso $::srcfile2 {debug shlib}] == -1} {
+	return {}
     }
 
     # Compile shared library.
-    set srclib [file join $srcdir $subdir $testfile-shlib.c]
-    set libname lib$testfile.so
+    set srclib $::srcfile3
+    set libname lib$::testfile.so
     set objlib [standard_output_file $libname]
-    set dlopen_lib [shlib_target_file \
-			[file join $builddir [file tail $objdso]]]
-    set opts [list debug shlib_load \
+    set dlopen_lib [shlib_target_file $objdso]
+    set opts [list debug shlib_load shlib \
 		  additional_flags=-DSHLIB_NAME=\"$dlopen_lib\"]
-    if {[gdb_compile_shlib $srclib $objlib $opts] != ""} {
-	untested "failed to compile shared library"
-	return false
+    if {[build_executable "build solib" $objlib $::srcfile3 $opts] == -1} {
+	return {}
     }
 
     # Compile main program.
-    set srcexec [file join $srcdir $subdir $srcfile]
-    set binfile [standard_output_file $testfile-shared]
     set opts [list debug shlib=$objlib additional_flags=-DTEST_SHARED]
-    if {[gdb_compile $srcexec $binfile executable $opts] != ""} {
-	untested "failed to compile shared executable"
-	return false
+    if {[build_executable "build shared exec" $progname $::srcfile $opts] == -1} {
+	return {}
     }
 
-    # Move objects to non-default path.
-    remote_exec build "rm -rf $builddir"
-    remote_exec build "mkdir $builddir"
-    remote_exec build "mv $binfile $builddir"
-    remote_exec build "mv $objdso  $builddir"
-    remote_exec build "mv $objlib $builddir"
-
-    return true
+    return [list [standard_output_file $progname] $objdso $objlib]
 }
 
 # Append DEBUGDIR to the debug-file-directory path.
@@ -144,160 +160,267 @@ proc check_exec_file {file} {
     }
 }
 
-# Test whether gdb can find an exec file from a core file's build-id.
-# The executable (and separate debuginfo if SEPDEBUG is true) is
-# copied to the .build-id directory.
+# A convenience procedure to check if "info sharedlibrary" mentions the
+# files in the list EXPECTED_FILES.  Each filename in EXPECTED_FILES is an
+# absolute filename for a shared library GDB should have found when loading
+# the core file.
+
+proc check_shlib_files { expected_files } {
+    set shlibs {}
+    set missing_shlib false
+    gdb_test_multiple "info sharedlibrary" "" {
+	-re "^info sharedlibrary\r\n" {
+	    exp_continue
+	}
+
+	-re "^From\\s+To\\s\[^\r\n\]+\r\n" {
+	    exp_continue
+	}
+
+	-re "^$::hex\\s+$::hex\\s+(?:Yes|No)\\s+(?:\\(\\*\\)\\s+)?(\[^\r\n\]+)\r\n" {
+	    set filename $expect_out(1,string)
+	    lappend shlibs $filename
+	    exp_continue
+	}
+
+	-re "^\\s+(?:Yes|No)\\s+(?:\\(\\*\\)\\s+)?(\[^\r\n\]+)\r\n" {
+	    # This shared library wasn't loaded correctly; GDB
+	    # probably failed to find the library file.  Don't add
+	    # this to the shlibs list as we want this library to
+	    # appear as missing.
+	    set missing_shlib true
+	    exp_continue
+	}
+
+	-re "^\\(\\*\\): Shared library is missing debugging information\\.\r\n" {
+	    exp_continue
+	}
+
+	-re "^$::gdb_prompt $" {
+	    # This proc is only called for the shared library test
+	    # case, in which case there should be at least two shared
+	    # libraries loaded.
+	    gdb_assert { !$missing_shlib && [llength $shlibs] >= 2 } \
+		$gdb_test_name
+	}
+    }
+
+    set count 0
+    foreach filename $expected_files {
+	incr count
+	gdb_assert { [lsearch -exact $shlibs $filename] != -1 } \
+	    "found shlib $count"
+    }
+}
+
+# Test whether gdb can find an exec file from a COREFILE's
+# build-id(s).  The basenames of the executable, and any shared
+# libraries built by this test script, that are used by the
+# executable, are in the list FILENAMES.  These files can all be found
+# in the directory DIRNAME.
 #
-# SUFFIX is appended to the .builid-id parent directory name to
-# keep all tests separate.
-# SYMLINK specifies whether build-id files should be copied or symlinked.
+# This function creates a debug directory and either copies, or
+# symlinks FILENAMES into the debug directory using the file's
+# build-id as the new filename within the newly created debug
+# directory.
+#
+# SEPDEBUG is a boolean, when true every file in FILENAMES has a
+# separate debug file, the same filename with ".debug" appended.  When
+# false, the debug information is contained within the file.
+#
+# SYMLINK is a boolean and indicates whether build-id files should be
+# copied or symlinked from DIRNAME.
+#
 # SHARED is a boolean indicating whether we are testing the shared
-# library core dump test case.
+# library core dump test case.  We carry out more checks when running
+# the shared library case, checking that GDB managed to load all the
+# shared libraries correctly too.
 
-proc locate_exec_from_core_build_id {corefile buildid suffix \
+proc locate_exec_from_core_build_id {corefile \
+					 dirname filenames \
 					 sepdebug symlink shared} {
-    global testfile binfile srcfile
-
     clean_restart
 
     # Set up the build-id directory and symlink the binary there.
-    if {$symlink} {
-	set d "symlinkdir"
-    } else {
-	set d "debugdir"
-    }
-    set debugdir [standard_output_file $d-$suffix]
-    remote_exec build "rm -rf $debugdir"
-    remote_exec build \
-	"mkdir -p [file join $debugdir [file dirname $buildid]]"
-
-    set files_list {}
-    if {$sepdebug} {
-	lappend files_list "$binfile.stripped" $buildid
-	lappend files_list "$binfile.debug" "$buildid.debug"
-    } else {
-	lappend files_list $binfile $buildid
-    }
+    set d "debugdir"
     if {$shared} {
-	global sharedir
-	set builddir [standard_output_file $sharedir]
+	set d "${d}_shared"
     } else {
-	global execdir
-	set builddir [standard_output_file $execdir]
+	set d "${d}_not-shared"
     }
-    foreach {target name} $files_list {
-	set t [file join $builddir [file tail $target]]
-	if {$symlink} {
-	    remote_exec build "ln -s $t [file join $debugdir $name]"
-	} else {
-	    remote_exec build "cp $t [file join $debugdir $name]"
+    if {$symlink} {
+	set d "${d}_symlink"
+    } else {
+	set d "${d}_copy"
+    }
+    if {$sepdebug} {
+	set d "${d}_stripped"
+    } else {
+	set d "${d}_not-stripped"
+    }
+    set debugdir [standard_output_file $d]
+
+    # The following loop does two jobs.  The primary task is to either
+    # copy or symlink the files within DIRNAME into DEBUGDIR.  Within
+    # DEBUGDIR files are placed into a tree based on their build-id.
+    #
+    # As this loop is calculating build-ids anyway, the build-ids are
+    # recorded in the ALL_BUILDIDS list, retaining the order that
+    # items are found in FILENAMES.
+    set all_buildids {}
+    foreach filename $filenames {
+	# Get the build-id for FILENAME without ".debug" on the end.
+	# This will have the format: '.build-id/xx/xxxxx'
+	set buildid [build_id_debug_filename_get \
+			 [file join $dirname $filename] ""]
+	if {$buildid == ""} {
+	    untested "no build-id for $filename"
+	    return
+	}
+	verbose -log "build-id for $filename is $buildid"
+	lappend all_buildids $buildid
+
+	# Create the sub-directory of DEBUGDIR based on BUILDID.
+	remote_exec build \
+	    "mkdir -p [file join $debugdir [file dirname $buildid]]"
+
+	# Build a list of source target filename pairs.
+	set files_list {}
+	lappend files_list $filename $buildid
+	if {$sepdebug} {
+	    lappend files_list ${filename}.debug ${buildid}.debug
+	}
+
+	# Copy or symlink the source file from DIRNAME into DEBUGDIR.
+	foreach {target name} $files_list {
+	    set t [file join $dirname $target]
+	    set n [file join $debugdir $name]
+	    if {$symlink} {
+		remote_exec build "ln -s $t $n"
+	    } else {
+		remote_exec build "cp $t $n"
+	    }
 	}
     }
 
     # Append the debugdir to the separate debug directory search path.
     append_debug_dir $debugdir
 
+    # Load the core file.
     gdb_test "core-file $corefile" "Program terminated with .*" \
 	"load core file"
+
+    # What do we expect the name of the executable to appear as?
     if {$symlink} {
-	if {$sepdebug} {
-	    set expected_file [file join $builddir \
-				   [file tail "$binfile.stripped"]]
+	set expected_file [file join $dirname [lindex $filenames 0]]
+    } else {
+	set expected_file [file join $debugdir [lindex $all_buildids 0]]
+    }
+    check_exec_file $expected_file
+
+    # Check that all of the expected shared libraries have been found.
+    if {$shared} {
+	if {$symlink} {
+	    set expected_files [lmap item [lrange $filenames 1 end] {
+		file join $dirname $item
+	    }]
 	} else {
-	    set expected_file [file join $builddir [file tail $binfile]]
+	    set expected_files [lmap item [lrange $all_buildids 1 end] {
+		file join $debugdir $item
+	    }]
 	}
-    } else {
-	set expected_file $buildid
-    }
-    check_exec_file [file join $debugdir $expected_file]
-}
-
-# Run a build-id tests on a core file.
-# Supported options: "-shared" and "-sepdebug" for running tests
-# of shared and/or stripped/.debug executables.
-
-proc do_corefile_buildid_tests {args} {
-    global binfile testfile srcfile execdir sharedir
-
-    # Parse options.
-    parse_args [list {sepdebug} {shared}]
-
-    # PROGRAM to run to generate core file.  This could be different
-    # than the program that was originally built, e.g., for a stripped
-    # executable.
-    if {$shared} {
-	set builddir [standard_output_file $sharedir]
-    } else {
-	set builddir [standard_output_file $execdir]
-    }
-    set program_to_run [file join $builddir [file tail $binfile]]
-
-    # A list of suffixes to use to describe the test and the .build-id
-    # directory for the test.  The suffix will be used, joined with spaces,
-    # to prefix all tests for the given run.  It will be used, joined with
-    # dashes, to create a unique build-id directory.
-    set suffix {}
-    if {$shared} {
-	lappend suffix "shared"
-    } else {
-	lappend suffix "exec"
-    }
-
-    if {$sepdebug} {
-	# Strip debuginfo into its own file.
-	if {[gdb_gnu_strip_debug [standard_output_file $program_to_run]] \
-		!= 0} {
-	    untested "could not strip executable  for [join $suffix \ ]"
-	    return
-	}
-
-	# Run the stripped program instead of the original.
-	set program_to_run [file join $builddir \
-				[file tail "$binfile.stripped"]]
-	lappend suffix "sepdebug"
-    }
-
-    with_test_prefix "[join $suffix \ ]" {
-	# Find the core file.
-	set corefile [core_find $program_to_run]
-	if {$corefile == ""} {
-	    untested "could not generate core file"
-	    return
-	}
-	verbose -log "corefile is $corefile"
-
-	# Grab the build-id from the binary, removing ".debug" from the end.
-	set buildid [build_id_debug_filename_get $program_to_run]
-	if {$buildid == ""} {
-	    untested "binary has no build-id"
-	}
-	regsub {\.debug$} $buildid {} buildid
-	verbose -log "build-id is $buildid"
-
-	locate_exec_from_core_build_id $corefile $buildid \
-	    [join $suffix -] $sepdebug false $shared
-
-	with_test_prefix "symlink" {
-	    locate_exec_from_core_build_id $corefile $buildid \
-		[join $suffix -] $sepdebug true $shared
-	}
+	check_shlib_files $expected_files
     }
 }
 
-# Directories where executables will be moved before testing.
-set execdir "build-exec"
-set sharedir "build-shared"
+foreach_with_prefix mode { exec shared } {
+    # Build the executable and optionally, any shared libraries.
+    set build_proc build_corefile_buildid_${mode}
+    set build_artefacts [$build_proc $mode]
+    if { [llength $build_artefacts] == 0 } {
+	return
+    }
 
-#
-# Do tests
-#
+    # Generate a corefile.  The executable is the first item in
+    # BUILD_ARTEFACTS.
+    set progname [lindex $build_artefacts 0]
+    set corefile [create_core_file $progname]
+    if { $corefile eq "" } {
+	return
+    }
 
-build_corefile_buildid_exec
-do_corefile_buildid_tests
-do_corefile_buildid_tests -sepdebug
+    if { [allow_python_tests] } {
+	# Create a corefile with no NT_FILE notes.
+	gdb_start
+	set corefile_no_nt_file [standard_output_file ${corefile}-no-nt_file]
+	remote_exec build "cp $corefile $corefile_no_nt_file"
+	gdb_test_no_output "source $::pyfile" "import python scripts"
+	gdb_test "modify-core-file \"$corefile_no_nt_file\" NT_FILE" \
+	    [multi_line \
+		 "Located PT_NOTE segment: \[^\r\n\]+" \
+		 "\\s+Found note with type $hex at file offset $hex\\..*" \
+		 "Successfully updated $decimal note\\(s\\) in \[^\r\n\]+"] \
+	    "update core file"
+	gdb_exit
+    }
 
-if {[allow_shlib_tests]} {
-    build_corefile_buildid_shared
-    do_corefile_buildid_tests -shared
-    do_corefile_buildid_tests -shared -sepdebug
+    # Create a directory for the non-stripped test, copy every build
+    # artefact into this directory.
+    set combined_dirname [standard_output_file ${mode}_not-stripped]
+    remote_exec build "mkdir -p $combined_dirname"
+    foreach filename $build_artefacts {
+	remote_exec build "cp $filename $combined_dirname"
+    }
+
+    # Split the debug from each build artefact.
+    foreach filename $build_artefacts {
+	if {[gdb_gnu_strip_debug $filename no-debuglink] != 0} {
+	    untested "could not strip debug from [file tail $filename]"
+	    return
+	}
+    }
+
+    # Create a directory for the stripped test, move the now stripped
+    # binary, and the stripped out debug information for every build
+    # artefact, into this new directory.
+    set sepdebug_dirname [standard_output_file ${mode}_stripped]
+    remote_exec build "mkdir -p $sepdebug_dirname"
+    foreach filename $build_artefacts {
+	remote_exec build "mv $filename $sepdebug_dirname"
+	remote_exec build "mv ${filename}.debug $sepdebug_dirname"
+    }
+
+    # The build artefacts are all absolute filenames, but now they
+    # have been copied or moved into the two holding areas created
+    # above, it is more useful to have BUILD_ARTEFACTS contain just
+    # the basenames.  Update the list now.
+    set build_artefacts [lmap filename $build_artefacts {
+	file tail $filename
+    }]
+
+    # Now do the actual testing part.  Fill out a debug directory with
+    # build-id related files (copies or symlinks) and then load the
+    # corefile.  Check GDB finds the executable and debug information
+    # via the build-id related debug directory contents.
+    foreach_with_prefix sepdebug { false true } {
+	if { $sepdebug } {
+	    set dirname $sepdebug_dirname
+	} else {
+	    set dirname $combined_dirname
+	}
+
+	foreach_with_prefix symlink { false true } {
+	    locate_exec_from_core_build_id $corefile $dirname \
+		$build_artefacts $sepdebug $symlink \
+		[expr {$mode eq "shared"}]
+
+	    if { [allow_python_tests] } {
+		with_test_prefix "NT_FILE removed" {
+		    locate_exec_from_core_build_id $corefile_no_nt_file $dirname \
+			$build_artefacts $sepdebug $symlink \
+			[expr {$mode eq "shared"}]
+		}
+	    }
+	}
+    }
 }

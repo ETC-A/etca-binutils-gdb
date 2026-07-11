@@ -1,6 +1,6 @@
 /* Renesas M32C target-dependent code for GDB, the GNU debugger.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "sim/sim-m32c.h"
 #include "gdbtypes.h"
 #include "regcache.h"
@@ -252,7 +252,7 @@ m32c_debug_info_reg_to_regnum (struct gdbarch *gdbarch, int reg_nr)
 }
 
 
-static int
+static bool
 m32c_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 			  const struct reggroup *group)
 {
@@ -261,22 +261,22 @@ m32c_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 
   /* The anonymous raw registers aren't in any groups.  */
   if (! reg->name)
-    return 0;
+    return false;
 
   if (group == all_reggroup)
-    return 1;
+    return true;
 
   if (group == general_reggroup
       && reg->general_p)
-    return 1;
+    return true;
 
   if (group == m32c_dma_reggroup
       && reg->dma_p)
-    return 1;
+    return true;
 
   if (group == system_reggroup
       && reg->system_p)
-    return 1;
+    return true;
 
   /* Since the m32c DWARF register numbers refer to cooked registers, not
      raw registers, and frame_pop depends on the save and restore groups
@@ -286,9 +286,9 @@ m32c_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
   if ((group == save_reggroup
        || group == restore_reggroup)
       && reg->save_restore_p)
-    return 1;
+    return true;
 
-  return 0;
+  return false;
 }
 
 
@@ -977,9 +977,9 @@ make_regs (struct gdbarch *arch)
   set_gdbarch_register_name (arch, m32c_register_name);
   set_gdbarch_register_type (arch, m32c_register_type);
   set_gdbarch_pseudo_register_read (arch, m32c_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (arch, m32c_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (arch,
+						m32c_pseudo_register_write);
   set_gdbarch_register_sim_regno (arch, m32c_register_sim_regno);
-  set_gdbarch_stab_reg_to_regnum (arch, m32c_debug_info_reg_to_regnum);
   set_gdbarch_dwarf2_reg_to_regnum (arch, m32c_debug_info_reg_to_regnum);
   set_gdbarch_register_reggroup_p (arch, m32c_register_reggroup_p);
 
@@ -991,7 +991,7 @@ make_regs (struct gdbarch *arch)
 /* Breakpoints.  */
 constexpr gdb_byte m32c_break_insn[] = { 0x00 };	/* brk */
 
-typedef BP_MANIPULATION (m32c_break_insn) m32c_breakpoint;
+using m32c_breakpoint = BP_MANIPULATION (m32c_break_insn);
 
 
 /* Prologue analysis.  */
@@ -1437,8 +1437,8 @@ m32c_is_arg_reg (struct m32c_pv_state *state, pv_t value)
      relative to the original value of the SP).  */
 
 static int
-m32c_is_arg_spill (struct m32c_pv_state *st, 
-		   struct srcdest loc, 
+m32c_is_arg_spill (struct m32c_pv_state *st,
+		   struct srcdest loc,
 		   pv_t value)
 {
   gdbarch *arch = st->arch;
@@ -1450,10 +1450,10 @@ m32c_is_arg_spill (struct m32c_pv_state *st,
 	  && ! st->stack->find_reg (st->arch, value.reg, 0));
 }
 
-/* Return non-zero if a store of VALUE to LOC is probably 
+/* Return non-zero if a store of VALUE to LOC is probably
    copying the struct return address into an address register
    for immediate use.  This is basically a "spill" into the
-   address register, instead of onto the stack. 
+   address register, instead of onto the stack.
 
    The prerequisites are:
    - value being stored is original value of the FIRST arg register;
@@ -1462,7 +1462,7 @@ m32c_is_arg_spill (struct m32c_pv_state *st,
 
 static int
 m32c_is_struct_return (struct m32c_pv_state *st,
-		       struct srcdest loc, 
+		       struct srcdest loc,
 		       pv_t value)
 {
   gdbarch *arch = st->arch;
@@ -1853,7 +1853,7 @@ m32c_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR ip)
 /* Stack unwinding.  */
 
 static struct m32c_prologue *
-m32c_analyze_frame_prologue (frame_info_ptr this_frame,
+m32c_analyze_frame_prologue (const frame_info_ptr &this_frame,
 			     void **this_prologue_cache)
 {
   if (! *this_prologue_cache)
@@ -1866,7 +1866,7 @@ m32c_analyze_frame_prologue (frame_info_ptr this_frame,
       if (! func_start)
 	stop_addr = func_start;
 
-      *this_prologue_cache = FRAME_OBSTACK_ZALLOC (struct m32c_prologue);
+      *this_prologue_cache = frame_obstack_zalloc<m32c_prologue> ();
       m32c_analyze_prologue (get_frame_arch (this_frame),
 			     func_start, stop_addr,
 			     (struct m32c_prologue *) *this_prologue_cache);
@@ -1877,7 +1877,7 @@ m32c_analyze_frame_prologue (frame_info_ptr this_frame,
 
 
 static CORE_ADDR
-m32c_frame_base (frame_info_ptr this_frame,
+m32c_frame_base (const frame_info_ptr &this_frame,
 		void **this_prologue_cache)
 {
   struct m32c_prologue *p
@@ -1917,7 +1917,7 @@ m32c_frame_base (frame_info_ptr this_frame,
 
 
 static void
-m32c_this_id (frame_info_ptr this_frame,
+m32c_this_id (const frame_info_ptr &this_frame,
 	      void **this_prologue_cache,
 	      struct frame_id *this_id)
 {
@@ -1930,7 +1930,7 @@ m32c_this_id (frame_info_ptr this_frame,
 
 
 static struct value *
-m32c_prev_register (frame_info_ptr this_frame,
+m32c_prev_register (const frame_info_ptr &this_frame,
 		    void **this_prologue_cache, int regnum)
 {
   gdbarch *arch = get_frame_arch (this_frame);
@@ -1954,15 +1954,16 @@ m32c_prev_register (frame_info_ptr this_frame,
 }
 
 
-static const struct frame_unwind m32c_unwind = {
+static const struct frame_unwind_legacy m32c_unwind (
   "m32c prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   m32c_this_id,
   m32c_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 
 /* Inferior calls.  */
@@ -2211,8 +2212,8 @@ m32c_return_value (struct gdbarch *gdbarch,
 	  /* Everything else is passed in mem0, using as many bytes as
 	     needed.  This is not what the Renesas tools do, but it's
 	     what GCC does at the moment.  */
-	  struct bound_minimal_symbol mem0
-	    = lookup_minimal_symbol ("mem0", NULL, NULL);
+	  bound_minimal_symbol mem0
+	    = lookup_minimal_symbol (current_program_space, "mem0");
 
 	  if (! mem0.minsym)
 	    error (_("The return value is stored in memory at 'mem0', "
@@ -2243,8 +2244,8 @@ m32c_return_value (struct gdbarch *gdbarch,
 	  /* Everything else is passed in mem0, using as many bytes as
 	     needed.  This is not what the Renesas tools do, but it's
 	     what GCC does at the moment.  */
-	  struct bound_minimal_symbol mem0
-	    = lookup_minimal_symbol ("mem0", NULL, NULL);
+	  bound_minimal_symbol mem0
+	    = lookup_minimal_symbol (current_program_space, "mem0");
 
 	  if (! mem0.minsym)
 	    error (_("The return value is stored in memory at 'mem0', "
@@ -2308,7 +2309,7 @@ m32c_return_value (struct gdbarch *gdbarch,
    code sequence seems more fragile.  */
 
 static CORE_ADDR
-m32c_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR stop_pc)
+m32c_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR stop_pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   m32c_gdbarch_tdep *tdep = gdbarch_tdep<m32c_gdbarch_tdep> (gdbarch);
@@ -2326,8 +2327,7 @@ m32c_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR stop_pc)
   if (find_pc_partial_function (stop_pc, &name, &start, &end))
     {
       /* Are we stopped at the beginning of the trampoline function?  */
-      if (strcmp (name, "m32c_jsri16") == 0
-	  && stop_pc == start)
+      if (streq (name, "m32c_jsri16") && stop_pc == start)
 	{
 	  /* Get the stack pointer.  The return address is at the top,
 	     and the target function's address is just below that.  We
@@ -2420,11 +2420,9 @@ m32c_m16c_address_to_pointer (struct gdbarch *gdbarch,
     {
       const char *func_name;
       char *tramp_name;
-      struct bound_minimal_symbol tramp_msym;
 
       /* Try to find a linker symbol at this address.  */
-      struct bound_minimal_symbol func_msym
-	= lookup_minimal_symbol_by_pc (addr);
+      bound_minimal_symbol func_msym = lookup_minimal_symbol_by_pc (addr);
 
       if (! func_msym.minsym)
 	error (_("Cannot convert code address %s to function pointer:\n"
@@ -2437,7 +2435,8 @@ m32c_m16c_address_to_pointer (struct gdbarch *gdbarch,
       strcat (tramp_name, ".plt");
 
       /* Try to find a linker symbol for the trampoline.  */
-      tramp_msym = lookup_minimal_symbol (tramp_name, NULL, NULL);
+      bound_minimal_symbol tramp_msym
+	= lookup_minimal_symbol (current_program_space, tramp_name);
 
       /* We've either got another copy of the name now, or don't need
 	 the name any more.  */
@@ -2452,11 +2451,11 @@ m32c_m16c_address_to_pointer (struct gdbarch *gdbarch,
 	     below, this value might be useful if converted back into
 	     an address by GDB, but will otherwise, almost certainly,
 	     be garbage.
-	     
+
 	     Using this masked result does seem to be useful
 	     in gdb.cp/cplusfuncs.exp in which ~40 FAILs turn into
 	     PASSes.  These results appear to be correct as well.
-	     
+
 	     We print a warning here so that the user can make a
 	     determination about whether the result is useful or not.  */
 	  ptrval = addr & 0xffff;
@@ -2501,17 +2500,15 @@ m32c_m16c_pointer_to_address (struct gdbarch *gdbarch,
     {
       /* See if there is a minimal symbol at that address whose name is
 	 "NAME.plt".  */
-      struct bound_minimal_symbol ptr_msym = lookup_minimal_symbol_by_pc (ptr);
+      bound_minimal_symbol ptr_msym = lookup_minimal_symbol_by_pc (ptr);
 
       if (ptr_msym.minsym)
 	{
 	  const char *ptr_msym_name = ptr_msym.minsym->linkage_name ();
 	  int len = strlen (ptr_msym_name);
 
-	  if (len > 4
-	      && strcmp (ptr_msym_name + len - 4, ".plt") == 0)
+	  if (len > 4 && streq (ptr_msym_name + len - 4, ".plt"))
 	    {
-	      struct bound_minimal_symbol func_msym;
 	      /* We have a .plt symbol; try to find the symbol for the
 		 corresponding function.
 
@@ -2521,8 +2518,8 @@ m32c_m16c_pointer_to_address (struct gdbarch *gdbarch,
 	      char *func_name = (char *) xmalloc (len - 4 + 1);
 	      memcpy (func_name, ptr_msym_name, len - 4);
 	      func_name[len - 4] = '\0';
-	      func_msym
-		= lookup_minimal_symbol (func_name, NULL, NULL);
+	      bound_minimal_symbol func_msym
+		= lookup_minimal_symbol (current_program_space, func_name);
 
 	      /* If we do have such a symbol, return its value as the
 		 function's true address.  */
@@ -2537,7 +2534,7 @@ m32c_m16c_pointer_to_address (struct gdbarch *gdbarch,
 	  for (aspace = 1; aspace <= 15; aspace++)
 	    {
 	      ptr_msym = lookup_minimal_symbol_by_pc ((aspace << 16) | ptr);
-	      
+
 	      if (ptr_msym.minsym)
 		ptr |= aspace << 16;
 	    }
@@ -2556,9 +2553,9 @@ m32c_virtual_frame_pointer (struct gdbarch *gdbarch, CORE_ADDR pc,
   CORE_ADDR func_addr, func_end;
   struct m32c_prologue p;
 
-  struct regcache *regcache = get_current_regcache ();
+  regcache *regcache = get_thread_regcache (inferior_thread ());
   m32c_gdbarch_tdep *tdep = gdbarch_tdep<m32c_gdbarch_tdep> (gdbarch);
-  
+
   if (!find_pc_partial_function (pc, &name, &func_addr, &func_end))
     internal_error (_("No virtual frame pointer available"));
 
@@ -2624,7 +2621,7 @@ m32c_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 #if 0
   /* I'm dropping the dwarf2 sniffer because it has a few problems.
      They may be in the dwarf2 cfi code in GDB, or they may be in
-     the debug info emitted by the upstream toolchain.  I don't 
+     the debug info emitted by the upstream toolchain.  I don't
      know which, but I do know that the prologue analyzer works better.
      MVS 04/13/06  */
   dwarf2_append_sniffers (gdbarch);
@@ -2648,14 +2645,12 @@ m32c_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      In order to verify this, see the definition of
      TARGET_PTRMEMFUNC_VBIT_LOCATION in gcc/defaults.h along with the
      definition of FUNCTION_BOUNDARY in gcc/config/m32c/m32c.h.  */
-  set_gdbarch_vbit_in_delta (gdbarch, 1);
+  set_gdbarch_vbit_in_delta (gdbarch, true);
 
   return gdbarch;
 }
 
-void _initialize_m32c_tdep ();
-void
-_initialize_m32c_tdep ()
+INIT_GDB_FILE (m32c_tdep)
 {
   gdbarch_register (bfd_arch_m32c, m32c_gdbarch_init);
 

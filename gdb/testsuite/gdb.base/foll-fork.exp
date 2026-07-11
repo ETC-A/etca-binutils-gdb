@@ -1,4 +1,4 @@
-#   Copyright 1997-2023 Free Software Foundation, Inc.
+#   Copyright 1997-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,10 +17,12 @@
 # enabled as it will be redirected to the log.
 require !gdb_debug_enabled
 
+require allow_fork_tests
+
 standard_testfile
 
 if {[build_executable "failed to prepare" $testfile $srcfile debug]} {
-    return -1
+    return
 }
 
 # Restart GDB and run the inferior to main.  Return 1 on success, 0 on failure.
@@ -42,7 +44,7 @@ proc_with_prefix check_fork_catchpoints {} {
   global gdb_prompt
 
   if { ![setup] } {
-      return
+      return 0
   }
 
   # Verify that the system supports "catch fork".
@@ -65,8 +67,8 @@ proc_with_prefix check_fork_catchpoints {} {
 # the followed process stops where it is expected to stop, that processes
 # are detached (or not) as expected, and that the inferior list has the
 # expected contents after following the fork.  WHO is the argument to
-# the 'set follow-fork-mode' command, DETACH is the argument to the 
-# 'set detach-on-fork' command, and CMD is the GDB command used to 
+# the 'set follow-fork-mode' command, DETACH is the argument to the
+# 'set detach-on-fork' command, and CMD is the GDB command used to
 # execute the program past the fork.  If the value of WHO or DETACH is
 # 'default', the corresponding GDB command is skipped for that test.
 # The value of CMD must be either 'next 2' or 'continue'.
@@ -289,7 +291,7 @@ proc_with_prefix catch_fork_child_follow {second_inferior} {
     gdb_test "delete breakpoints" \
 	"" \
 	"set follow-fork child, cleanup" \
-	"Delete all breakpoints. \\(y or n\\) $" \
+	"Delete all breakpoints, watchpoints, tracepoints, and catchpoints. \\(y or n\\) $" \
 	"y"
 }
 
@@ -316,7 +318,7 @@ proc_with_prefix catch_fork_unpatch_child {} {
 	"Catchpoint \[0-9\]* \\(forked process \[0-9\]*\\),.*" \
 	"unpatch child, catch fork"
 
-    # Delete all breakpoints and catchpoints.
+    # Delete all breakpoints, watchpoints, tracepoints, and catchpoints.
     delete_breakpoints
 
     # Force $srcfile as the current GDB source can be in glibc sourcetree.
@@ -393,7 +395,7 @@ proc_with_prefix tcatch_fork_parent_follow {} {
     gdb_test "delete breakpoints" \
 	"" \
 	"set follow-fork parent, cleanup" \
-	"Delete all breakpoints. \\(y or n\\) $" \
+	"Delete all breakpoints, watchpoints, tracepoints, and catchpoints. \\(y or n\\) $" \
 	"y"
 }
 

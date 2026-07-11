@@ -1,6 +1,6 @@
 /* Native-dependent code for FreeBSD/aarch64.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "inferior.h"
 #include "regcache.h"
@@ -58,7 +57,7 @@ struct aarch64_fbsd_nat_target final : public fbsd_nat_target
 #ifdef HAVE_DBREG
   /* Hardware breakpoints and watchpoints.  */
   bool stopped_by_watchpoint () override;
-  bool stopped_data_address (CORE_ADDR *) override;
+  std::vector<CORE_ADDR> stopped_data_addresses () override;
   bool stopped_by_hw_breakpoint () override;
   bool supports_stopped_by_hw_breakpoint () override;
 
@@ -135,28 +134,28 @@ bool aarch64_fbsd_nat_target::debug_regs_probed;
 
 static std::unordered_set<lwpid_t> aarch64_debug_pending_threads;
 
-/* Implement the "stopped_data_address" target_ops method.  */
+/* Implement the "stopped_data_addresses" target_ops method.  */
 
-bool
-aarch64_fbsd_nat_target::stopped_data_address (CORE_ADDR *addr_p)
+std::vector<CORE_ADDR>
+aarch64_fbsd_nat_target::stopped_data_addresses ()
 {
   siginfo_t siginfo;
   struct aarch64_debug_reg_state *state;
 
   if (!fbsd_nat_get_siginfo (inferior_ptid, &siginfo))
-    return false;
+    return {};
 
   /* This must be a hardware breakpoint.  */
   if (siginfo.si_signo != SIGTRAP
       || siginfo.si_code != TRAP_TRACE
       || siginfo.si_trapno != EXCP_WATCHPT_EL0)
-    return false;
+    return {};
 
   const CORE_ADDR addr_trap = (CORE_ADDR) siginfo.si_addr;
 
   /* Check if the address matches any watched address.  */
   state = aarch64_get_debug_reg_state (inferior_ptid.pid ());
-  return aarch64_stopped_data_address (state, addr_trap, addr_p);
+  return aarch64_stopped_data_addresses (state, addr_trap);
 }
 
 /* Implement the "stopped_by_watchpoint" target_ops method.  */
@@ -164,9 +163,7 @@ aarch64_fbsd_nat_target::stopped_data_address (CORE_ADDR *addr_p)
 bool
 aarch64_fbsd_nat_target::stopped_by_watchpoint ()
 {
-  CORE_ADDR addr;
-
-  return stopped_data_address (&addr);
+  return !stopped_data_addresses ().empty ();
 }
 
 /* Implement the "stopped_by_hw_breakpoint" target_ops method.  */
@@ -296,10 +293,10 @@ void
 aarch64_notify_debug_reg_change (ptid_t ptid,
 				 int is_watchpoint, unsigned int idx)
 {
-  for (thread_info *tp : current_inferior ()->non_exited_threads ())
+  for (thread_info &tp : current_inferior ()->non_exited_threads ())
     {
-      if (tp->ptid.lwp_p ())
-	aarch64_debug_pending_threads.emplace (tp->ptid.lwp ());
+      if (tp.ptid.lwp_p ())
+	aarch64_debug_pending_threads.emplace (tp.ptid.lwp ());
     }
 }
 
@@ -351,9 +348,7 @@ aarch64_notify_debug_reg_change (ptid_t ptid,
 }
 #endif
 
-void _initialize_aarch64_fbsd_nat ();
-void
-_initialize_aarch64_fbsd_nat ()
+INIT_GDB_FILE (aarch64_fbsd_nat)
 {
 #ifdef HAVE_DBREG
   aarch64_initialize_hw_point ();

@@ -1,7 +1,7 @@
 /* Target-dependent code for Windows (including Cygwin) running on i386's,
    for GDB.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "osabi.h"
 #include "i386-tdep.h"
 #include "windows-tdep.h"
@@ -27,6 +26,7 @@
 #include "xml-support.h"
 #include "gdbcore.h"
 #include "inferior.h"
+#include "frame-unwind.h"
 
 /* Core file support.  */
 
@@ -90,15 +90,9 @@ static int i386_windows_gregset_reg_offset[] =
 #define I386_WINDOWS_SIZEOF_GREGSET 716
 
 static CORE_ADDR
-i386_windows_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
+i386_windows_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR pc)
 {
   return i386_pe_skip_trampoline_code (frame, pc, NULL);
-}
-
-static const char *
-i386_windows_auto_wide_charset (void)
-{
-  return "UTF-16";
 }
 
 /* Implement the "push_dummy_call" gdbarch method.  */
@@ -122,7 +116,7 @@ i386_windows_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
      artificial flag of the first parameter ('this' pointer).  */
   if (type->code () == TYPE_CODE_METHOD
       && type->num_fields () > 0
-      && TYPE_FIELD_ARTIFICIAL (type, 0)
+      && type->field (0).is_artificial ()
       && type->field (0).type ()->code () == TYPE_CODE_PTR)
     thiscall = 1;
 
@@ -154,8 +148,6 @@ i386_windows_init_abi_common (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_core_xfer_shared_libraries
     (gdbarch, windows_core_xfer_shared_libraries);
   set_gdbarch_core_pid_to_str (gdbarch, windows_core_pid_to_str);
-
-  set_gdbarch_auto_wide_charset (gdbarch, i386_windows_auto_wide_charset);
 }
 
 /* gdbarch initialization for Windows on i386.  */
@@ -169,11 +161,30 @@ i386_windows_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_push_dummy_call (gdbarch, i386_windows_push_dummy_call);
 }
 
+/* Sigwrapper unwinder instruction patterns for i386.  */
+
+static const gdb_byte i386_sigbe_bytes[] = {
+  0xb8, 0xfc, 0xff, 0xff, 0xff,			/* movl $-4,%eax */
+  0x0f, 0xc1, 0x83,				/* xadd %eax,$tls::stackptr(%ebx) */
+  /* 4 bytes for tls::stackptr operand.  */
+};
+
+static const gdb::array_view<const gdb_byte> i386_sig_patterns[] {
+  { i386_sigbe_bytes },
+};
+
+/* The sigwrapper unwinder on i386.  */
+
+static const cygwin_sigwrapper_frame_unwind
+  i386_cygwin_sigwrapper_frame_unwind (i386_sig_patterns);
+
 /* gdbarch initialization for Cygwin on i386.  */
 
 static void
 i386_cygwin_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
+  frame_unwind_append_unwinder (gdbarch, &i386_cygwin_sigwrapper_frame_unwind);
+
   i386_windows_init_abi_common (info, gdbarch);
   cygwin_init_abi (info, gdbarch);
 }
@@ -199,7 +210,7 @@ i386_cygwin_core_osabi_sniffer (bfd *abfd)
 
   /* Cygwin uses elf core dumps.  Do not claim all ELF executables,
      check whether there is a .reg section of proper size.  */
-  if (strcmp (target_name, "elf32-i386") == 0)
+  if (streq (target_name, "elf32-i386"))
     {
       asection *section = bfd_get_section_by_name (abfd, ".reg");
       if (section != nullptr
@@ -210,9 +221,7 @@ i386_cygwin_core_osabi_sniffer (bfd *abfd)
   return GDB_OSABI_UNKNOWN;
 }
 
-void _initialize_i386_windows_tdep ();
-void
-_initialize_i386_windows_tdep ()
+INIT_GDB_FILE (i386_windows_tdep)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_i386, bfd_target_coff_flavour,
 				  i386_windows_osabi_sniffer);

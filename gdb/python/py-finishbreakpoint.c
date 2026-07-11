@@ -1,6 +1,6 @@
 /* Python interface to finish breakpoints
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,8 +19,7 @@
 
 
 
-#include "defs.h"
-#include "top.h"		/* For quit_force().  */
+#include "top.h"
 #include "python-internal.h"
 #include "breakpoint.h"
 #include "frame.h"
@@ -62,8 +61,7 @@ struct finish_breakpoint_object
   struct frame_id initiating_frame;
 };
 
-extern PyTypeObject finish_breakpoint_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("finish_breakpoint_object");
+extern PyTypeObject finish_breakpoint_object_type;
 
 /* Python function to get the 'return_value' attribute of
    FinishBreakpoint.  */
@@ -75,7 +73,7 @@ bpfinishpy_get_returnvalue (PyObject *self, void *closure)
       (struct finish_breakpoint_object *) self;
 
   if (!self_finishbp->return_value)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   Py_INCREF (self_finishbp->return_value);
   return self_finishbp->return_value;
@@ -124,15 +122,12 @@ bpfinishpy_pre_stop_hook (struct gdbpy_breakpoint_object *bp_obj)
 
       if (ret)
 	{
-	  self_finishbp->return_value = value_to_value_object (ret);
+	  self_finishbp->return_value = value_to_value_object (ret).release ();
 	  if (!self_finishbp->return_value)
 	      gdbpy_print_stack ();
 	}
       else
-	{
-	  Py_INCREF (Py_None);
-	  self_finishbp->return_value = Py_None;
-	}
+	self_finishbp->return_value = py_none ().release ();
     }
   catch (const gdb_exception &except)
     {
@@ -176,7 +171,6 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
   struct frame_id frame_id;
   PyObject *internal = NULL;
   int internal_bp = 0;
-  CORE_ADDR pc;
 
   if (!gdb_PyArg_ParseTupleAndKeywords (args, kwargs, "|OO", keywords,
 					&frame_obj, &internal))
@@ -195,10 +189,19 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 	  PyErr_SetString (PyExc_ValueError,
 			   _("Invalid ID for the `frame' object."));
 	}
+      else if (get_frame_type (frame) == INLINE_FRAME)
+	{
+	  PyErr_SetString
+	    (PyExc_ValueError,
+	     _("Unable to create FinishBreakpoint for inline frame."));
+	}
       else
 	{
 	  prev_frame = get_prev_frame (frame);
-	  if (prev_frame == 0)
+	  if (prev_frame != nullptr)
+	    prev_frame = skip_tailcall_frames (prev_frame);
+
+	  if (prev_frame == nullptr)
 	    {
 	      PyErr_SetString (PyExc_ValueError,
 			       _("\"FinishBreakpoint\" not "
@@ -212,13 +215,13 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 				 "be set on a dummy frame."));
 	    }
 	  else
-	    frame_id = get_frame_id (prev_frame);
+	    /* Get the real calling frame ID, ignoring inline frames.  */
+	    frame_id = frame_unwind_caller_id (frame);
 	}
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
-      return -1;
+      return gdbpy_handle_gdb_exception (-1, except);
     }
 
   if (PyErr_Occurred ())
@@ -250,9 +253,10 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 
   try
     {
-      if (get_frame_pc_if_available (frame, &pc))
+      CORE_ADDR pc;
+      if (get_frame_address_in_block_if_available (frame, &pc))
 	{
-	  struct symbol *function = find_pc_function (pc);
+	  struct symbol *function = find_symbol_for_pc (pc);
 	  if (function != nullptr)
 	    {
 	      struct type *ret_type =
@@ -266,11 +270,11 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 		  /* Ignore Python errors at this stage.  */
 		  value *func_value = read_var_value (function, NULL, frame);
 		  self_bpfinish->function_value
-		    = value_to_value_object (func_value);
+		    = value_to_value_object (func_value).release ();
 		  PyErr_Clear ();
 
 		  self_bpfinish->func_symbol
-		    = symbol_to_symbol_object (function);
+		    = symbol_to_symbol_object (function).release ();
 		  PyErr_Clear ();
 		}
 	    }
@@ -307,7 +311,7 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
       location_spec_up locspec
 	= new_address_location_spec (get_frame_pc (prev_frame), NULL, 0);
       create_breakpoint (gdbpy_enter::get_gdbarch (),
-			 locspec.get (), NULL, thread, NULL, false,
+			 locspec.get (), NULL, thread, -1, NULL, false,
 			 0,
 			 1 /*temp_flag*/,
 			 bp_breakpoint,
@@ -318,7 +322,7 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_SET_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (-1, except);
     }
 
   self_bpfinish->py_bp.bp->frame_id = frame_id;
@@ -344,8 +348,7 @@ bpfinishpy_out_of_scope (struct finish_breakpoint_object *bpfinish_obj)
   if (bpfinish_obj->py_bp.bp->enable_state == bp_enabled
       && PyObject_HasAttrString (py_obj, outofscope_func))
     {
-      gdbpy_ref<> meth_result (PyObject_CallMethod (py_obj, outofscope_func,
-						    NULL));
+      gdbpy_ref<> meth_result = gdbpy_call_method (py_obj, outofscope_func);
       if (meth_result == NULL)
 	gdbpy_print_stack ();
     }
@@ -427,7 +430,7 @@ bpfinishpy_handle_stop (struct bpstat *bs, int print_frame)
 static void
 bpfinishpy_handle_exit (struct inferior *inf)
 {
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   for (breakpoint &bp : all_breakpoints_safe ())
     bpfinishpy_detect_out_scope_cb (&bp, nullptr, true);
@@ -435,17 +438,13 @@ bpfinishpy_handle_exit (struct inferior *inf)
 
 /* Initialize the Python finish breakpoint code.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_finishbreakpoints (void)
+static int
+gdbpy_initialize_finishbreakpoints ()
 {
   if (!gdbpy_breakpoint_init_breakpoint_type ())
     return -1;
 
-  if (PyType_Ready (&finish_breakpoint_object_type) < 0)
-    return -1;
-
-  if (gdb_pymodule_addobject (gdb_module, "FinishBreakpoint",
-			      (PyObject *) &finish_breakpoint_object_type) < 0)
+  if (gdbpy_type_ready (&finish_breakpoint_object_type) < 0)
     return -1;
 
   gdb::observers::normal_stop.attach (bpfinishpy_handle_stop,

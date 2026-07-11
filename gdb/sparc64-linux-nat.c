@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux UltraSPARC.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "regcache.h"
 
 #include <sys/procfs.h>
@@ -88,9 +87,7 @@ fill_fpregset (const struct regcache *regcache,
   sparc64_collect_fpregset (&sparc64_bsd_fpregmap, regcache, regnum, fpregs);
 }
 
-void _initialize_sparc64_linux_nat ();
-void
-_initialize_sparc64_linux_nat ()
+INIT_GDB_FILE (sparc64_linux_nat)
 {
   sparc_fpregmap = &sparc64_bsd_fpregmap;
 

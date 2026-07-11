@@ -1,6 +1,6 @@
 /* Dynamic architecture support for GDB, the GNU debugger.
 
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,10 +17,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef ARCH_UTILS_H
-#define ARCH_UTILS_H
+#ifndef GDB_ARCH_UTILS_H
+#define GDB_ARCH_UTILS_H
 
 #include "gdbarch.h"
+#include "gdbsupport/environ.h"
+#include "filenames.h"
 
 class frame_info_ptr;
 struct minimal_symbol;
@@ -74,6 +76,88 @@ struct bp_manipulation_endian
   bp_manipulation_endian<sizeof (BREAK_INSN_LITTLE),		  \
   BREAK_INSN_LITTLE, BREAK_INSN_BIG>
 
+/* Structure returned from gdbarch core_parse_exec_context method.  Wraps
+   the execfn string and a vector containing the inferior argument.  If a
+   gdbarch is unable to parse this information then an empty structure is
+   returned, check the execfn as an indication, if this is nullptr then no
+   other fields should be considered valid.  */
+
+struct core_file_exec_context
+{
+  /* Constructor, just move everything into place.  The EXEC_NAME should
+     never be nullptr.  Only call this constructor if all the arguments
+     have been collected successfully, i.e. if the EXEC_NAME could be
+     found but not ARGV then use the no-argument constructor to create an
+     empty context object.
+
+     The EXEC_FILENAME must be the absolute filename of the executable
+     that generated this core file, or nullptr if the absolute filename
+     is not known.  */
+  core_file_exec_context (gdb::unique_xmalloc_ptr<char> exec_name,
+			  gdb::unique_xmalloc_ptr<char> exec_filename,
+			  std::vector<gdb::unique_xmalloc_ptr<char>> argv,
+			  std::vector<gdb::unique_xmalloc_ptr<char>> envp)
+    : m_exec_name (std::move (exec_name)),
+      m_exec_filename (std::move (exec_filename)),
+      m_arguments (std::move (argv)),
+      m_environment (std::move (envp))
+  {
+    gdb_assert (m_exec_name != nullptr);
+    gdb_assert (exec_filename == nullptr
+		|| IS_ABSOLUTE_PATH (exec_filename.get ()));
+  }
+
+  /* Create a default context object.  In its default state a context
+     object holds no useful information, and will return false from its
+     valid() method.  */
+  core_file_exec_context () = default;
+
+  /* Return true if this object contains valid context information.  */
+  bool valid () const
+  { return m_exec_name != nullptr; }
+
+  /* Return the execfn string (executable name) as extracted from the core
+     file.  Will always return non-nullptr if valid() returns true.  */
+  const char *execfn () const
+  { return m_exec_name.get (); }
+
+  /* Return the absolute path to the executable if known.  This might
+     return nullptr even when execfn() returns a non-nullptr value.
+     Additionally, the file referenced here might have a different name
+     than the file returned by execfn if execfn is a symbolic link.  */
+  const char *exec_filename () const
+  { return m_exec_filename.get (); }
+
+  /* Return the vector of inferior arguments as extracted from the core
+     file.  This does not include argv[0] (the executable name) for that
+     see the execfn() function.  */
+  const std::vector<gdb::unique_xmalloc_ptr<char>> &args () const
+  { return m_arguments; }
+
+  /* Return the environment variables from this context.  */
+  gdb_environ environment () const;
+
+private:
+
+  /* The executable filename as reported in the core file.  Can be nullptr
+     if no executable name is found.  */
+  gdb::unique_xmalloc_ptr<char> m_exec_name;
+
+  /* Full filename to the executable that was actually executed.  The name
+     within EXEC_FILENAME might not match what the user typed, e.g. if the
+     user typed ./symlinked_name which is a symlink to /tmp/real_name then
+     this is going to contain '/tmp/realname' while EXEC_NAME above will
+     contain './symlinkedname'.  */
+  gdb::unique_xmalloc_ptr<char> m_exec_filename;
+
+  /* List of arguments.  Doesn't include argv[0] which is the executable
+     name, for this look at m_exec_name field.  */
+  std::vector<gdb::unique_xmalloc_ptr<char>> m_arguments;
+
+  /* List of environment strings.  */
+  std::vector<gdb::unique_xmalloc_ptr<char>> m_environment;
+};
+
 /* Default implementation of gdbarch_displaced_hw_singlestep.  */
 extern bool default_displaced_step_hw_singlestep (struct gdbarch *);
 
@@ -83,8 +167,8 @@ extern bool default_displaced_step_hw_singlestep (struct gdbarch *);
 extern CORE_ADDR displaced_step_at_entry_point (struct gdbarch *gdbarch);
 
 /* The only possible cases for inner_than.  */
-extern int core_addr_lessthan (CORE_ADDR lhs, CORE_ADDR rhs);
-extern int core_addr_greaterthan (CORE_ADDR lhs, CORE_ADDR rhs);
+extern bool core_addr_lessthan (CORE_ADDR lhs, CORE_ADDR rhs);
+extern bool core_addr_greaterthan (CORE_ADDR lhs, CORE_ADDR rhs);
 
 /* Identity functions on a CORE_ADDR.  Just return the "addr".  */
 
@@ -109,7 +193,7 @@ CORE_ADDR default_adjust_dwarf2_addr (CORE_ADDR pc);
 
 /* Do nothing default implementation of gdbarch_adjust_dwarf2_line.  */
 
-CORE_ADDR default_adjust_dwarf2_line (CORE_ADDR addr, int rel);
+CORE_ADDR default_adjust_dwarf2_line (CORE_ADDR addr, bool rel);
 
 /* Default DWARF vendor CFI handler.  */
 
@@ -119,7 +203,7 @@ bool default_execute_dwarf_cfa_vendor_op (struct gdbarch *gdbarch, gdb_byte op,
 /* Version of cannot_fetch_register() / cannot_store_register() that
    always fails.  */
 
-int cannot_register_not (struct gdbarch *gdbarch, int regnum);
+bool cannot_register_not (struct gdbarch *gdbarch, int regnum);
 
 /* Legacy version of target_virtual_frame_pointer().  Assumes that
    there is an gdbarch_deprecated_fp_regnum and that it is the same, cooked or
@@ -141,7 +225,7 @@ extern std::string default_memtag_to_string (struct gdbarch *gdbarch,
 					     struct value *tag);
 
 /* Default implementation of gdbarch_tagged_address_p.  */
-bool default_tagged_address_p (struct gdbarch *gdbarch, struct value *address);
+bool default_tagged_address_p (struct gdbarch *gdbarch, CORE_ADDR address);
 
 /* Default implementation of gdbarch_memtag_matches_p.  */
 extern bool default_memtag_matches_p (struct gdbarch *gdbarch,
@@ -158,27 +242,25 @@ struct value *default_get_memtag (struct gdbarch *gdbarch,
 				  struct value *address,
 				  memtag_type tag_type);
 
-extern CORE_ADDR generic_skip_trampoline_code (frame_info_ptr frame,
+extern CORE_ADDR generic_skip_trampoline_code (const frame_info_ptr &frame,
 					       CORE_ADDR pc);
 
 extern CORE_ADDR generic_skip_solib_resolver (struct gdbarch *gdbarch,
 					      CORE_ADDR pc);
 
-extern int generic_in_solib_return_trampoline (struct gdbarch *gdbarch,
-					       CORE_ADDR pc, const char *name);
+extern bool generic_in_solib_return_trampoline (struct gdbarch *gdbarch,
+						CORE_ADDR pc,
+						const char *name);
 
-extern int generic_stack_frame_destroyed_p (struct gdbarch *gdbarch,
-					    CORE_ADDR pc);
+extern bool generic_stack_frame_destroyed_p (struct gdbarch *gdbarch,
+					     CORE_ADDR pc);
 
-extern int default_code_of_frame_writable (struct gdbarch *gdbarch,
-					   frame_info_ptr frame);
+extern bool default_code_of_frame_writable (struct gdbarch *gdbarch,
+					    const frame_info_ptr &frame);
 
 /* By default, registers are not convertible.  */
-extern int generic_convert_register_p (struct gdbarch *gdbarch, int regnum,
-				       struct type *type);
-
-extern int default_stabs_argument_has_addr (struct gdbarch *gdbarch,
-					    struct type *type);
+extern bool generic_convert_register_p (struct gdbarch *gdbarch, int regnum,
+					struct type *type);
 
 extern int generic_instruction_nullified (struct gdbarch *gdbarch,
 					  struct regcache *regcache);
@@ -218,10 +300,11 @@ extern struct gdbarch *gdbarch_from_bfd (bfd *abfd);
    routines to determine the architecture to execute a command in.  */
 extern struct gdbarch *get_current_arch (void);
 
-extern int default_has_shared_address_space (struct gdbarch *);
+extern bool default_has_shared_address_space (struct gdbarch *);
 
-extern int default_fast_tracepoint_valid_at (struct gdbarch *gdbarch,
-					     CORE_ADDR addr, std::string *msg);
+extern bool default_fast_tracepoint_valid_at (struct gdbarch *gdbarch,
+					      CORE_ADDR addr,
+					      std::string *msg);
 
 extern const gdb_byte *default_breakpoint_from_pc (struct gdbarch *gdbarch,
 						   CORE_ADDR *pcptr,
@@ -236,15 +319,14 @@ extern void default_gen_return_address (struct gdbarch *gdbarch,
 					struct axs_value *value,
 					CORE_ADDR scope);
 
-extern const char *default_auto_charset (void);
 extern const char *default_auto_wide_charset (void);
 
-extern int default_return_in_first_hidden_param_p (struct gdbarch *,
-						   struct type *);
+extern bool default_return_in_first_hidden_param_p (struct gdbarch *,
+						    struct type *);
 
-extern int default_insn_is_call (struct gdbarch *, CORE_ADDR);
-extern int default_insn_is_ret (struct gdbarch *, CORE_ADDR);
-extern int default_insn_is_jump (struct gdbarch *, CORE_ADDR);
+extern bool default_insn_is_call (struct gdbarch *, CORE_ADDR);
+extern bool default_insn_is_ret (struct gdbarch *, CORE_ADDR);
+extern bool default_insn_is_jump (struct gdbarch *, CORE_ADDR);
 
 /* Default implementation of gdbarch_program_breakpoint_here_p.  */
 extern bool default_program_breakpoint_here_p (struct gdbarch *gdbarch,
@@ -252,14 +334,8 @@ extern bool default_program_breakpoint_here_p (struct gdbarch *gdbarch,
 
 /* Do-nothing version of vsyscall_range.  Returns false.  */
 
-extern int default_vsyscall_range (struct gdbarch *gdbarch, struct mem_range *range);
-
-/* Default way to advance the PC to the next instruction in order to
-   skip a permanent breakpoint.  Increments the PC by the size of a
-   software breakpoint instruction, as determined with
-   gdbarch_breakpoint_from_pc.  This matches how the breakpoints
-   module determines whether a breakpoint is permanent.  */
-extern void default_skip_permanent_breakpoint (struct regcache *regcache);
+extern bool default_vsyscall_range (struct gdbarch *gdbarch,
+				    struct mem_range *range);
 
 /* Symbols for gdbarch_infcall_mmap; their Linux PROT_* system
    definitions would be dependent on compilation host.  */
@@ -295,19 +371,29 @@ extern ULONGEST default_type_align (struct gdbarch *gdbarch,
 				    struct type *type);
 
 /* Default implementation of gdbarch get_pc_address_flags method.  */
-extern std::string default_get_pc_address_flags (frame_info_ptr frame,
+extern std::string default_get_pc_address_flags (const frame_info_ptr &frame,
 						 CORE_ADDR pc);
 
 /* Default implementation of gdbarch read_core_file_mappings method.  */
 extern void default_read_core_file_mappings
   (struct gdbarch *gdbarch,
    struct bfd *cbfd,
-   read_core_file_mappings_pre_loop_ftype pre_loop_cb,
    read_core_file_mappings_loop_ftype loop_cb);
+
+/* Default implementation of gdbarch_core_parse_exec_context.  Returns
+   an empty core_file_exec_context.  */
+extern core_file_exec_context default_core_parse_exec_context
+  (struct gdbarch *gdbarch, bfd *cbfd);
+
+/* Default implementation of gdbarch
+   use_target_description_from_corefile_notes.  */
+extern bool default_use_target_description_from_corefile_notes
+  (struct gdbarch *gdbarch,
+  struct bfd *corefile_bfd);
 
 /* Default implementation of gdbarch default_get_return_buf_addr method.  */
 extern CORE_ADDR default_get_return_buf_addr (struct type *val_typegdbarch,
-					      frame_info_ptr cur_frame);
+					      const frame_info_ptr &cur_frame);
 
 /* Default implementation of gdbarch default_dwarf2_omit_typedef_p method.  */
 extern bool default_dwarf2_omit_typedef_p (struct type *target_type,
@@ -319,4 +405,9 @@ extern enum return_value_convention default_gdbarch_return_value
       struct regcache *regcache, struct value **read_value,
       const gdb_byte *writebuf);
 
-#endif /* ARCH_UTILS_H */
+/* Default implementation of gdbarch default_get_shadow_stack_pointer
+   method.  */
+extern std::optional<CORE_ADDR> default_get_shadow_stack_pointer
+  (gdbarch *gdbarch, regcache *regcache, bool &shadow_stack_enabled);
+
+#endif /* GDB_ARCH_UTILS_H */

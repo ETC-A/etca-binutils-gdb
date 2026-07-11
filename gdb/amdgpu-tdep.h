@@ -1,6 +1,6 @@
 /* Target-dependent code for the AMDGPU architectures.
 
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,15 +17,14 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef AMDGPU_TDEP_H
-#define AMDGPU_TDEP_H
+#ifndef GDB_AMDGPU_TDEP_H
+#define GDB_AMDGPU_TDEP_H
 
 #include "gdbarch.h"
 
 #include <amd-dbgapi/amd-dbgapi.h>
-#include <unordered_map>
 
-/* Provide std::unordered_map::Hash for amd_dbgapi_register_id_t.  */
+/* Provide gdb::unordered_map::Hash for amd_dbgapi_register_id_t.  */
 struct register_id_hash
 {
   size_t
@@ -35,7 +34,7 @@ struct register_id_hash
   }
 };
 
-/* Provide std::unordered_map::Equal for amd_dbgapi_register_id_t.  */
+/* Provide gdb::unordered_map::Equal for amd_dbgapi_register_id_t.  */
 struct register_id_equal_to
 {
   bool
@@ -74,20 +73,25 @@ struct amdgpu_gdbarch_tdep : gdbarch_tdep_base
   std::vector<int> dwarf_regnum_to_gdb_regnum;
 
   /* A map of gdb regnums keyed by they equivalent register_id.  */
-  std::unordered_map<amd_dbgapi_register_id_t, int, register_id_hash,
+  gdb::unordered_map<amd_dbgapi_register_id_t, int, register_id_hash,
 		     register_id_equal_to>
     regnum_map;
 
   /* A map of register_class_ids keyed by their name.  */
-  std::unordered_map<std::string, amd_dbgapi_register_class_id_t>
+  gdb::unordered_string_map<amd_dbgapi_register_class_id_t>
     register_class_map;
 };
 
 /* Return true if GDBARCH is of an AMDGPU architecture.  */
+
 bool is_amdgpu_arch (struct gdbarch *gdbarch);
+
+/* Return true if ABFD is of an AMDGPU architecture.  */
+
+bool is_amdgpu_arch (bfd *abfd);
 
 /* Return the amdgpu-specific data associated to ARCH.  */
 
 amdgpu_gdbarch_tdep *get_amdgpu_gdbarch_tdep (gdbarch *arch);
 
-#endif /* AMDGPU_TDEP_H */
+#endif /* GDB_AMDGPU_TDEP_H */

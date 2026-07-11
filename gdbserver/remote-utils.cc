@@ -1,5 +1,5 @@
 /* Remote utility routines for the remote server for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #if HAVE_TERMIOS_H
 #include <termios.h>
 #endif
@@ -25,11 +24,12 @@
 #include "tdesc.h"
 #include "debug.h"
 #include "dll.h"
+#include "gdbsupport/common-gdbthread.h"
 #include "gdbsupport/rsp-low.h"
+#include "gdbsupport/scope-exit.h"
 #include "gdbsupport/netstuff.h"
 #include "gdbsupport/filestuff.h"
 #include "gdbsupport/gdb-sigmask.h"
-#include <ctype.h>
 #if HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
@@ -69,7 +69,7 @@
 #endif
 
 #ifndef HAVE_SOCKLEN_T
-typedef int socklen_t;
+using socklen_t = int;
 #endif
 
 #ifndef IN_PROCESS_AGENT
@@ -221,7 +221,7 @@ remote_prepare (const char *name)
   socklen_t tmp;
 
   remote_is_stdio = 0;
-  if (strcmp (name, STDIO_CONNECTION_NAME) == 0)
+  if (streq (name, STDIO_CONNECTION_NAME))
     {
       /* We need to record fact that we're using stdio sooner than the
 	 call to remote_open so start_inferior knows the connection is
@@ -319,10 +319,10 @@ remote_open (const char *name)
   port_str = strchr (name, ':');
 #ifdef USE_WIN32API
   if (port_str == NULL)
-    error ("Only HOST:PORT is supported on this platform.");
+    error (_("Only HOST:PORT is supported on this platform."));
 #endif
 
-  if (strcmp (name, STDIO_CONNECTION_NAME) == 0)
+  if (streq (name, STDIO_CONNECTION_NAME))
     {
       fprintf (stderr, "Remote debugging using stdio\n");
 
@@ -519,93 +519,45 @@ char *
 write_ptid (char *buf, ptid_t ptid)
 {
   client_state &cs = get_client_state ();
-  int pid, tid;
-
-  if (cs.multi_process)
-    {
-      pid = ptid.pid ();
-      if (pid < 0)
-	buf += sprintf (buf, "p-%x.", -pid);
-      else
-	buf += sprintf (buf, "p%x.", pid);
-    }
-  tid = ptid.lwp ();
-  if (tid < 0)
-    buf += sprintf (buf, "-%x", -tid);
-  else
-    buf += sprintf (buf, "%x", tid);
-
-  return buf;
+  std::string repr = ptid.to_rsp_string (cs.multi_process);
+  strcpy (buf, repr.c_str ());
+  return buf + repr.length ();
 }
 
-static ULONGEST
-hex_or_minus_one (const char *buf, const char **obuf)
-{
-  ULONGEST ret;
-
-  if (startswith (buf, "-1"))
-    {
-      ret = (ULONGEST) -1;
-      buf += 2;
-    }
-  else
-    buf = unpack_varlen_hex (buf, &ret);
-
-  if (obuf)
-    *obuf = buf;
-
-  return ret;
-}
-
-/* Extract a PTID from BUF.  If non-null, OBUF is set to the to one
-   passed the last parsed char.  Returns null_ptid on error.  */
+/* Extract a PTID from BUF.  If non-null, OBUF is set to one past the last
+   parsed char.  Throws on error.  */
 ptid_t
 read_ptid (const char *buf, const char **obuf)
 {
-  const char *p = buf;
-  const char *pp;
-  ULONGEST pid = 0, tid = 0;
-
-  if (*p == 'p')
-    {
-      /* Multi-process ptid.  */
-      pp = unpack_varlen_hex (p + 1, &pid);
-      if (*pp != '.')
-	error ("invalid remote ptid: %s\n", p);
-
-      p = pp + 1;
-
-      tid = hex_or_minus_one (p, &pp);
-
-      if (obuf)
-	*obuf = pp;
-      return ptid_t (pid, tid);
-    }
-
-  /* No multi-process.  Just a tid.  */
-  tid = hex_or_minus_one (p, &pp);
-
-  /* Since GDB is not sending a process id (multi-process extensions
-     are off), then there's only one process.  Default to the first in
-     the list.  */
-  pid = pid_of (get_first_process ());
-
-  if (obuf)
-    *obuf = pp;
-  return ptid_t (pid, tid);
+  return ptid_t::parse (buf, obuf, true,
+    [] ()
+      {
+	/* Since GDB is not sending a process id (multi-process
+	   extensions are off), then there's only one process.
+	   Default to the first in the list.  */
+	return get_first_process ()->pid;
+      });
 }
 
-/* Write COUNT bytes in BUF to the client.
-   The result is the number of bytes written or -1 if error.
-   This may return less than COUNT.  */
+/* Write COUNT bytes in BUF to the client.  Returns true if all bytes
+   were written, false (with errno set) if not.  */
 
-static int
-write_prim (const void *buf, int count)
+static bool
+write_prim (const char *buf, int count)
 {
-  if (remote_connection_is_stdio ())
-    return write (fileno (stdout), buf, count);
-  else
-    return write (remote_desc, buf, count);
+  while (count > 0)
+    {
+      int written;
+      if (remote_connection_is_stdio ())
+	written = write (fileno (stdout), buf, count);
+      else
+	written = write (remote_desc, buf, count);
+      if (written < 0)
+	return false;
+      buf += written;
+      count -= written;
+    }
+  return true;
 }
 
 /* Read COUNT bytes from the client and store in BUF.
@@ -635,6 +587,8 @@ putpkt_binary_1 (char *buf, int cnt, int is_notif)
   char *p;
   int cc;
 
+  SCOPE_EXIT { suppressed_remote_debug = false; };
+
   buf2 = (char *) xmalloc (strlen ("$") + cnt + strlen ("#nn") + 1);
 
   /* Copy the packet into buffer BUF2, encapsulating it
@@ -659,7 +613,7 @@ putpkt_binary_1 (char *buf, int cnt, int is_notif)
 
   do
     {
-      if (write_prim (buf2, p - buf2) != p - buf2)
+      if (!write_prim (buf2, p - buf2))
 	{
 	  perror ("putpkt(write)");
 	  free (buf2);
@@ -669,15 +623,15 @@ putpkt_binary_1 (char *buf, int cnt, int is_notif)
       if (cs.noack_mode || is_notif)
 	{
 	  /* Don't expect an ack then.  */
-	  if (is_notif)
-	    remote_debug_printf ("putpkt (\"%s\"); [notif]", buf2);
-	  else
-	    remote_debug_printf ("putpkt (\"%s\"); [noack mode]", buf2);
+	  remote_debug_printf ("putpkt (\"%s\"); [%s]",
+			       (suppressed_remote_debug ? "..." : buf2),
+			       (is_notif ? "notif" : "noack mode"));
 
 	  break;
 	}
 
-      remote_debug_printf ("putpkt (\"%s\"); [looking for ack]", buf2);
+      remote_debug_printf ("putpkt (\"%s\"); [looking for ack]",
+			   (suppressed_remote_debug ? "..." : buf2));
 
       cc = readchar ();
 
@@ -753,7 +707,7 @@ input_interrupt (int unused)
       else if (cc != 1 || c != '\003')
 	{
 	  fprintf (stderr, "input_interrupt, count = %d c = %d ", cc, c);
-	  if (isprint (c))
+	  if (c_isprint (c))
 	    fprintf (stderr, "('%c')\n", c);
 	  else
 	    fprintf (stderr, "('\\x%02x')\n", c & 0xff);
@@ -944,6 +898,7 @@ getpkt (char *buf)
 	    return -1;
 	}
 
+      bool fits_in_buf = true;
       bp = buf;
       while (1)
 	{
@@ -952,7 +907,11 @@ getpkt (char *buf)
 	    return -1;
 	  if (c == '#')
 	    break;
-	  *bp++ = c;
+	  /* The buffer is always allocated as 'PBUFSIZ + 1' so we know
+	     that this write will always be within the buffer.  */
+	  *bp = c;
+	  fits_in_buf = bp - buf < PBUFSIZ;
+	  bp += (fits_in_buf ? 1: 0);
 	  csum += c;
 	}
       *bp = 0;
@@ -960,22 +919,30 @@ getpkt (char *buf)
       c1 = fromhex (readchar ());
       c2 = fromhex (readchar ());
 
-      if (csum == (c1 << 4) + c2)
+      unsigned char sentsum = (c1 << 4) + c2;
+      bool csum_ok = csum == sentsum;
+      if (csum_ok && fits_in_buf)
 	break;
 
+      if (!csum_ok)
+	fprintf (stderr, "Bad checksum, sentsum=0x%x, csum=0x%x, buf=%s\n",
+		 sentsum, csum, buf);
+      if (!fits_in_buf)
+	fprintf (stderr, "Packet too long\n");
       if (cs.noack_mode)
 	{
-	  fprintf (stderr,
-		   "Bad checksum, sentsum=0x%x, csum=0x%x, "
-		   "buf=%s [no-ack-mode, Bad medium?]\n",
-		   (c1 << 4) + c2, csum, buf);
-	  /* Not much we can do, GDB wasn't expecting an ack/nac.  */
-	  break;
+	  fprintf (stderr, "[no-ack-mode, Bad medium?]\n");
+	  /* Not much we can do, GDB wasn't expecting an ack/nak, just
+	     return an error to indicate the packet was bad.  */
+	  return -1;
 	}
 
-      fprintf (stderr, "Bad checksum, sentsum=0x%x, csum=0x%x, buf=%s\n",
-	       (c1 << 4) + c2, csum, buf);
-      if (write_prim ("-", 1) != 1)
+      /* Send '-' (NAK) back to GDB.  If that fails, or if the incoming
+	 packet was too long, then return an error.  For the packet too
+	 long case there's no point repeating the loop, all GDB can do is
+	 resend the original packet, which will be too long again, and
+	 we'll be stuck in this loop forever.  */
+      if (!write_prim ("-", 1) || !fits_in_buf)
 	return -1;
     }
 
@@ -983,7 +950,7 @@ getpkt (char *buf)
     {
       remote_debug_printf ("getpkt (\"%s\");  [sending ack]", buf);
 
-      if (write_prim ("+", 1) != 1)
+      if (!write_prim ("+", 1))
 	return -1;
 
       remote_debug_printf ("[sent ack]");
@@ -1063,22 +1030,39 @@ prepare_resume_reply (char *buf, ptid_t ptid, const target_waitstatus &status)
     case TARGET_WAITKIND_FORKED:
     case TARGET_WAITKIND_VFORKED:
     case TARGET_WAITKIND_VFORK_DONE:
+    case TARGET_WAITKIND_THREAD_CLONED:
     case TARGET_WAITKIND_EXECD:
     case TARGET_WAITKIND_THREAD_CREATED:
     case TARGET_WAITKIND_SYSCALL_ENTRY:
     case TARGET_WAITKIND_SYSCALL_RETURN:
       {
-	const char **regp;
 	struct regcache *regcache;
 	char *buf_start = buf;
 
-	if ((status.kind () == TARGET_WAITKIND_FORKED && cs.report_fork_events)
+	if ((status.kind () == TARGET_WAITKIND_FORKED
+	     && cs.report_fork_events)
 	    || (status.kind () == TARGET_WAITKIND_VFORKED
-		&& cs.report_vfork_events))
+		&& cs.report_vfork_events)
+	    || status.kind () == TARGET_WAITKIND_THREAD_CLONED)
 	  {
 	    enum gdb_signal signal = GDB_SIGNAL_TRAP;
-	    const char *event = (status.kind () == TARGET_WAITKIND_FORKED
-				 ? "fork" : "vfork");
+
+	    auto kind_remote_str = [] (target_waitkind kind)
+	    {
+	      switch (kind)
+		{
+		case TARGET_WAITKIND_FORKED:
+		  return "fork";
+		case TARGET_WAITKIND_VFORKED:
+		  return "vfork";
+		case TARGET_WAITKIND_THREAD_CLONED:
+		  return "clone";
+		default:
+		  gdb_assert_not_reached ("unhandled kind");
+		}
+	    };
+
+	    const char *event = kind_remote_str (status.kind ());
 
 	    sprintf (buf, "T%02x%s:", signal, event);
 	    buf += strlen (buf);
@@ -1142,8 +1126,8 @@ prepare_resume_reply (char *buf, ptid_t ptid, const target_waitstatus &status)
 	       here is convert the buffer from a T packet to an S packet
 	       and the avoid adding any extra content by breaking out.  */
 	    gdb_assert (buf_start[0] == 'T');
-	    gdb_assert (isxdigit (buf_start[1]));
-	    gdb_assert (isxdigit (buf_start[2]));
+	    gdb_assert (c_isxdigit (buf_start[1]));
+	    gdb_assert (c_isxdigit (buf_start[2]));
 	    buf_start[0] = 'S';
 	    buf_start[3] = '\0';
 	    break;
@@ -1155,27 +1139,46 @@ prepare_resume_reply (char *buf, ptid_t ptid, const target_waitstatus &status)
 
 	switch_to_thread (the_target, ptid);
 
-	regp = current_target_desc ()->expedite_regs;
-
-	regcache = get_thread_regcache (current_thread, 1);
+	regcache = get_thread_regcache (current_thread);
 
 	if (the_target->stopped_by_watchpoint ())
 	  {
-	    CORE_ADDR addr;
-	    int i;
+	    std::vector<CORE_ADDR> addr_vec
+	      = the_target->stopped_data_addresses ();
 
-	    memcpy (buf, "watch:", 6);
-	    buf += 6;
+	    /* If the debugger has not said that it can handle multiple
+	       watchpoint addresses then discard everything except the
+	       first address.
 
-	    addr = the_target->stopped_data_address ();
+	       Choosing the first address is pretty arbitrary, and might
+	       not be the best choice.  For example, if gdbserver tracked
+	       the memory contents for write watchpoints then we could
+	       check them all now to see which (if any) have changed.
 
-	    /* Convert each byte of the address into two hexadecimal
-	       chars.  Note that we take sizeof (void *) instead of
-	       sizeof (addr); this is to avoid sending a 64-bit
-	       address to a 32-bit GDB.  */
-	    for (i = sizeof (void *) * 2; i > 0; i--)
-	      *buf++ = tohex ((addr >> (i - 1) * 4) & 0xf);
-	    *buf++ = ';';
+	       For read watchpoints there's not much we can do.  If the
+	       debugger cannot accept multiple addresses, then we'd just
+	       have to pick one (at random) and send that.
+
+	       For now though, our preference is to pass all the addresses
+	       to the debugger (when supported), and rely on it to make a
+	       smart choice.  */
+	    if (!cs.multiple_wp_addr_feature
+		&& addr_vec.size () > 1)
+	      addr_vec.erase (addr_vec.begin () + 1, addr_vec.end ());
+
+	    for (const CORE_ADDR addr : addr_vec)
+	      {
+		memcpy (buf, "watch:", 6);
+		buf += 6;
+
+		/* Convert each byte of the address into two hexadecimal
+		   chars.  Note that we take sizeof (void *) instead of
+		   sizeof (addr); this is to avoid sending a 64-bit
+		   address to a 32-bit GDB.  */
+		for (int i = sizeof (void *) * 2; i > 0; i--)
+		  *buf++ = tohex ((addr >> (i - 1) * 4) & 0xf);
+		*buf++ = ';';
+	      }
 	  }
 	else if (cs.swbreak_feature && target_stopped_by_sw_breakpoint ())
 	  {
@@ -1188,11 +1191,11 @@ prepare_resume_reply (char *buf, ptid_t ptid, const target_waitstatus &status)
 	    buf += strlen (buf);
 	  }
 
-	while (*regp)
-	  {
-	    buf = outreg (regcache, find_regno (regcache->tdesc, *regp), buf);
-	    regp ++;
-	  }
+	/* Handle the expedited registers.  */
+	for (const std::string &expedited_reg :
+	     current_target_desc ()->expedite_regs)
+	  buf = outreg (regcache, find_regno (regcache->tdesc,
+					      expedited_reg.c_str ()), buf);
 	*buf = '\0';
 
 	/* Formerly, if the debugger had not used any thread features
@@ -1267,7 +1270,7 @@ prepare_resume_reply (char *buf, ptid_t ptid, const target_waitstatus &status)
       sprintf (buf, "N");
       break;
     default:
-      error ("unhandled waitkind");
+      error (_("unhandled waitkind"));
       break;
     }
 }
@@ -1314,6 +1317,13 @@ decode_M_packet (const char *from, CORE_ADDR *mem_addr_ptr,
     *to_p = (unsigned char *) xmalloc (*len_ptr);
 
   hex2bin (from, *to_p, *len_ptr);
+}
+
+void
+decode_x_packet (const char *from, CORE_ADDR *mem_addr_ptr,
+		 unsigned int *len_ptr)
+{
+  decode_m_packet_params (from, mem_addr_ptr, len_ptr, '\0');
 }
 
 int
@@ -1430,7 +1440,7 @@ look_up_one_symbol (const char *name, CORE_ADDR *addrp, int may_ask_gdb)
 
   /* Check the cache first.  */
   for (sym = proc->symbol_cache; sym; sym = sym->next)
-    if (strcmp (name, sym->name) == 0)
+    if (streq (name, sym->name))
       {
 	*addrp = sym->addr;
 	return 1;
@@ -1448,7 +1458,6 @@ look_up_one_symbol (const char *name, CORE_ADDR *addrp, int may_ask_gdb)
   if (putpkt (cs.own_buf) < 0)
     return -1;
 
-  /* FIXME:  Eventually add buffer overflow checking (to getpkt?)  */
   len = getpkt (cs.own_buf);
   if (len < 0)
     return -1;
@@ -1460,12 +1469,13 @@ look_up_one_symbol (const char *name, CORE_ADDR *addrp, int may_ask_gdb)
      while it figures out the address of the symbol.  */
   while (1)
     {
+      CORE_ADDR mem_addr;
+      unsigned char *mem_buf;
+      unsigned int mem_len;
+      int new_len = -1;
+
       if (cs.own_buf[0] == 'm')
 	{
-	  CORE_ADDR mem_addr;
-	  unsigned char *mem_buf;
-	  unsigned int mem_len;
-
 	  decode_m_packet (&cs.own_buf[1], &mem_addr, &mem_len);
 	  mem_buf = (unsigned char *) xmalloc (mem_len);
 	  if (read_inferior_memory (mem_addr, mem_buf, mem_len) == 0)
@@ -1476,9 +1486,42 @@ look_up_one_symbol (const char *name, CORE_ADDR *addrp, int may_ask_gdb)
 	  if (putpkt (cs.own_buf) < 0)
 	    return -1;
 	}
+      else if (cs.own_buf[0] == 'x')
+	{
+	  decode_x_packet (&cs.own_buf[1], &mem_addr, &mem_len);
+	  mem_buf = (unsigned char *) xmalloc (mem_len);
+	  if (read_inferior_memory (mem_addr, mem_buf, mem_len) == 0)
+	    {
+	      gdb_byte *buffer = (gdb_byte *) cs.own_buf;
+	      *buffer++ = 'b';
+
+	      int out_len_units;
+	      new_len = remote_escape_output (mem_buf, mem_len, 1,
+					      buffer,
+					      &out_len_units,
+					      PBUFSIZ);
+	      new_len++; /* For the 'b' marker.  */
+
+	      if (out_len_units != mem_len)
+		{
+		  write_enn (cs.own_buf);
+		  new_len = -1;
+		}
+	      else
+		suppress_next_putpkt_log ();
+	    }
+	  else
+	    write_enn (cs.own_buf);
+
+	  free (mem_buf);
+	  int res = ((new_len == -1)
+		     ? putpkt (cs.own_buf)
+		     : putpkt_binary (cs.own_buf, new_len));
+	  if (res < 0)
+	    return -1;
+	}
       else if (cs.own_buf[0] == 'v')
 	{
-	  int new_len = -1;
 	  handle_v_requests (cs.own_buf, len, &new_len);
 	  if (new_len != -1)
 	    putpkt_binary (cs.own_buf, new_len);
@@ -1494,7 +1537,7 @@ look_up_one_symbol (const char *name, CORE_ADDR *addrp, int may_ask_gdb)
 
   if (!startswith (cs.own_buf, "qSymbol:"))
     {
-      warning ("Malformed response to qSymbol, ignoring: %s", cs.own_buf);
+      warning (_("Malformed response to qSymbol, ignoring: %s"), cs.own_buf);
       return -1;
     }
 
@@ -1544,7 +1587,6 @@ relocate_instruction (CORE_ADDR *to, CORE_ADDR oldloc)
   if (putpkt (cs.own_buf) < 0)
     return -1;
 
-  /* FIXME:  Eventually add buffer overflow checking (to getpkt?)  */
   len = getpkt (cs.own_buf);
   if (len < 0)
     return -1;
@@ -1553,11 +1595,13 @@ relocate_instruction (CORE_ADDR *to, CORE_ADDR oldloc)
      wait for the qRelocInsn "response".  That requires re-entering
      the main loop.  For now, this is an adequate approximation; allow
      GDB to access memory.  */
-  while (cs.own_buf[0] == 'm' || cs.own_buf[0] == 'M' || cs.own_buf[0] == 'X')
+  while (cs.own_buf[0] == 'm' || cs.own_buf[0] == 'M'
+	 || cs.own_buf[0] == 'X' || cs.own_buf[0] == 'x')
     {
       CORE_ADDR mem_addr;
       unsigned char *mem_buf = NULL;
       unsigned int mem_len;
+      int new_len = -1;
 
       if (cs.own_buf[0] == 'm')
 	{
@@ -1565,6 +1609,33 @@ relocate_instruction (CORE_ADDR *to, CORE_ADDR oldloc)
 	  mem_buf = (unsigned char *) xmalloc (mem_len);
 	  if (read_inferior_memory (mem_addr, mem_buf, mem_len) == 0)
 	    bin2hex (mem_buf, cs.own_buf, mem_len);
+	  else
+	    write_enn (cs.own_buf);
+	}
+      else if (cs.own_buf[0] == 'x')
+	{
+	  decode_x_packet (&cs.own_buf[1], &mem_addr, &mem_len);
+	  mem_buf = (unsigned char *) xmalloc (mem_len);
+	  if (read_inferior_memory (mem_addr, mem_buf, mem_len) == 0)
+	    {
+	      gdb_byte *buffer = (gdb_byte *) cs.own_buf;
+	      *buffer++ = 'b';
+
+	      int out_len_units;
+	      new_len = remote_escape_output (mem_buf, mem_len, 1,
+					      buffer,
+					      &out_len_units,
+					      PBUFSIZ);
+	      new_len++; /* For the 'b' marker.  */
+
+	      if (out_len_units != mem_len)
+		{
+		  write_enn (cs.own_buf);
+		  new_len = -1;
+		}
+	      else
+		suppress_next_putpkt_log ();
+	    }
 	  else
 	    write_enn (cs.own_buf);
 	}
@@ -1586,7 +1657,11 @@ relocate_instruction (CORE_ADDR *to, CORE_ADDR oldloc)
 	    write_enn (cs.own_buf);
 	}
       free (mem_buf);
-      if (putpkt (cs.own_buf) < 0)
+
+      int res = ((new_len == -1)
+		 ? putpkt (cs.own_buf)
+		 : putpkt_binary (cs.own_buf, new_len));
+      if (res < 0)
 	return -1;
       len = getpkt (cs.own_buf);
       if (len < 0)
@@ -1595,14 +1670,14 @@ relocate_instruction (CORE_ADDR *to, CORE_ADDR oldloc)
 
   if (cs.own_buf[0] == 'E')
     {
-      warning ("An error occurred while relocating an instruction: %s",
+      warning (_("An error occurred while relocating an instruction: %s"),
 	       cs.own_buf);
       return -1;
     }
 
   if (!startswith (cs.own_buf, "qRelocInsn:"))
     {
-      warning ("Malformed response to qRelocInsn, ignoring: %s",
+      warning (_("Malformed response to qRelocInsn, ignoring: %s"),
 	       cs.own_buf);
       return -1;
     }

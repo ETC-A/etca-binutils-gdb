@@ -1,6 +1,6 @@
 /* Error reporting facilities.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "errors.h"
 #if defined (USE_WIN32API) || defined(__CYGWIN__)
 #include <windows.h>
@@ -142,6 +141,14 @@ strwinerror (ULONGEST error)
 
   SetLastError (lasterr);
   return buf;
+}
+
+/* See errors.h.  */
+
+void
+throw_winerror_with_name (const char *string, ULONGEST err)
+{
+  error (_("%s (error %u): %s"), string, (unsigned) err, strwinerror (err));
 }
 
 #endif /* USE_WIN32API */

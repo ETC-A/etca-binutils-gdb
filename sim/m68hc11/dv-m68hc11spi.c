@@ -1,5 +1,5 @@
 /*  dv-m68hc11spi.c -- Simulation of the 68HC11 SPI
-    Copyright (C) 2000-2023 Free Software Foundation, Inc.
+    Copyright (C) 2000-2026 Free Software Foundation, Inc.
     Written by Stephane Carrez (stcarrez@nerim.fr)
     (From a driver model Contributed by Cygnus Solutions.)
 
@@ -157,14 +157,10 @@ m68hc11spi_port_event (struct hw *me,
                        int source_port,
                        int level)
 {
-  SIM_DESC sd;
   struct m68hc11spi *controller;
-  sim_cpu *cpu;
   uint8_t val;
   
   controller = hw_data (me);
-  sd         = hw_system (me);
-  cpu        = STATE_CPU (sd, 0);  
   switch (my_port)
     {
     case RESET_PORT:
@@ -409,6 +405,7 @@ m68hc11spi_io_read_buffer (struct hw *me,
     case M6811_SPSR:
       controller->rx_clear_scsr = m68hc11_cpu->ios[M6811_SCSR]
         & (M6811_SPIF | M6811_WCOL | M6811_MODF);
+      ATTRIBUTE_FALLTHROUGH;
       
     case M6811_SPCR:
       val = m68hc11_cpu->ios[base];

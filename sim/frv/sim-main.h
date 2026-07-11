@@ -1,5 +1,5 @@
 /* frv simulator support code
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
 This file is part of the GNU simulators.
@@ -102,7 +102,7 @@ struct frv_sim_cpu {
 /* Misc.  */
 
 /* Catch address exceptions.  */
-extern SIM_CORE_SIGNAL_FN frv_core_signal;
+extern SIM_CORE_SIGNAL_FN frv_core_signal ATTRIBUTE_NORETURN;
 #define SIM_CORE_SIGNAL(SD,CPU,CIA,MAP,NR_BYTES,ADDR,TRANSFER,ERROR) \
 frv_core_signal ((SD), (CPU), (CIA), (MAP), (NR_BYTES), (ADDR), \
 		  (TRANSFER), (ERROR))

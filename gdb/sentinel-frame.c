@@ -1,6 +1,6 @@
 /* Code dealing with register stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "regcache.h"
 #include "sentinel-frame.h"
 #include "inferior.h"
@@ -32,8 +31,7 @@ struct frame_unwind_cache
 void *
 sentinel_frame_cache (struct regcache *regcache)
 {
-  struct frame_unwind_cache *cache = 
-    FRAME_OBSTACK_ZALLOC (struct frame_unwind_cache);
+  auto *cache = frame_obstack_zalloc<frame_unwind_cache> ();
 
   cache->regcache = regcache;
   return cache;
@@ -42,7 +40,7 @@ sentinel_frame_cache (struct regcache *regcache)
 /* Here the register value is taken direct from the register cache.  */
 
 static struct value *
-sentinel_frame_prev_register (frame_info_ptr this_frame,
+sentinel_frame_prev_register (const frame_info_ptr &this_frame,
 			      void **this_prologue_cache,
 			      int regnum)
 {
@@ -54,13 +52,12 @@ sentinel_frame_prev_register (frame_info_ptr this_frame,
   gdb_assert (is_sentinel_frame_id (this_frame_id));
 
   value = cache->regcache->cooked_read_value (regnum);
-  VALUE_NEXT_FRAME_ID (value) = this_frame_id;
 
   return value;
 }
 
 static void
-sentinel_frame_this_id (frame_info_ptr this_frame,
+sentinel_frame_this_id (const frame_info_ptr &this_frame,
 			void **this_prologue_cache,
 			struct frame_id *this_id)
 {
@@ -71,7 +68,7 @@ sentinel_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct gdbarch *
-sentinel_frame_prev_arch (frame_info_ptr this_frame,
+sentinel_frame_prev_arch (const frame_info_ptr &this_frame,
 			  void **this_prologue_cache)
 {
   struct frame_unwind_cache *cache
@@ -80,15 +77,15 @@ sentinel_frame_prev_arch (frame_info_ptr this_frame,
   return cache->regcache->arch ();
 }
 
-const struct frame_unwind sentinel_frame_unwind =
-{
+const struct frame_unwind_legacy sentinel_frame_unwind (
   "sentinel",
   SENTINEL_FRAME,
+  FRAME_UNWIND_GDB,
   default_frame_unwind_stop_reason,
   sentinel_frame_this_id,
   sentinel_frame_prev_register,
   NULL,
   NULL,
   NULL,
-  sentinel_frame_prev_arch,
-};
+  sentinel_frame_prev_arch
+);

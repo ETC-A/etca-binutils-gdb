@@ -1,6 +1,6 @@
 /* Target-dependent code for Renesas M32R, for GDB.
 
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,13 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
 #include "symtab.h"
 #include "gdbtypes.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "value.h"
 #include "inferior.h"
@@ -53,26 +53,26 @@ m32r_frame_align (struct gdbarch *gdbarch, CORE_ADDR sp)
 
 
 /* Breakpoints
- 
+
    The little endian mode of M32R is unique.  In most of architectures,
    two 16-bit instructions, A and B, are placed as the following:
-  
+
    Big endian:
    A0 A1 B0 B1
-  
+
    Little endian:
    A1 A0 B1 B0
-  
+
    In M32R, they are placed like this:
-  
+
    Big endian:
    A0 A1 B0 B1
-  
+
    Little endian:
    B1 B0 A1 A0
-  
+
    This is because M32R always fetches instructions in 32-bit.
-  
+
    The following functions take care of this behavior.  */
 
 static int
@@ -212,7 +212,7 @@ static const char * const m32r_register_names[] = {
 static const char *
 m32r_register_name (struct gdbarch *gdbarch, int reg_nr)
 {
-  gdb_static_assert (ARRAY_SIZE (m32r_register_names) == M32R_NUM_REGS);
+  static_assert (ARRAY_SIZE (m32r_register_names) == M32R_NUM_REGS);
   return m32r_register_names[reg_nr];
 }
 
@@ -463,7 +463,7 @@ m32r_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
   if (find_pc_partial_function (pc, NULL, &func_addr, &func_end))
     {
-      sal = find_pc_line (func_addr, 0);
+      sal = find_sal_for_pc (func_addr, 0);
 
       if (sal.line != 0 && sal.end <= func_end)
 	{
@@ -516,7 +516,7 @@ struct m32r_unwind_cache
    for it IS the sp for the next frame.  */
 
 static struct m32r_unwind_cache *
-m32r_frame_unwind_cache (frame_info_ptr this_frame,
+m32r_frame_unwind_cache (const frame_info_ptr &this_frame,
 			 void **this_prologue_cache)
 {
   CORE_ADDR pc, scan_limit;
@@ -524,13 +524,11 @@ m32r_frame_unwind_cache (frame_info_ptr this_frame,
   ULONGEST this_base;
   unsigned long op;
   int i;
-  struct m32r_unwind_cache *info;
-
 
   if ((*this_prologue_cache))
     return (struct m32r_unwind_cache *) (*this_prologue_cache);
 
-  info = FRAME_OBSTACK_ZALLOC (struct m32r_unwind_cache);
+  auto *info = frame_obstack_zalloc<m32r_unwind_cache> ();
   (*this_prologue_cache) = info;
   info->saved_regs = trad_frame_alloc_saved_regs (this_frame);
 
@@ -746,7 +744,7 @@ m32r_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 }
 
 
-/* Given a return value in `regbuf' with a type `valtype', 
+/* Given a return value in `regbuf' with a type `valtype',
    extract and copy its value into `valbuf'.  */
 
 static void
@@ -793,21 +791,21 @@ m32r_return_value (struct gdbarch *gdbarch, struct value *function,
    frame.  This will be used to create a new GDB frame struct.  */
 
 static void
-m32r_frame_this_id (frame_info_ptr this_frame,
+m32r_frame_this_id (const frame_info_ptr &this_frame,
 		    void **this_prologue_cache, struct frame_id *this_id)
 {
   struct m32r_unwind_cache *info
     = m32r_frame_unwind_cache (this_frame, this_prologue_cache);
   CORE_ADDR base;
   CORE_ADDR func;
-  struct bound_minimal_symbol msym_stack;
   struct frame_id id;
 
   /* The FUNC is easy.  */
   func = get_frame_func (this_frame);
 
   /* Check if the stack is empty.  */
-  msym_stack = lookup_minimal_symbol ("_stack", NULL, NULL);
+  bound_minimal_symbol msym_stack
+    = lookup_minimal_symbol (current_program_space, "_stack");
   if (msym_stack.minsym && info->base == msym_stack.value_address ())
     return;
 
@@ -823,7 +821,7 @@ m32r_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-m32r_frame_prev_register (frame_info_ptr this_frame,
+m32r_frame_prev_register (const frame_info_ptr &this_frame,
 			  void **this_prologue_cache, int regnum)
 {
   struct m32r_unwind_cache *info
@@ -831,18 +829,19 @@ m32r_frame_prev_register (frame_info_ptr this_frame,
   return trad_frame_get_prev_register (this_frame, info->saved_regs, regnum);
 }
 
-static const struct frame_unwind m32r_frame_unwind = {
+static const struct frame_unwind_legacy m32r_frame_unwind (
   "m32r prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   m32r_frame_this_id,
   m32r_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 static CORE_ADDR
-m32r_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+m32r_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct m32r_unwind_cache *info
     = m32r_frame_unwind_cache (this_frame, this_cache);
@@ -871,7 +870,7 @@ m32r_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     = gdbarch_alloc (&info, gdbarch_tdep_up (new m32r_gdbarch_tdep));
 
   set_gdbarch_wchar_bit (gdbarch, 16);
-  set_gdbarch_wchar_signed (gdbarch, 0);
+  set_gdbarch_wchar_signed (gdbarch, false);
 
   set_gdbarch_num_regs (gdbarch, M32R_NUM_REGS);
   set_gdbarch_pc_regnum (gdbarch, M32R_PC_REGNUM);
@@ -907,9 +906,7 @@ m32r_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_m32r_tdep ();
-void
-_initialize_m32r_tdep ()
+INIT_GDB_FILE (m32r_tdep)
 {
   gdbarch_register (bfd_arch_m32r, m32r_gdbarch_init);
 }

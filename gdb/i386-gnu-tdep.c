@@ -1,5 +1,5 @@
 /* Target-dependent code for the GNU Hurd.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,11 +16,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "gdbcore.h"
 #include "osabi.h"
 #include "solib-svr4.h"
 
+#include "glibc-tdep.h"
 #include "i386-tdep.h"
 
 /* Recognizing signal handler frames.  */
@@ -56,7 +57,7 @@ static const gdb_byte gnu_sigtramp_code[] =
    start of the routine.  Otherwise, return 0.  */
 
 static CORE_ADDR
-i386_gnu_sigtramp_start (frame_info_ptr this_frame)
+i386_gnu_sigtramp_start (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   gdb_byte buf[GNU_SIGTRAMP_LEN];
@@ -72,11 +73,10 @@ i386_gnu_sigtramp_start (frame_info_ptr this_frame)
   return pc;
 }
 
-/* Return whether THIS_FRAME corresponds to a GNU/Linux sigtramp
-   routine.  */
+/* Return whether THIS_FRAME corresponds to a Hurd sigtramp routine.  */
 
 static int
-i386_gnu_sigtramp_p (frame_info_ptr this_frame)
+i386_gnu_sigtramp_p (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   const char *name;
@@ -84,7 +84,7 @@ i386_gnu_sigtramp_p (frame_info_ptr this_frame)
   find_pc_partial_function (pc, &name, NULL, NULL);
 
   /* If we have a NAME, we can check for the trampoline function */
-  if (name != NULL && strcmp (name, "trampoline") == 0)
+  if (name != NULL && streq (name, "trampoline"))
     return 1;
 
   return i386_gnu_sigtramp_start (this_frame) != 0;
@@ -97,7 +97,7 @@ i386_gnu_sigtramp_p (frame_info_ptr this_frame)
    address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-i386_gnu_sigcontext_addr (frame_info_ptr this_frame)
+i386_gnu_sigcontext_addr (const frame_info_ptr &this_frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -178,8 +178,16 @@ i386gnu_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   /* GNU uses ELF.  */
   i386_elf_init_abi (info, gdbarch);
 
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  /* Hurd uses SVR4-style shared libraries.  */
+  set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
+  set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
+
+  /* Hurd uses the dynamic linker included in the GNU C Library.  */
+  set_gdbarch_skip_solib_resolver (gdbarch, glibc_skip_solib_resolver);
+
+  /* Enable TLS support.  */
+  set_gdbarch_fetch_tls_load_module_address (gdbarch,
+					     svr4_fetch_objfile_link_map);
 
   tdep->gregset_reg_offset = i386gnu_gregset_reg_offset;
   tdep->gregset_num_regs = ARRAY_SIZE (i386gnu_gregset_reg_offset);
@@ -193,9 +201,7 @@ i386gnu_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->sc_num_regs = ARRAY_SIZE (i386_gnu_sc_reg_offset);
 }
 
-void _initialize_i386gnu_tdep ();
-void
-_initialize_i386gnu_tdep ()
+INIT_GDB_FILE (i386gnu_tdep)
 {
   gdbarch_register_osabi (bfd_arch_i386, 0, GDB_OSABI_HURD, i386gnu_init_abi);
 }

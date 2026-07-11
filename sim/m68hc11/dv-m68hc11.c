@@ -1,5 +1,5 @@
 /*  dv-m68hc11.c -- CPU 68HC11&68HC12 as a device.
-    Copyright (C) 1999-2023 Free Software Foundation, Inc.
+    Copyright (C) 1999-2026 Free Software Foundation, Inc.
     Written by Stephane Carrez (stcarrez@nerim.fr)
     (From a driver model Contributed by Cygnus Solutions.)
     
@@ -589,13 +589,11 @@ m68hc11_info (struct hw *me)
   uint16_t base = 0;
   sim_cpu *cpu;
   struct m68hc11_sim_cpu *m68hc11_cpu;
-  struct m68hc11sio *controller;
   uint8_t val;
   
   sd = hw_system (me);
   cpu = STATE_CPU (sd, 0);
   m68hc11_cpu = M68HC11_SIM_CPU (cpu);
-  controller = hw_data (me);
 
   base = cpu_get_io_base (cpu);
   sim_io_printf (sd, "M68HC11:\n");
@@ -784,7 +782,6 @@ m68hc11_option_handler (SIM_DESC sd, sim_cpu *cpu,
           osc = &controller->oscillators[i];
           if (osc->event)
             {
-              double f;
               int cur_value;
               int next_value;
               char freq[32];
@@ -929,7 +926,7 @@ m68hc11cpu_set_port (struct hw *me, sim_cpu *cpu,
       /* Scan IC3, IC2 and IC1.  Bit number is 3 - i.  */
       for (i = 0; i < 3; i++)
         {
-          uint8_t mask = (1 << i);
+          mask = (1 << i);
           
           if (delta & mask)
             {

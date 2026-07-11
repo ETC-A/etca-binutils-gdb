@@ -1,4 +1,4 @@
-/* Copyright (C) 2022-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef PACKED_H
-#define PACKED_H
+#ifndef GDBSUPPORT_PACKED_H
+#define GDBSUPPORT_PACKED_H
 
 #include "traits.h"
 #include <atomic>
@@ -25,8 +25,8 @@
    defines a type that behaves like a given scalar type, but that has
    byte alignment, and, may optionally have a smaller size than the
    given scalar type.  This is typically used as alternative to
-   bit-fields (and ENUM_BITFIELD), when the fields must have separate
-   memory locations to avoid data races.  */
+   bit-fields, when the fields must have separate memory locations to
+   avoid data races.  */
 
 /* There are two implementations here -- one standard compliant, using
    a byte array for internal representation, and another that relies
@@ -62,7 +62,7 @@ public:
 
   packed (T val)
   {
-    gdb_static_assert (sizeof (ULONGEST) >= sizeof (T));
+    static_assert (sizeof (ULONGEST) >= sizeof (T));
 
 #if PACKED_USE_ARRAY
     ULONGEST tmp = val;
@@ -75,18 +75,16 @@ public:
     m_val = val;
 #endif
 
-    /* Ensure size and aligment are what we expect.  */
-    gdb_static_assert (sizeof (packed) == Bytes);
-    gdb_static_assert (alignof (packed) == 1);
+    /* Ensure size and alignment are what we expect.  */
+    static_assert (sizeof (packed) == Bytes);
+    static_assert (alignof (packed) == 1);
 
     /* Make sure packed can be wrapped with std::atomic.  */
-#if HAVE_IS_TRIVIALLY_COPYABLE
-    gdb_static_assert (std::is_trivially_copyable<packed>::value);
-#endif
-    gdb_static_assert (std::is_copy_constructible<packed>::value);
-    gdb_static_assert (std::is_move_constructible<packed>::value);
-    gdb_static_assert (std::is_copy_assignable<packed>::value);
-    gdb_static_assert (std::is_move_assignable<packed>::value);
+    static_assert (std::is_trivially_copyable<packed>::value);
+    static_assert (std::is_copy_constructible<packed>::value);
+    static_assert (std::is_move_constructible<packed>::value);
+    static_assert (std::is_copy_assignable<packed>::value);
+    static_assert (std::is_move_assignable<packed>::value);
   }
 
   operator T () const noexcept
@@ -165,4 +163,4 @@ PACKED_ATOMIC_OP (<=)
 
 #undef PACKED_ATOMIC_OP
 
-#endif
+#endif /* GDBSUPPORT_PACKED_H */

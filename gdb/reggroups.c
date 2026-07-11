@@ -1,6 +1,6 @@
 /* Register groupings for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by Red Hat.
 
@@ -19,13 +19,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "reggroups.h"
 #include "gdbtypes.h"
 #include "regcache.h"
 #include "command.h"
-#include "gdbcmd.h"		/* For maintenanceprintlist.  */
+#include "cli/cli-cmds.h"
 #include "gdbsupport/gdb_obstack.h"
 
 /* See reggroups.h.  */
@@ -112,10 +111,7 @@ static const registry<gdbarch>::key<reggroups> reggroups_data;
 static reggroups *
 get_reggroups (struct gdbarch *gdbarch)
 {
-  struct reggroups *groups = reggroups_data.get (gdbarch);
-  if (groups == nullptr)
-    groups = reggroups_data.emplace (gdbarch);
-  return groups;
+  return &reggroups_data.try_emplace (gdbarch);
 }
 
 /* See reggroups.h.  */
@@ -143,23 +139,19 @@ gdbarch_reggroups (struct gdbarch *gdbarch)
 
 /* See reggroups.h.  */
 
-int
+bool
 default_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 			     const struct reggroup *group)
 {
-  int vector_p;
-  int float_p;
-  int raw_p;
-
   if (*gdbarch_register_name (gdbarch, regnum) == '\0')
-    return 0;
+    return false;
   if (group == all_reggroup)
-    return 1;
-  vector_p = register_type (gdbarch, regnum)->is_vector ();
-  float_p = (register_type (gdbarch, regnum)->code () == TYPE_CODE_FLT
-	     || (register_type (gdbarch, regnum)->code ()
-		 == TYPE_CODE_DECFLOAT));
-  raw_p = regnum < gdbarch_num_regs (gdbarch);
+    return true;
+  bool vector_p = register_type (gdbarch, regnum)->is_vector ();
+  bool float_p = (register_type (gdbarch, regnum)->code () == TYPE_CODE_FLT
+		  || (register_type (gdbarch, regnum)->code ()
+		      == TYPE_CODE_DECFLOAT));
+  bool raw_p = regnum < gdbarch_num_regs (gdbarch);
   if (group == float_reggroup)
     return float_p;
   if (group == vector_reggroup)
@@ -168,7 +160,7 @@ default_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
     return (!vector_p && !float_p);
   if (group == save_reggroup || group == restore_reggroup)
     return raw_p;
-  return 0;
+  return false;
 }
 
 /* See reggroups.h.  */
@@ -178,7 +170,7 @@ reggroup_find (struct gdbarch *gdbarch, const char *name)
 {
   for (const struct reggroup *group : gdbarch_reggroups (gdbarch))
     {
-      if (strcmp (name, group->name ()) == 0)
+      if (streq (name, group->name ()))
 	return group;
     }
   return NULL;
@@ -187,16 +179,19 @@ reggroup_find (struct gdbarch *gdbarch, const char *name)
 /* Dump out a table of register groups for the current architecture.  */
 
 static void
-reggroups_dump (struct gdbarch *gdbarch, struct ui_file *file)
+reggroups_dump (gdbarch *gdbarch, ui_out *out)
 {
-  static constexpr const char *fmt = " %-10s %-10s\n";
-
-  gdb_printf (file, fmt, "Group", "Type");
+  ui_out_emit_table table (out, 2, -1, "RegGroups");
+  out->table_header (10, ui_left, "group", "Group");
+  out->table_header (10, ui_left, "type", "Type");
+  out->table_body ();
 
   for (const struct reggroup *group : gdbarch_reggroups (gdbarch))
     {
+      ui_out_emit_tuple tuple_emitter (out, nullptr);
+
       /* Group name.  */
-      const char *name = group->name ();
+      out->field_string ("group", group->name ());
 
       /* Group type.  */
       const char *type;
@@ -215,8 +210,8 @@ reggroups_dump (struct gdbarch *gdbarch, struct ui_file *file)
 
       /* Note: If you change this, be sure to also update the
 	 documentation.  */
-
-      gdb_printf (file, fmt, name, type);
+      out->field_string ("type", type);
+      out->text ("\n");
     }
 }
 
@@ -228,14 +223,15 @@ maintenance_print_reggroups (const char *args, int from_tty)
   struct gdbarch *gdbarch = get_current_arch ();
 
   if (args == NULL)
-    reggroups_dump (gdbarch, gdb_stdout);
+    reggroups_dump (gdbarch, current_uiout);
   else
     {
       stdio_file file;
 
       if (!file.open (args, "w"))
 	perror_with_name (_("maintenance print reggroups"));
-      reggroups_dump (gdbarch, &file);
+      ui_out_redirect_pop redirect (current_uiout, &file);
+      reggroups_dump (gdbarch, current_uiout);
     }
 }
 
@@ -256,9 +252,7 @@ const reggroup *const all_reggroup = &all_group;
 const reggroup *const save_reggroup = &save_group;
 const reggroup *const restore_reggroup = &restore_group;
 
-void _initialize_reggroup ();
-void
-_initialize_reggroup ()
+INIT_GDB_FILE (reggroup)
 {
   add_cmd ("reggroups", class_maintenance,
 	   maintenance_print_reggroups, _("\

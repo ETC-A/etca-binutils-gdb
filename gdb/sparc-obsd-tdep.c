@@ -1,6 +1,6 @@
 /* Target-dependent code for OpenBSD/sparc.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
@@ -68,7 +68,7 @@ sparc32obsd_pc_in_sigtramp (CORE_ADDR pc, const char *name)
 }
 
 static struct sparc_frame_cache *
-sparc32obsd_sigtramp_frame_cache (frame_info_ptr this_frame,
+sparc32obsd_sigtramp_frame_cache (const frame_info_ptr &this_frame,
 				  void **this_cache)
 {
   struct sparc_frame_cache *cache;
@@ -100,7 +100,7 @@ sparc32obsd_sigtramp_frame_cache (frame_info_ptr this_frame,
 }
 
 static void
-sparc32obsd_sigtramp_frame_this_id (frame_info_ptr this_frame,
+sparc32obsd_sigtramp_frame_this_id (const frame_info_ptr &this_frame,
 				    void **this_cache,
 				    struct frame_id *this_id)
 {
@@ -111,7 +111,7 @@ sparc32obsd_sigtramp_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-sparc32obsd_sigtramp_frame_prev_register (frame_info_ptr this_frame,
+sparc32obsd_sigtramp_frame_prev_register (const frame_info_ptr &this_frame,
 					  void **this_cache, int regnum)
 {
   struct sparc_frame_cache *cache =
@@ -122,7 +122,7 @@ sparc32obsd_sigtramp_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 sparc32obsd_sigtramp_frame_sniffer (const struct frame_unwind *self,
-				    frame_info_ptr this_frame,
+				    const frame_info_ptr &this_frame,
 				    void **this_cache)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
@@ -134,20 +134,20 @@ sparc32obsd_sigtramp_frame_sniffer (const struct frame_unwind *self,
 
   return 0;
 }
-static const struct frame_unwind sparc32obsd_sigtramp_frame_unwind =
-{
+static const struct frame_unwind_legacy sparc32obsd_sigtramp_frame_unwind (
   "sparc32 openbsd sigtramp",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   sparc32obsd_sigtramp_frame_this_id,
   sparc32obsd_sigtramp_frame_prev_register,
   NULL,
   sparc32obsd_sigtramp_frame_sniffer
-};
+);
 
 
 
-/* Offset wthin the thread structure where we can find %fp and %i7.  */
+/* Offset within the thread structure where we can find %fp and %i7.  */
 #define SPARC32OBSD_UTHREAD_FP_OFFSET	128
 #define SPARC32OBSD_UTHREAD_PC_OFFSET	132
 
@@ -254,9 +254,7 @@ sparc32obsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   bsd_uthread_set_collect_uthread (gdbarch, sparc32obsd_collect_uthread);
 }
 
-void _initialize_sparc32obsd_tdep ();
-void
-_initialize_sparc32obsd_tdep ()
+INIT_GDB_FILE (sparc32obsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_sparc, 0, GDB_OSABI_OPENBSD,
 			  sparc32obsd_init_abi);

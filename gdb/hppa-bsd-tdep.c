@@ -1,6 +1,6 @@
 /* Target-dependent code for HP PA-RISC BSD's.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "objfiles.h"
 #include "target.h"
 #include "value.h"
@@ -54,12 +54,12 @@ hppabsd_find_global_pointer (struct gdbarch *gdbarch, struct value *function)
   faddr_sec = find_pc_section (faddr);
   if (faddr_sec != NULL)
     {
-      for (struct obj_section *sec : faddr_sec->objfile->sections ())
+      for (struct obj_section &sec : faddr_sec->objfile->sections ())
 	{
-	  if (strcmp (sec->the_bfd_section->name, ".dynamic") == 0)
+	  if (streq (sec.the_bfd_section->name, ".dynamic"))
 	    {
-	      CORE_ADDR addr = sec->addr ();
-	      CORE_ADDR endaddr = sec->endaddr ();
+	      CORE_ADDR addr = sec.addr ();
+	      CORE_ADDR endaddr = sec.endaddr ();
 
 	      while (addr < endaddr)
 		{
@@ -81,7 +81,7 @@ hppabsd_find_global_pointer (struct gdbarch *gdbarch, struct value *function)
 			 DT_PLTGOT, so we have to do it ourselves.  */
 		      pltgot = extract_unsigned_integer (buf, sizeof buf,
 							 byte_order);
-		      pltgot += sec->objfile->text_section_offset ();
+		      pltgot += sec.objfile->text_section_offset ();
 
 		      return pltgot;
 		    }
@@ -104,7 +104,7 @@ hppabsd_find_global_pointer (struct gdbarch *gdbarch, struct value *function)
 static void
 hppabsd_dwarf2_frame_init_reg (struct gdbarch *gdbarch, int regnum,
 			       struct dwarf2_frame_state_reg *reg,
-			       frame_info_ptr this_frame)
+			       const frame_info_ptr &this_frame)
 {
   if (regnum == HPPA_PCOQ_HEAD_REGNUM)
     reg->how = DWARF2_FRAME_REG_RA;
@@ -128,8 +128,7 @@ hppabsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_skip_trampoline_code (gdbarch, hppa_skip_trampoline_code);
 
   /* OpenBSD and NetBSD use SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
 
   /* Hook in the DWARF CFI frame unwinder.  */
   dwarf2_frame_set_init_reg (gdbarch, hppabsd_dwarf2_frame_init_reg);

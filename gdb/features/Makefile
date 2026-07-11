@@ -1,4 +1,4 @@
-# Copyright (C) 2007-2023 Free Software Foundation, Inc.
+# Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
 # This file is part of GDB.
 
@@ -46,7 +46,7 @@
 # List of .dat files to create in ../regformats/
 WHICH = mips-linux mips-dsp-linux \
 	mips64-linux mips64-dsp-linux \
-	nios2-linux \
+	microblaze-linux \
 	or1k-linux \
 	rs6000/powerpc-32 \
 	rs6000/powerpc-32l rs6000/powerpc-altivec32l rs6000/powerpc-e500l \
@@ -69,11 +69,11 @@ WHICH = mips-linux mips-dsp-linux \
 	tic6x-c64xp-linux tic6x-c64x-linux tic6x-c62x-linux
 
 # Record which registers should be sent to GDB by default after stop.
+microblaze-expedite = r1,rpc
 mips-expedite = r29,pc
 mips-dsp-expedite = r29,pc
 mips64-expedite = r29,pc
 mips64-dsp-expedite = r29,pc
-nios2-linux-expedite = sp,pc
 or1k-expedite = r1,npc
 powerpc-expedite = r1,pc
 s390-linux32-expedite = r14,r15,pswa
@@ -100,14 +100,15 @@ OUTPUTS = $(patsubst %,$(outdir)/%.dat,$(WHICH))
 # --enable-targets=all GDB.  You can override this by passing XMLTOC
 # to make on the command line.
 XMLTOC = \
-	microblaze-with-stack-protect.xml \
+	alpha.xml \
 	microblaze.xml \
+	microblaze-linux.xml \
+	microblaze-with-stack-protect.xml \
 	mips-dsp-linux.xml \
 	mips-linux.xml \
 	mips64-dsp-linux.xml \
 	mips64-linux.xml \
 	nds32.xml \
-	nios2.xml \
 	or1k.xml \
 	or1k-linux.xml \
 	rs6000/powerpc-32.xml \
@@ -191,6 +192,8 @@ $(outdir)/%.dat: %.xml number-regs.xsl sort-regs.xsl gdbserver-regs.xsl
 	echo "xmltarget:$(<F)" >> $(outdir)/$*.tmp
 	echo "expedite:$(if $($*-expedite),$($*-expedite),$($(firstword $(subst -, ,$(notdir $*)))-expedite))" \
 	  >> $(outdir)/$*.tmp
+	$(XSLTPROC) --path "$(PWD)" --xinclude print-osabi.xsl $< \
+	  >> $(outdir)/$*.tmp
 	$(XSLTPROC) --path "$(PWD)" --xinclude number-regs.xsl $< | \
 	  $(XSLTPROC) sort-regs.xsl - | \
 	  $(XSLTPROC) gdbserver-regs.xsl - >> $(outdir)/$*.tmp
@@ -199,9 +202,12 @@ $(outdir)/%.dat: %.xml number-regs.xsl sort-regs.xsl gdbserver-regs.xsl
 # For targets with feature based target descriptions,
 # the set of xml files we'll generate .c files for GDB from.
 FEATURE_XMLFILES = aarch64-core.xml \
+	aarch64-fpmr.xml \
 	aarch64-fpu.xml \
 	aarch64-pauth.xml \
 	aarch64-mte.xml \
+	aarch64-gcs.xml \
+	aarch64-gcs-linux.xml \
 	arc/v1-core.xml \
 	arc/v1-aux.xml \
 	arc/v2-core.xml \
@@ -222,21 +228,24 @@ FEATURE_XMLFILES = aarch64-core.xml \
 	i386/32bit-sse.xml \
 	i386/32bit-linux.xml \
 	i386/32bit-avx.xml \
-	i386/32bit-mpx.xml \
 	i386/32bit-avx512.xml \
 	i386/32bit-segments.xml \
+	i386/32bit-ssp.xml \
 	i386/64bit-avx512.xml \
 	i386/64bit-core.xml \
-	i386/64bit-mpx.xml \
 	i386/64bit-segments.xml \
 	i386/64bit-avx.xml \
 	i386/64bit-linux.xml \
 	i386/64bit-sse.xml \
 	i386/pkeys.xml \
+	i386/64bit-ssp.xml \
 	i386/x32-core.xml \
 	loongarch/base32.xml \
 	loongarch/base64.xml \
 	loongarch/fpu.xml \
+	loongarch/lsx.xml \
+	loongarch/lasx.xml \
+	loongarch/lbt.xml \
 	riscv/rv32e-xregs.xml \
 	riscv/32bit-cpu.xml \
 	riscv/32bit-fpu.xml \

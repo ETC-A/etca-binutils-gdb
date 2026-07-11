@@ -1,6 +1,6 @@
 /* Target-dependent code for NetBSD/amd64.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "frame.h"
 #include "gdbcore.h"
@@ -35,7 +34,7 @@
    routine.  */
 
 static int
-amd64nbsd_sigtramp_p (frame_info_ptr this_frame)
+amd64nbsd_sigtramp_p (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   const char *name;
@@ -48,7 +47,7 @@ amd64nbsd_sigtramp_p (frame_info_ptr this_frame)
    return the address of the associated mcontext structure.  */
 
 static CORE_ADDR
-amd64nbsd_mcontext_addr (frame_info_ptr this_frame)
+amd64nbsd_mcontext_addr (const frame_info_ptr &this_frame)
 {
   CORE_ADDR addr;
 
@@ -117,13 +116,10 @@ amd64nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->sc_num_regs = ARRAY_SIZE (amd64nbsd_r_reg_offset);
 
   /* NetBSD uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_lp64_solib_ops);
 }
 
-void _initialize_amd64nbsd_tdep ();
-void
-_initialize_amd64nbsd_tdep ()
+INIT_GDB_FILE (amd64nbsd_tdep)
 {
   /* The NetBSD/amd64 native dependent code makes this assumption.  */
   gdb_assert (ARRAY_SIZE (amd64nbsd_r_reg_offset) == AMD64_NUM_GREGS);

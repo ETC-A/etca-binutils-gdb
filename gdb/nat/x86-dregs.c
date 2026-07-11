@@ -1,6 +1,6 @@
 /* Debug register code for x86 (i386 and x86-64).
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "x86-dregs.h"
 #include "gdbsupport/break-common.h"
 
@@ -289,7 +288,7 @@ Invalid hardware breakpoint type %d in x86_length_and_rw_bits.\n"),
       case 8:
 	if (TARGET_HAS_DR_LEN_8)
 	  return (DR_LEN_8 | rw);
-	/* FALL THROUGH */
+	[[fallthrough]];
       default:
 	internal_error (_("\
 Invalid hardware breakpoint length %d in x86_length_and_rw_bits.\n"), len);
@@ -656,7 +655,7 @@ x86_dr_stopped_data_address (struct x86_debug_reg_state *state,
 
       /* This second condition makes sure DRi is set up for a data
 	 watchpoint, not a hardware breakpoint.  The reason is that
-	 GDB doesn't call the target_stopped_data_address method
+	 GDB doesn't call the target_stopped_data_addresses method
 	 except for data watchpoints.  In other words, I'm being
 	 paranoiac.  */
       if (X86_DR_GET_RW_LEN (control, i) != 0)

@@ -1,6 +1,6 @@
 /* Native-dependent code for NetBSD/hppa.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 
@@ -230,9 +229,7 @@ hppa_nbsd_nat_target::store_registers (struct regcache *regcache, int regnum)
     }
 }
 
-void _initialize_hppanbsd_nat ();
-void
-_initialize_hppanbsd_nat ()
+INIT_GDB_FILE (hppanbsd_nat)
 {
   add_inf_child_target (&the_hppa_nbsd_nat_target);
 }

@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 1996-2023 Free Software Foundation, Inc.
+## Copyright (C) 1996-2026 Free Software Foundation, Inc.
 ## Written by Cygnus Support.
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -75,4 +75,5 @@ BUILT_SOURCES += %D%/simops.h
 	$(AM_V_GEN)$< >$@
 
 EXTRA_PROGRAMS += %D%/gencode
+CLEANFILES += %D%/simops.h
 MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)

@@ -88,13 +88,13 @@ lookup_hash (SIM_DESC sd, SIM_CPU *cpu, uint32_t ins, int size)
 INLINE static void
 get_operands (struct simops *s, uint32_t ins)
 {
-  int i, shift, bits, flags;
+  int i, shift, bits;
   uint32_t mask;
   for (i=0; i < s->numops; i++)
     {
       shift = s->operands[3*i];
       bits = s->operands[3*i+1];
-      flags = s->operands[3*i+2];
+      /* flags = s->operands[3*i+2]; */
       mask = 0x7FFFFFFF >> (31 - bits);
       OP[i] = (ins >> shift) & mask;
     }
@@ -964,7 +964,7 @@ step_once (SIM_DESC sd, SIM_CPU *cpu)
 	{
 	  if (PSW_RP && PC == RPT_E)
 	    {
-	      /* Note: The behavour of a branch instruction at RPT_E
+	      /* Note: The behavior of a branch instruction at RPT_E
 		 is implementation dependant, this simulator takes the
 		 branch.  Branching to RPT_E is valid, the instruction
 		 must be executed before the loop is taken.  */

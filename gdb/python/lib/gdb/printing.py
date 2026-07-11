@@ -1,5 +1,5 @@
 # Pretty-printer utilities.
-# Copyright (C) 2010-2023 Free Software Foundation, Inc.
+# Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,9 +16,11 @@
 
 """Utilities for working with pretty-printers."""
 
+import itertools
+import re
+
 import gdb
 import gdb.types
-import re
 
 
 class PrettyPrinter(object):
@@ -219,16 +221,16 @@ class RegexpCollectionPrettyPrinter(PrettyPrinter):
 
 # A helper class for printing enum types.  This class is instantiated
 # with a list of enumerators to print a particular Value.
-class _EnumInstance:
+class _EnumInstance(gdb.ValuePrinter):
     def __init__(self, enumerators, val):
-        self.enumerators = enumerators
-        self.val = val
+        self.__enumerators = enumerators
+        self.__val = val
 
     def to_string(self):
         flag_list = []
-        v = int(self.val)
+        v = int(self.__val)
         any_found = False
-        for e_name, e_value in self.enumerators:
+        for e_name, e_value in self.__enumerators:
             if v & e_value != 0:
                 flag_list.append(e_name)
                 v = v & ~e_value
@@ -236,7 +238,7 @@ class _EnumInstance:
         if not any_found or v != 0:
             # Leftover value.
             flag_list.append("<unknown: 0x%x>" % v)
-        return "0x%x [%s]" % (int(self.val), " | ".join(flag_list))
+        return "0x%x [%s]" % (int(self.__val), " | ".join(flag_list))
 
 
 class FlagEnumerationPrinter(PrettyPrinter):
@@ -269,27 +271,94 @@ class FlagEnumerationPrinter(PrettyPrinter):
             return None
 
 
-class NoOpScalarPrinter:
+class NoOpScalarPrinter(gdb.ValuePrinter):
     """A no-op pretty printer that wraps a scalar value."""
 
     def __init__(self, value):
-        self.value = value
+        self.__value = value
 
     def to_string(self):
-        return self.value.format_string(raw=True)
+        return self.__value.format_string(raw=True)
 
 
-class NoOpArrayPrinter:
+class NoOpStringPrinter(gdb.ValuePrinter):
+    """A no-op pretty printer that wraps a string value."""
+
+    def __init__(self, ty, value):
+        self.__ty = ty
+        self.__value = value
+
+    def to_string(self):
+        # We need some special cases here.
+        #
+        # * If the gdb.Value was created from a Python string, it will
+        #   be a non-lazy array -- but will have address 0 and so the
+        #   contents will be lost on conversion to lazy string.
+        #   (Weirdly, the .address attribute will not be 0 though.)
+        #   Since conversion to lazy string is to avoid fetching too
+        #   much data, and since the array is already non-lazy, just
+        #   return it.
+        #
+        # * To avoid weird printing for a C "string" that is just a
+        #   NULL pointer, special case this as well.
+        #
+        # * Lazy strings only understand arrays and pointers; other
+        #   string-like objects (like a Rust &str) should simply be
+        #   returned.
+        code = self.__ty.code
+        if code == gdb.TYPE_CODE_ARRAY and not self.__value.is_lazy:
+            return self.__value
+        elif code == gdb.TYPE_CODE_PTR and self.__value == 0:
+            return self.__value
+        elif code != gdb.TYPE_CODE_PTR and code != gdb.TYPE_CODE_ARRAY:
+            return self.__value
+        else:
+            return self.__value.lazy_string()
+
+    def display_hint(self):
+        return "string"
+
+
+class NoOpPointerReferencePrinter(gdb.ValuePrinter):
+    """A no-op pretty printer that wraps a pointer or reference."""
+
+    def __init__(self, value):
+        self.__value = value
+
+    def to_string(self):
+        return self.__value.format_string(deref_refs=False)
+
+    def num_children(self):
+        return 1
+
+    def child(self, i):
+        return "value", self.__value.referenced_value()
+
+    def children(self):
+        yield "value", self.__value.referenced_value()
+
+
+class NoOpArrayPrinter(gdb.ValuePrinter):
     """A no-op pretty printer that wraps an array value."""
 
     def __init__(self, ty, value):
-        self.value = value
-        (low, high) = ty.range()
-        self.low = low
-        self.high = high
-        # This is a convenience to the DAP code and perhaps other
-        # users.
-        self.num_children = high - low + 1
+        self.__value = value
+        low, high = ty.range()
+        # In Ada, an array can have an index type that is a
+        # non-contiguous enum.  In this case the indexing must be done
+        # by using the indices into the enum type, not the underlying
+        # integer values.
+        range_type = ty.fields()[0].type
+        if range_type.target().code == gdb.TYPE_CODE_ENUM:
+            e_values = range_type.target().fields()
+            # Drop any values before LOW.
+            e_values = itertools.dropwhile(lambda x: x.enumval < low, e_values)
+            # Drop any values after HIGH.
+            e_values = itertools.takewhile(lambda x: x.enumval <= high, e_values)
+            low = 0
+            high = len(list(e_values)) - 1
+        self.__low = low
+        self.__high = high
 
     def to_string(self):
         return ""
@@ -297,25 +366,31 @@ class NoOpArrayPrinter:
     def display_hint(self):
         return "array"
 
+    def num_children(self):
+        return self.__high - self.__low + 1
+
+    def child(self, i):
+        return (self.__low + i, self.__value[self.__low + i])
+
     def children(self):
-        for i in range(self.low, self.high + 1):
-            yield (i, self.value[i])
+        for i in range(self.__low, self.__high + 1):
+            yield (i, self.__value[i])
 
 
-class NoOpStructPrinter:
+class NoOpStructPrinter(gdb.ValuePrinter):
     """A no-op pretty printer that wraps a struct or union value."""
 
     def __init__(self, ty, value):
-        self.ty = ty
-        self.value = value
+        self.__ty = ty
+        self.__value = value
 
     def to_string(self):
         return ""
 
     def children(self):
-        for field in self.ty.fields():
-            if field.name is not None:
-                yield (field.name, self.value[field])
+        for field in self.__ty.fields():
+            if hasattr(field, "bitpos") and field.name is not None:
+                yield (field.name, self.__value[field])
 
 
 def make_visualizer(value):
@@ -330,12 +405,35 @@ def make_visualizer(value):
         pass
     else:
         ty = value.type.strip_typedefs()
-        if ty.code == gdb.TYPE_CODE_ARRAY:
-            result = gdb.printing.NoOpArrayPrinter(ty, value)
+        if ty.is_string_like:
+            result = NoOpStringPrinter(ty, value)
+        elif ty.code == gdb.TYPE_CODE_ARRAY:
+            result = NoOpArrayPrinter(ty, value)
+        elif ty.is_array_like:
+            value = value.to_array()
+            ty = value.type.strip_typedefs()
+            result = NoOpArrayPrinter(ty, value)
         elif ty.code in (gdb.TYPE_CODE_STRUCT, gdb.TYPE_CODE_UNION):
-            result = gdb.printing.NoOpStructPrinter(ty, value)
+            result = NoOpStructPrinter(ty, value)
+        elif (
+            ty.code
+            in (
+                gdb.TYPE_CODE_PTR,
+                gdb.TYPE_CODE_REF,
+                gdb.TYPE_CODE_RVALUE_REF,
+            )
+            # Avoid "void *" here because those pointers can't be
+            # dereferenced without a cast.
+            and ty.target().code != gdb.TYPE_CODE_VOID
+            # An optimized-out or unavailable pointer should just be
+            # treated as a scalar, since there's no way to dereference
+            # it.
+            and not value.is_optimized_out
+            and not value.is_unavailable
+        ):
+            result = NoOpPointerReferencePrinter(value)
         else:
-            result = gdb.printing.NoOpScalarPrinter(value)
+            result = NoOpScalarPrinter(value)
     return result
 
 

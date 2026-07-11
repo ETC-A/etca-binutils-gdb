@@ -1,6 +1,6 @@
 /* CLI utilities.
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "cli/cli-style.h"
 #include "cli/cli-utils.h"
+#include "ui-out.h"
 #include "value.h"
 
-#include <ctype.h>
 
 /* See documentation in cli-utils.h.  */
 
@@ -47,13 +47,14 @@ get_ulongest (const char **pp, int trailer)
 	  /* Internal variable.  Make a copy of the name, so we can
 	     null-terminate it to pass to lookup_internalvar().  */
 	  const char *start = ++p;
-	  while (isalnum (*p) || *p == '_')
+	  while (c_isalnum (*p) || *p == '_')
 	    p++;
 	  std::string varname (start, p - start);
 	  if (!get_internalvar_integer (lookup_internalvar (varname.c_str ()),
 				       &retval))
-	    error (_("Convenience variable $%s does not have integer value."),
-		   varname.c_str ());
+	    error (_("Convenience variable %p[$%s%p] does not have integer value."),
+		   variable_name_style.style ().ptr (),
+		   varname.c_str (), nullptr);
 	}
     }
   else
@@ -68,7 +69,7 @@ get_ulongest (const char **pp, int trailer)
       p = end;
     }
 
-  if (!(isspace (*p) || *p == '\0' || *p == trailer))
+  if (!(c_isspace (*p) || *p == '\0' || *p == trailer))
     error (_("Trailing junk at: %s"), p);
   p = skip_spaces (p);
   *pp = p;
@@ -112,7 +113,7 @@ get_number_trailer (const char **pp, int trailer)
 	  const char *start = ++p;
 	  LONGEST longest_val;
 
-	  while (isalnum (*p) || *p == '_')
+	  while (c_isalnum (*p) || *p == '_')
 	    p++;
 	  varname = (char *) alloca (p - start + 1);
 	  strncpy (varname, start, p - start);
@@ -137,7 +138,7 @@ get_number_trailer (const char **pp, int trailer)
 	/* There is no number here.  (e.g. "cond a == b").  */
 	{
 	  /* Skip non-numeric token.  */
-	  while (*p && !isspace((int) *p))
+	  while (*p && !c_isspace((int) *p))
 	    ++p;
 	  /* Return zero, which caller must interpret as error.  */
 	  retval = 0;
@@ -145,10 +146,10 @@ get_number_trailer (const char **pp, int trailer)
       else
 	retval = atoi (p1);
     }
-  if (!(isspace (*p) || *p == '\0' || *p == trailer))
+  if (!(c_isspace (*p) || *p == '\0' || *p == trailer))
     {
       /* Trailing junk: return 0 and let caller print error msg.  */
-      while (!(isspace (*p) || *p == '\0' || *p == trailer))
+      while (!(c_isspace (*p) || *p == '\0' || *p == trailer))
 	++p;
       retval = 0;
     }
@@ -185,9 +186,11 @@ report_unrecognized_option_error (const char *command, const char *args)
 {
   std::string option = extract_arg (&args);
 
-  error (_("Unrecognized option '%s' to %s command.  "
-	   "Try \"help %s\"."), option.c_str (),
-	 command, command);
+  error (_("Unrecognized option '%s' to \"%ps\" command.  "
+	   "Try \"%p[help %s%p]\"."),
+	 option.c_str (),
+	 styled_string (command_style.style (), command),
+	 command_style.style ().ptr (), command, nullptr);
 }
 
 /* See documentation in cli-utils.h.  */
@@ -198,10 +201,10 @@ info_print_args_help (const char *prefix,
 		      bool document_n_flag)
 {
   return xstrprintf (_("\
-%sIf NAMEREGEXP is provided, only prints the %s whose name\n\
-matches NAMEREGEXP.\n\
-If -t TYPEREGEXP is provided, only prints the %s whose type\n\
-matches TYPEREGEXP.  Note that the matching is done with the type\n\
+%sIf NAMEREGEXP is provided, only prints the %s\n\
+whose name matches NAMEREGEXP.\n\
+If -t TYPEREGEXP is provided, only prints the %s\n\
+whose type matches TYPEREGEXP.  Note that the matching is done with the type\n\
 printed by the 'whatis' command.\n\
 By default, the command might produce headers and/or messages indicating\n\
 why no %s can be printed.\n\
@@ -263,8 +266,8 @@ number_or_range_parser::get_number ()
 	 option rather than an incomplete range, so check for end of
 	 string as well.  */
       if (m_cur_tok[0] == '-'
-	  && !(isspace (m_cur_tok[-1])
-	       && (isalpha (m_cur_tok[1])
+	  && !(c_isspace (m_cur_tok[-1])
+	       && (c_isalpha (m_cur_tok[1])
 		   || m_cur_tok[1] == '-'
 		   || m_cur_tok[1] == '\0')))
 	{
@@ -294,7 +297,7 @@ number_or_range_parser::get_number ()
     }
   else
     {
-      if (isdigit (*(m_cur_tok + 1)))
+      if (c_isdigit (*(m_cur_tok + 1)))
 	error (_("negative value"));
       if (*(m_cur_tok + 1) == '$')
 	{
@@ -331,17 +334,17 @@ number_or_range_parser::finished () const
      integer, convenience var or negative convenience var.  */
   return (m_cur_tok == NULL || *m_cur_tok == '\0'
 	  || (!m_in_range
-	      && !(isdigit (*m_cur_tok) || *m_cur_tok == '$')
+	      && !(c_isdigit (*m_cur_tok) || *m_cur_tok == '$')
 	      && !(*m_cur_tok == '-'
-		   && (isdigit (m_cur_tok[1]) || m_cur_tok[1] == '$'))));
+		   && (c_isdigit (m_cur_tok[1]) || m_cur_tok[1] == '$'))));
 }
 
-/* Accept a number and a string-form list of numbers such as is 
+/* Accept a number and a string-form list of numbers such as is
    accepted by get_number_or_range.  Return TRUE if the number is
    in the list.
 
-   By definition, an empty list includes all numbers.  This is to 
-   be interpreted as typing a command such as "delete break" with 
+   By definition, an empty list includes all numbers.  This is to
+   be interpreted as typing a command such as "delete break" with
    no arguments.  */
 
 int
@@ -371,7 +374,7 @@ number_is_in_list (const char *list, int number)
 const char *
 remove_trailing_whitespace (const char *start, const char *s)
 {
-  while (s > start && isspace (*(s - 1)))
+  while (s > start && c_isspace (*(s - 1)))
     --s;
 
   return s;
@@ -421,7 +424,7 @@ int
 check_for_argument (const char **str, const char *arg, int arg_len)
 {
   if (strncmp (*str, arg, arg_len) == 0
-      && ((*str)[arg_len] == '\0' || isspace ((*str)[arg_len])))
+      && ((*str)[arg_len] == '\0' || c_isspace ((*str)[arg_len])))
     {
       *str += arg_len;
       *str = skip_spaces (*str);
@@ -436,6 +439,6 @@ void
 validate_flags_qcs (const char *which_command, qcs_flags *flags)
 {
   if (flags->cont && flags->silent)
-    error (_("%s: -c and -s are mutually exclusive"), which_command);
+    error (_("%ps: -c and -s are mutually exclusive"),
+	   styled_string (command_style.style (), which_command));
 }
-

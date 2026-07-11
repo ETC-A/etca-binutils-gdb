@@ -1,6 +1,6 @@
 /* Guile interface to program spaces.
 
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "charset.h"
 #include "progspace.h"
 #include "objfiles.h"
@@ -278,11 +277,11 @@ gdbscm_progspace_objfiles (SCM self)
 
   result = SCM_EOL;
 
-  for (objfile *objfile : p_smob->pspace->objfiles ())
+  for (objfile &objfile : p_smob->pspace->objfiles ())
     {
-      if (objfile->separate_debug_objfile_backlink == NULL)
+      if (objfile.separate_debug_objfile_backlink == NULL)
 	{
-	  SCM item = ofscm_scm_from_objfile (objfile);
+	  SCM item = ofscm_scm_from_objfile (&objfile);
 
 	  result = scm_cons (item, result);
 	}

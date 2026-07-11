@@ -1,6 +1,6 @@
 /* Machine independent support for Solaris /proc (process file system) for GDB.
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
@@ -20,13 +20,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "inferior.h"
 #include "infrun.h"
 #include "target.h"
 #include "gdbcore.h"
-#include "elf-bfd.h"		/* for elfcore_write_* */
-#include "gdbcmd.h"
+#include "elf-bfd.h"
+#include "cli/cli-cmds.h"
 #include "gdbthread.h"
 #include "regcache.h"
 #include "inf-child.h"
@@ -38,7 +38,6 @@
 #include <sys/syscall.h>
 #include "gdbsupport/gdb_wait.h"
 #include <signal.h>
-#include <ctype.h>
 #include "gdb_bfd.h"
 #include "auxv.h"
 #include "procfs.h"
@@ -46,6 +45,8 @@
 #include "gdbsupport/scoped_fd.h"
 #include "gdbsupport/pathstuff.h"
 #include "gdbsupport/buildargv.h"
+#include "gdbsupport/eintr.h"
+#include "cli/cli-style.h"
 
 /* This module provides the interface between GDB and the
    /proc file system, which is used on many versions of Unix
@@ -66,11 +67,11 @@
    interface.  */
 
 #include <sys/types.h>
-#include <dirent.h>	/* opendir/readdir, for listing the LWP's */
+#include <dirent.h>
 
-#include <fcntl.h>	/* for O_RDONLY */
-#include <unistd.h>	/* for "X_OK" */
-#include <sys/stat.h>	/* for struct stat */
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 /* Note: procfs-utils.h must be included after the above system header
    files, because it redefines various system calls using macros.
@@ -133,8 +134,7 @@ public:
   { return tc_schedlock; }
 
   /* find_memory_regions support method for gcore */
-  int find_memory_regions (find_memory_region_ftype func, void *data)
-    override;
+  bool find_memory_regions (find_memory_region_ftype func) override;
 
   gdb::unique_xmalloc_ptr<char> make_corefile_notes (bfd *, int *) override;
 
@@ -157,7 +157,7 @@ public:
   int region_ok_for_hw_watchpoint (CORE_ADDR, int) override;
 
   int can_use_hw_breakpoint (enum bptype, int, int) override;
-  bool stopped_data_address (CORE_ADDR *) override;
+  std::vector<CORE_ADDR> stopped_data_addresses () override;
 
   void procfs_init_inferior (int pid);
 };
@@ -173,7 +173,7 @@ procfs_target::auxv_parse (const gdb_byte **readptr,
 			   const gdb_byte *endptr, CORE_ADDR *typep,
 			   CORE_ADDR *valp)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch ());
+  bfd_endian byte_order = gdbarch_byte_order (current_inferior ()->arch ());
   const gdb_byte *ptr = *readptr;
 
   if (endptr == ptr)
@@ -204,7 +204,7 @@ procfs_target::auxv_parse (const gdb_byte **readptr,
    concerning a /proc process.  There should be exactly one procinfo
    for each process, and since GDB currently can debug only one
    process at a time, that means there should be only one procinfo.
-   All of the LWP's of a process can be accessed indirectly thru the
+   All of the LWP's of a process can be accessed indirectly through the
    single process procinfo.
 
    However, against the day when GDB may debug more than one process,
@@ -255,8 +255,6 @@ typedef struct procinfo {
   int threads_valid: 1;
 } procinfo;
 
-static char errmsg[128];	/* shared error msg buffer */
-
 /* Function prototypes for procinfo module: */
 
 static procinfo *find_procinfo_or_die (int pid, int tid);
@@ -266,11 +264,6 @@ static void destroy_procinfo (procinfo *p);
 static void dead_procinfo (procinfo *p, const char *msg, int killp);
 static int open_procinfo_files (procinfo *p, int which);
 static void close_procinfo_files (procinfo *p);
-
-static int iterate_over_mappings
-  (procinfo *pi, find_memory_region_ftype child_func, void *data,
-   int (*func) (struct prmap *map, find_memory_region_ftype child_func,
-		void *data));
 
 /* The head of the procinfo list: */
 static procinfo *procinfo_list;
@@ -549,7 +542,7 @@ struct procinfo_deleter
   }
 };
 
-typedef std::unique_ptr<procinfo, procinfo_deleter> procinfo_up;
+using procinfo_up = std::unique_ptr<procinfo, procinfo_deleter>;
 
 enum { NOKILL, KILL };
 
@@ -560,7 +553,7 @@ enum { NOKILL, KILL };
 static void
 dead_procinfo (procinfo *pi, const char *msg, int kill_p)
 {
-  print_sys_errmsg (pi->pathname, errno);
+  warning_filename_and_errno (pi->pathname, errno);
   if (kill_p == KILL)
     kill (pi->pid, SIGKILL);
 
@@ -595,17 +588,19 @@ static void proc_resume (procinfo *pi, ptid_t scope_ptid,
 static void
 proc_warn (procinfo *pi, const char *func, int line)
 {
-  xsnprintf (errmsg, sizeof (errmsg), "procfs: %s line %d, %s",
-	     func, line, pi->pathname);
-  print_sys_errmsg (errmsg, errno);
+  int saved_errno = errno;
+  warning (_("procfs: %s line %d, %ps: %s"),
+	   func, line, styled_string (file_name_style.style (),
+				      pi->pathname),
+	   safe_strerror (saved_errno));
 }
 
 static void
 proc_error (procinfo *pi, const char *func, int line)
 {
-  xsnprintf (errmsg, sizeof (errmsg), "procfs: %s line %d, %s",
-	     func, line, pi->pathname);
-  perror_with_name (errmsg);
+  int saved_errno = errno;
+  error (_("procfs: %s line %d, %s: %s"),
+	 func, line, pi->pathname, safe_strerror (saved_errno));
 }
 
 /* Updates the status struct in the procinfo.  There is a 'valid'
@@ -708,9 +703,10 @@ proc_watchpoint_address (procinfo *pi, CORE_ADDR *addr)
     if (!proc_get_status (pi))
       return 0;
 
-  *addr = (CORE_ADDR) gdbarch_pointer_to_address (target_gdbarch (),
-	    builtin_type (target_gdbarch ())->builtin_data_ptr,
-	    (gdb_byte *) &pi->prstatus.pr_lwp.pr_info.si_addr);
+  gdbarch *arch = current_inferior ()->arch ();
+  *addr = gdbarch_pointer_to_address
+	    (arch, builtin_type (arch)->builtin_data_ptr,
+	     (gdb_byte *) &pi->prstatus.pr_lwp.pr_info.si_addr);
   return 1;
 }
 
@@ -1514,12 +1510,12 @@ proc_parent_pid (procinfo *pi)
 static void *
 procfs_address_to_host_pointer (CORE_ADDR addr)
 {
-  struct type *ptr_type = builtin_type (target_gdbarch ())->builtin_data_ptr;
+  gdbarch *arch = current_inferior ()->arch ();
+  type *ptr_type = builtin_type (arch)->builtin_data_ptr;
   void *ptr;
 
   gdb_assert (sizeof (ptr) == ptr_type->length ());
-  gdbarch_address_to_pointer (target_gdbarch (), ptr_type,
-			      (gdb_byte *) &ptr, addr);
+  gdbarch_address_to_pointer (arch, ptr_type, (gdb_byte *) &ptr, addr);
   return ptr;
 }
 
@@ -1805,11 +1801,12 @@ do_attach (ptid_t ptid)
 
   if (!open_procinfo_files (pi, FD_CTL))
     {
-      gdb_printf (gdb_stderr, "procfs:%d -- ", __LINE__);
-      xsnprintf (errmsg, sizeof (errmsg),
-		 "do_attach: couldn't open /proc file for process %d",
-		 ptid.pid ());
-      dead_procinfo (pi, errmsg, NOKILL);
+      int saved_errno = errno;
+      std::string errmsg
+	= string_printf ("procfs:%d -- do_attach: couldn't open /proc "
+			 "file for process %d", __LINE__, ptid.pid ());
+      errno = saved_errno;
+      dead_procinfo (pi, errmsg.c_str (), NOKILL);
     }
 
   /* Stop the process (if it isn't already stopped).  */
@@ -2059,8 +2056,9 @@ wait_again:
 	    {
 	      int wait_retval;
 
-	      /* /proc file not found; presumably child has terminated.  */
-	      wait_retval = ::wait (&wstat); /* "wait" for the child's exit.  */
+	      /* /proc file not found; presumably child has terminated.  Wait
+		 for the child's exit.  */
+	      wait_retval = gdb::wait (&wstat);
 
 	      /* Wrong child?  */
 	      if (wait_retval != inf->pid)
@@ -2117,9 +2115,6 @@ wait_again:
 	      case PR_SYSENTRY:
 		if (what == SYS_lwp_exit)
 		  {
-		    if (print_thread_events)
-		      gdb_printf (_("[%s exited]\n"),
-				  target_pid_to_str (retval).c_str ());
 		    delete_thread (this->find_thread (retval));
 		    proc_resume (pi, ptid, 0, GDB_SIGNAL_0);
 		    goto wait_again;
@@ -2150,7 +2145,7 @@ wait_again:
 		      }
 		    else
 		      {
-			int temp = ::wait (&wstat);
+			int temp = gdb::wait (&wstat);
 
 			/* FIXME: shouldn't I make sure I get the right
 			   event from the right process?  If (for
@@ -2223,9 +2218,6 @@ wait_again:
 		  }
 		else if (what == SYS_lwp_exit)
 		  {
-		    if (print_thread_events)
-		      gdb_printf (_("[%s exited]\n"),
-				  target_pid_to_str (retval).c_str ());
 		    delete_thread (this->find_thread (retval));
 		    status->set_spurious ();
 		    return retval;
@@ -2403,8 +2395,8 @@ procfs_xfer_memory (gdb_byte *readbuf, const gdb_byte *writebuf,
    descriptors for the parent process, but discard any file
    descriptors we may have accumulated for the threads.
 
-   As this function is called by iterate_over_threads, it always
-   returns zero (so that iterate_over_threads will keep
+   As this function is called by proc_iterate_over_threads, it always
+   returns zero (so that proc_iterate_over_threads will keep
    iterating).  */
 
 static int
@@ -2563,9 +2555,9 @@ unconditionally_kill_inferior (procinfo *pi)
 #if 0
       int status, ret;
 
-      ret = waitpid (pi->pid, &status, 0);
+      ret = gdb::waitpid (pi->pid, &status, 0);
 #else
-      wait (NULL);
+      gdb::wait (NULL);
 #endif
     }
 }
@@ -2763,6 +2755,9 @@ procfs_target::create_inferior (const char *exec_file,
 				const std::string &allargs,
 				char **env, int from_tty)
 {
+  if (exec_file == nullptr)
+    no_executable_specified_error ();
+
   const char *shell_file = get_shell ();
   char *tryname;
   int pid;
@@ -2873,7 +2868,7 @@ procfs_target::update_thread_list ()
 {
   procinfo *pi;
 
-  prune_threads ();
+  prune_threads (this);
 
   /* Find procinfo for main process.  */
   pi = find_procinfo_or_die (inferior_ptid.pid (), 0);
@@ -3015,7 +3010,8 @@ procfs_target::can_use_hw_breakpoint (enum bptype type, int cnt, int othertype)
      procfs_address_to_host_pointer will reveal that an internal error
      will be generated when the host and target pointer sizes are
      different.  */
-  struct type *ptr_type = builtin_type (target_gdbarch ())->builtin_data_ptr;
+  struct type *ptr_type
+    = builtin_type (current_inferior ()->arch ())->builtin_data_ptr;
 
   if (sizeof (void *) != ptr_type->length ())
     return 0;
@@ -3042,19 +3038,19 @@ procfs_target::stopped_by_watchpoint ()
   return false;
 }
 
-/* Returns 1 if the OS knows the position of the triggered watchpoint,
-   and sets *ADDR to that address.  Returns 0 if OS cannot report that
-   address.  This function is only called if
-   procfs_stopped_by_watchpoint returned 1, thus no further checks are
-   done.  The function also assumes that ADDR is not NULL.  */
+/* Returns a vector containing the position of the triggered watchpoint.
+   Returns the empty vector if OS cannot report that address.  This
+   function is only called if procfs_stopped_by_watchpoint returned 1, thus
+   no further checks are done.  */
 
-bool
-procfs_target::stopped_data_address (CORE_ADDR *addr)
+std::vector<CORE_ADDR>
+procfs_target::stopped_data_addresses ()
 {
-  procinfo *pi;
-
-  pi = find_procinfo_or_die (inferior_ptid.pid (), 0);
-  return proc_watchpoint_address (pi, addr);
+  procinfo *pi = find_procinfo_or_die (inferior_ptid.pid (), 0);
+  CORE_ADDR addr;
+  if (proc_watchpoint_address (pi, &addr))
+    return { addr };
+  return {};
 }
 
 int
@@ -3063,7 +3059,7 @@ procfs_target::insert_watchpoint (CORE_ADDR addr, int len,
 				  struct expression *cond)
 {
   if (!target_have_steppable_watchpoint ()
-      && !gdbarch_have_nonsteppable_watchpoint (target_gdbarch ()))
+      && !gdbarch_have_nonsteppable_watchpoint (current_inferior ()->arch ()))
     /* When a hardware watchpoint fires off the PC will be left at
        the instruction following the one which caused the
        watchpoint.  It will *NOT* be necessary for GDB to step over
@@ -3099,27 +3095,23 @@ procfs_target::region_ok_for_hw_watchpoint (CORE_ADDR addr, int len)
 
 /* Call a callback function once for each mapping, passing it the
    mapping, an optional secondary callback function, and some optional
-   opaque data.  Quit and return the first non-zero value returned
-   from the callback.
+   opaque data.  If the callback returns false, stop iterating and return
+   false.  Otherwise, return true.
 
    PI is the procinfo struct for the process to be mapped.  FUNC is
    the callback function to be called by this iterator.  DATA is the
    optional opaque data to be passed to the callback function.
    CHILD_FUNC is the optional secondary function pointer to be passed
-   to the child function.  Returns the first non-zero return value
-   from the callback function, or zero.  */
+   to the child function.  */
 
-static int
+static bool
 iterate_over_mappings (procinfo *pi, find_memory_region_ftype child_func,
-		       void *data,
-		       int (*func) (struct prmap *map,
-				    find_memory_region_ftype child_func,
-				    void *data))
+		       bool (*func) (struct prmap *map,
+				     find_memory_region_ftype child_func))
 {
   char pathname[MAX_PROC_NAME_SIZE];
   struct prmap *prmaps;
   struct prmap *prmap;
-  int funcstat;
   int nmap;
   struct stat sbuf;
 
@@ -3144,31 +3136,26 @@ iterate_over_mappings (procinfo *pi, find_memory_region_ftype child_func,
     proc_error (pi, "iterate_over_mappings (read)", __LINE__);
 
   for (prmap = prmaps; nmap > 0; prmap++, nmap--)
-    {
-      funcstat = (*func) (prmap, child_func, data);
-      if (funcstat != 0)
-	return funcstat;
-    }
+    if (!func (prmap, child_func))
+      return false;
 
-  return 0;
+  return true;
 }
 
 /* Implements the to_find_memory_regions method.  Calls an external
    function for each memory region.
-   Returns the integer value returned by the callback.  */
+   Returns the value returned by the callback.  */
 
-static int
-find_memory_regions_callback (struct prmap *map,
-			      find_memory_region_ftype func, void *data)
+static bool
+find_memory_regions_callback (struct prmap *map, find_memory_region_ftype func)
 {
-  return (*func) ((CORE_ADDR) map->pr_vaddr,
-		  map->pr_size,
-		  (map->pr_mflags & MA_READ) != 0,
-		  (map->pr_mflags & MA_WRITE) != 0,
-		  (map->pr_mflags & MA_EXEC) != 0,
-		  1, /* MODIFIED is unknown, pass it as true.  */
-		  false,
-		  data);
+  return func ((CORE_ADDR) map->pr_vaddr,
+	       map->pr_size,
+	       (map->pr_mflags & MA_READ) != 0,
+	       (map->pr_mflags & MA_WRITE) != 0,
+	       (map->pr_mflags & MA_EXEC) != 0,
+	       true, /* MODIFIED is unknown, pass it as true.  */
+	       false);
 }
 
 /* External interface.  Calls a callback function once for each
@@ -3183,13 +3170,12 @@ find_memory_regions_callback (struct prmap *map,
    Stops iterating and returns the first non-zero value returned by
    the callback.  */
 
-int
-procfs_target::find_memory_regions (find_memory_region_ftype func, void *data)
+bool
+procfs_target::find_memory_regions (find_memory_region_ftype func)
 {
   procinfo *pi = find_procinfo_or_die (inferior_ptid.pid (), 0);
 
-  return iterate_over_mappings (pi, func, data,
-				find_memory_regions_callback);
+  return iterate_over_mappings (pi, func, find_memory_regions_callback);
 }
 
 /* Returns an ascii representation of a memory mapping's flags.  */
@@ -3218,7 +3204,7 @@ mappingflags (long flags)
 /* Callback function, does the actual work for 'info proc
    mappings'.  */
 
-static int
+static bool
 info_mappings_callback (struct prmap *map, find_memory_region_ftype ignore,
 			void *unused)
 {
@@ -3226,7 +3212,7 @@ info_mappings_callback (struct prmap *map, find_memory_region_ftype ignore,
 
   pr_off = (unsigned int) map->pr_offset;
 
-  if (gdbarch_addr_bit (target_gdbarch ()) == 32)
+  if (gdbarch_addr_bit (current_inferior ()->arch ()) == 32)
     gdb_printf ("\t%#10lx %#10lx %#10lx %#10x %7s\n",
 		(unsigned long) map->pr_vaddr,
 		(unsigned long) map->pr_vaddr + map->pr_size - 1,
@@ -3241,7 +3227,7 @@ info_mappings_callback (struct prmap *map, find_memory_region_ftype ignore,
 		pr_off,
 		mappingflags (map->pr_mflags));
 
-  return 0;
+  return true;
 }
 
 /* Implement the "info proc mappings" subcommand.  */
@@ -3253,7 +3239,7 @@ info_proc_mappings (procinfo *pi, int summary)
     return;	/* No output for summary mode.  */
 
   gdb_printf (_("Mapped address spaces:\n\n"));
-  if (gdbarch_ptr_bit (target_gdbarch ()) == 32)
+  if (gdbarch_ptr_bit (current_inferior ()->arch ()) == 32)
     gdb_printf ("\t%10s %10s %10s %10s %7s\n",
 		"Start Addr",
 		"  End Addr",
@@ -3301,7 +3287,7 @@ procfs_target::info_proc (const char *args, enum info_proc_what what)
   gdb_argv built_argv (args);
   for (char *arg : built_argv)
     {
-      if (isdigit (arg[0]))
+      if (c_isdigit (arg[0]))
 	{
 	  pid = strtoul (arg, &tmp, 10);
 	  if (*tmp == '/')
@@ -3412,7 +3398,7 @@ proc_trace_syscalls (const char *args, int from_tty, int entry_or_exit, int mode
     error_no_arg (_("system call to trace"));
 
   pi = find_procinfo_or_die (inferior_ptid.pid (), 0);
-  if (isdigit (args[0]))
+  if (c_isdigit (args[0]))
     {
       const int syscallnum = atoi (args);
 
@@ -3444,9 +3430,7 @@ proc_untrace_sysexit_cmd (const char *args, int from_tty)
   proc_trace_syscalls (args, from_tty, PR_SYSEXIT, FLAG_RESET);
 }
 
-void _initialize_procfs ();
-void
-_initialize_procfs ()
+INIT_GDB_FILE (procfs)
 {
   add_com ("proc-trace-entry", no_class, proc_trace_sysentry_cmd,
 	   _("Give a trace of entries into the syscall."));
@@ -3547,21 +3531,17 @@ procfs_corefile_thread_callback (procinfo *pi, procinfo *thread, void *data)
   return 0;
 }
 
-static int
-find_signalled_thread (struct thread_info *info, void *data)
+static bool
+find_signalled_thread (struct thread_info *info)
 {
-  if (info->stop_signal () != GDB_SIGNAL_0
-      && info->ptid.pid () == inferior_ptid.pid ())
-    return 1;
-
-  return 0;
+  return (info->stop_signal () != GDB_SIGNAL_0
+	  && info->ptid.pid () == inferior_ptid.pid ());
 }
 
 static enum gdb_signal
 find_stop_signal (void)
 {
-  struct thread_info *info =
-    iterate_over_threads (find_signalled_thread, NULL);
+  struct thread_info *info = find_thread (find_signalled_thread);
 
   if (info)
     return info->stop_signal ();
@@ -3579,11 +3559,12 @@ procfs_target::make_corefile_notes (bfd *obfd, int *note_size)
   gdb::unique_xmalloc_ptr<char> note_data;
   enum gdb_signal stop_signal;
 
-  if (get_exec_file (0))
+  if (const auto exec_filename = current_program_space->exec_filename ();
+      exec_filename != nullptr)
     {
-      strncpy (fname, lbasename (get_exec_file (0)), sizeof (fname));
+      strncpy (fname, lbasename (exec_filename), sizeof (fname));
       fname[sizeof (fname) - 1] = 0;
-      strncpy (psargs, get_exec_file (0), sizeof (psargs));
+      strncpy (psargs, exec_filename, sizeof (psargs));
       psargs[sizeof (psargs) - 1] = 0;
 
       const std::string &inf_args = current_inferior ()->args ();
@@ -3605,7 +3586,7 @@ procfs_target::make_corefile_notes (bfd *obfd, int *note_size)
 
   stop_signal = find_stop_signal ();
 
-  fill_gregset (get_current_regcache (), &gregs, -1);
+  fill_gregset (get_thread_regcache (inferior_thread ()), &gregs, -1);
   note_data.reset (elfcore_write_pstatus (obfd, note_data.release (), note_size,
 					  inferior_ptid.pid (),
 					  stop_signal, &gregs));
@@ -3615,7 +3596,7 @@ procfs_target::make_corefile_notes (bfd *obfd, int *note_size)
   proc_iterate_over_threads (pi, procfs_corefile_thread_callback,
 			     &thread_args);
 
-  gdb::optional<gdb::byte_vector> auxv =
+  std::optional<gdb::byte_vector> auxv =
     target_read_alloc (current_inferior ()->top_target (),
 		       TARGET_OBJECT_AUXV, NULL);
   if (auxv && !auxv->empty ())

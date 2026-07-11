@@ -1,6 +1,6 @@
 /* Native-dependent code for Alpha BSD's.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,6 @@
 
 /* We define this to get types like register_t.  */
 #define _KERNTYPES
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 
@@ -157,9 +156,7 @@ alphabsd_supply_pcb (struct regcache *regcache, struct pcb *pcb)
 }
 
 
-void _initialize_alphabsd_nat ();
-void
-_initialize_alphabsd_nat ()
+INIT_GDB_FILE (alphabsd_nat)
 {
   add_inf_child_target (&the_alpha_bsd_nat_target);
 

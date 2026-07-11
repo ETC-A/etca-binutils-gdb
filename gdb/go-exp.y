@@ -1,6 +1,6 @@
 /* YACC parser for Go expressions, for GDB.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -51,8 +51,6 @@
 
 %{
 
-#include "defs.h"
-#include <ctype.h>
 #include "expression.h"
 #include "value.h"
 #include "parser-defs.h"
@@ -570,16 +568,15 @@ variable:	name_not_typename
 			    }
 			  else
 			    {
-			      struct bound_minimal_symbol msymbol;
 			      std::string arg = copy_name ($1.stoken);
 
-			      msymbol =
-				lookup_bound_minimal_symbol (arg.c_str ());
+			      bound_minimal_symbol msymbol =
+				lookup_minimal_symbol (current_program_space, arg.c_str ());
 			      if (msymbol.minsym != NULL)
 				pstate->push_new<var_msym_value_operation>
 				  (msymbol);
-			      else if (!have_full_symbols ()
-				       && !have_partial_symbols ())
+			      else if (!current_program_space->has_full_symbols ()
+				       && !current_program_space->has_partial_symbols ())
 				error (_("No symbol table is loaded.  "
 				       "Use the \"file\" command."));
 			      else
@@ -665,13 +662,13 @@ parse_number (struct parser_state *par_state,
 
       /* Handle suffixes: 'f' for float32, 'l' for long double.
 	 FIXME: This appears to be an extension -- do we want this?  */
-      if (len >= 1 && tolower (p[len - 1]) == 'f')
+      if (len >= 1 && c_tolower (p[len - 1]) == 'f')
 	{
 	  putithere->typed_val_float.type
 	    = builtin_go_types->builtin_float32;
 	  len--;
 	}
-      else if (len >= 1 && tolower (p[len - 1]) == 'l')
+      else if (len >= 1 && c_tolower (p[len - 1]) == 'l')
 	{
 	  putithere->typed_val_float.type
 	    = parse_type (par_state)->builtin_long_double;
@@ -898,14 +895,14 @@ parse_string_or_char (const char *tokptr, const char **outptr,
   return quote == '\'' ? CHAR : STRING;
 }
 
-struct token
+struct go_token
 {
   const char *oper;
   int token;
   enum exp_opcode opcode;
 };
 
-static const struct token tokentab3[] =
+static const struct go_token tokentab3[] =
   {
     {">>=", ASSIGN_MODIFY, BINOP_RSH},
     {"<<=", ASSIGN_MODIFY, BINOP_LSH},
@@ -913,7 +910,7 @@ static const struct token tokentab3[] =
     {"...", DOTDOTDOT, OP_NULL},
   };
 
-static const struct token tokentab2[] =
+static const struct go_token tokentab2[] =
   {
     {"+=", ASSIGN_MODIFY, BINOP_ADD},
     {"-=", ASSIGN_MODIFY, BINOP_SUB},
@@ -939,7 +936,7 @@ static const struct token tokentab2[] =
   };
 
 /* Identifier-like tokens.  */
-static const struct token ident_tokens[] =
+static const struct go_token ident_tokens[] =
   {
     {"true", TRUE_KEYWORD, OP_NULL},
     {"false", FALSE_KEYWORD, OP_NULL},
@@ -1054,7 +1051,7 @@ lex_one_token (struct parser_state *par_state)
 	    last_was_structop = 1;
 	  goto symbol;		/* Nope, must be a symbol. */
 	}
-      /* FALL THRU.  */
+      [[fallthrough]];
 
     case '0':
     case '1':
@@ -1104,13 +1101,8 @@ lex_one_token (struct parser_state *par_state)
 	toktype = parse_number (par_state, tokstart, p - tokstart,
 				got_dot|got_e, &yylval);
 	if (toktype == ERROR)
-	  {
-	    char *err_copy = (char *) alloca (p - tokstart + 1);
-
-	    memcpy (err_copy, tokstart, p - tokstart);
-	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
-	  }
+	  error (_("Invalid number \"%.*s\"."), (int) (p - tokstart),
+		 tokstart);
 	par_state->lexptr = p;
 	return toktype;
       }
@@ -1120,16 +1112,16 @@ lex_one_token (struct parser_state *par_state)
 	const char *p = &tokstart[1];
 	size_t len = strlen ("entry");
 
-	while (isspace (*p))
+	while (c_isspace (*p))
 	  p++;
-	if (strncmp (p, "entry", len) == 0 && !isalnum (p[len])
+	if (strncmp (p, "entry", len) == 0 && !c_isalnum (p[len])
 	    && p[len] != '_')
 	  {
 	    par_state->lexptr = &p[len];
 	    return ENTRY;
 	  }
       }
-      /* FALLTHRU */
+      [[fallthrough]];
     case '+':
     case '-':
     case '*':
@@ -1210,10 +1202,7 @@ lex_one_token (struct parser_state *par_state)
       && strncmp (tokstart, "thread", namelen) == 0
       && (tokstart[namelen] == ' ' || tokstart[namelen] == '\t'))
     {
-      const char *p = tokstart + namelen + 1;
-
-      while (*p == ' ' || *p == '\t')
-	p++;
+      const char *p = skip_spaces (tokstart + namelen + 1);
       if (*p >= '0' && *p <= '9')
 	return 0;
     }
@@ -1245,7 +1234,7 @@ lex_one_token (struct parser_state *par_state)
 }
 
 /* An object of this type is pushed on a FIFO by the "outer" lexer.  */
-struct token_and_value
+struct go_token_and_value
 {
   int token;
   YYSTYPE value;
@@ -1253,7 +1242,7 @@ struct token_and_value
 
 /* A FIFO of tokens that have been read but not yet returned to the
    parser.  */
-static std::vector<token_and_value> token_fifo;
+static std::vector<go_token_and_value> token_fifo;
 
 /* Non-zero if the lexer should return tokens from the FIFO.  */
 static int popping;
@@ -1293,10 +1282,11 @@ package_name_p (const char *name, const struct block *block)
   struct symbol *sym;
   struct field_of_this_result is_a_field_of_this;
 
-  sym = lookup_symbol (name, block, STRUCT_DOMAIN, &is_a_field_of_this).symbol;
+  sym = lookup_symbol (name, block, SEARCH_TYPE_DOMAIN,
+		       &is_a_field_of_this).symbol;
 
   if (sym
-      && sym->aclass () == LOC_TYPEDEF
+      && sym->loc_class () == LOC_TYPEDEF
       && sym->type ()->code () == TYPE_CODE_MODULE)
     return 1;
 
@@ -1335,7 +1325,7 @@ classify_packaged_name (const struct block *block)
 
   std::string copy = copy_name (yylval.sval);
 
-  sym = lookup_symbol (copy.c_str (), block, VAR_DOMAIN, &is_a_field_of_this);
+  sym = lookup_symbol (copy.c_str (), block, SEARCH_VFT, &is_a_field_of_this);
 
   if (sym.symbol)
     {
@@ -1378,7 +1368,7 @@ classify_name (struct parser_state *par_state, const struct block *block)
 
   /* TODO: What about other types?  */
 
-  sym = lookup_symbol (copy.c_str (), block, VAR_DOMAIN, &is_a_field_of_this);
+  sym = lookup_symbol (copy.c_str (), block, SEARCH_VFT, &is_a_field_of_this);
 
   if (sym.symbol)
     {
@@ -1403,7 +1393,7 @@ classify_name (struct parser_state *par_state, const struct block *block)
 			       strlen (current_package_name.get ()),
 			       copy.c_str (), copy.size ());
 
-	sym = lookup_symbol (sval.ptr, block, VAR_DOMAIN,
+	sym = lookup_symbol (sval.ptr, block, SEARCH_VFT,
 			     &is_a_field_of_this);
 	if (sym.symbol)
 	  {
@@ -1445,11 +1435,11 @@ classify_name (struct parser_state *par_state, const struct block *block)
 static int
 yylex (void)
 {
-  token_and_value current, next;
+  go_token_and_value current, next;
 
   if (popping && !token_fifo.empty ())
     {
-      token_and_value tv = token_fifo[0];
+      go_token_and_value tv = token_fifo[0];
       token_fifo.erase (token_fifo.begin ());
       yylval = tv.value;
       /* There's no need to fall through to handle package.name
@@ -1474,7 +1464,7 @@ yylex (void)
 
   if (next.token == '.')
     {
-      token_and_value name2;
+      go_token_and_value name2;
 
       name2.token = lex_one_token (pstate);
       name2.value = yylval;
@@ -1545,8 +1535,5 @@ go_language::parser (struct parser_state *par_state) const
 static void
 yyerror (const char *msg)
 {
-  if (pstate->prev_lexptr)
-    pstate->lexptr = pstate->prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), msg, pstate->lexptr);
+  pstate->parse_error (msg);
 }

@@ -1,6 +1,6 @@
 /* Target-dependent code for BPF.
 
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "dis-asm.h"
 #include "frame.h"
@@ -25,7 +24,7 @@
 #include "trad-frame.h"
 #include "symtab.h"
 #include "value.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "breakpoint.h"
 #include "inferior.h"
 #include "regcache.h"
@@ -93,7 +92,7 @@ static const char *bpf_register_names[] =
 static const char *
 bpf_register_name (struct gdbarch *gdbarch, int reg)
 {
-  gdb_static_assert (ARRAY_SIZE (bpf_register_names) == BPF_NUM_REGS);
+  static_assert (ARRAY_SIZE (bpf_register_names) == BPF_NUM_REGS);
   return bpf_register_names[reg];
 }
 
@@ -154,7 +153,7 @@ bpf_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
 /* Given THIS_FRAME, return its ID.  */
 
 static void
-bpf_frame_this_id (frame_info_ptr this_frame,
+bpf_frame_this_id (const frame_info_ptr &this_frame,
 		   void **this_prologue_cache,
 		   struct frame_id *this_id)
 {
@@ -165,7 +164,7 @@ bpf_frame_this_id (frame_info_ptr this_frame,
 /* Return the reason why we can't unwind past THIS_FRAME.  */
 
 static enum unwind_stop_reason
-bpf_frame_unwind_stop_reason (frame_info_ptr this_frame,
+bpf_frame_unwind_stop_reason (const frame_info_ptr &this_frame,
 			      void **this_cache)
 {
   return UNWIND_OUTERMOST;
@@ -174,7 +173,7 @@ bpf_frame_unwind_stop_reason (frame_info_ptr this_frame,
 /* Ask THIS_FRAME to unwind its register.  */
 
 static struct value *
-bpf_frame_prev_register (frame_info_ptr this_frame,
+bpf_frame_prev_register (const frame_info_ptr &this_frame,
 			 void **this_prologue_cache, int regnum)
 {
   return frame_unwind_got_register (this_frame, regnum, regnum);
@@ -182,16 +181,16 @@ bpf_frame_prev_register (frame_info_ptr this_frame,
 
 /* Frame unwinder machinery for BPF.  */
 
-static const struct frame_unwind bpf_frame_unwind =
-{
+static const struct frame_unwind_legacy bpf_frame_unwind (
   "bpf prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   bpf_frame_unwind_stop_reason,
   bpf_frame_this_id,
   bpf_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 
 /* Breakpoints.  */
@@ -235,7 +234,7 @@ bpf_sw_breakpoint_from_kind (struct gdbarch *gdbarch, int kind, int *size)
 /* Assuming THIS_FRAME is a dummy frame, return its frame ID.  */
 
 static struct frame_id
-bpf_dummy_id (struct gdbarch *gdbarch, frame_info_ptr this_frame)
+bpf_dummy_id (struct gdbarch *gdbarch, const frame_info_ptr &this_frame)
 {
   CORE_ADDR sp = get_frame_register_unsigned (this_frame,
 					      gdbarch_sp_regnum (gdbarch));
@@ -308,7 +307,7 @@ bpf_return_value (struct gdbarch *gdbarch, struct value *function,
 }
 
 
-/* Initialize the current architecture based on INFO.  If possible, re-use an
+/* Initialize the current architecture based on INFO.  If possible, reuse an
    architecture from ARCHES, which is a list of architectures already created
    during this debugging session.  */
 
@@ -369,9 +368,7 @@ bpf_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_bpf_tdep ();
-void
-_initialize_bpf_tdep ()
+INIT_GDB_FILE (bpf_tdep)
 {
   gdbarch_register (bfd_arch_bpf, bpf_gdbarch_init);
 

@@ -1,6 +1,6 @@
 /* Self tests for frame_info_ptr.
 
-   Copyright (C) 2022-2023 Free Software Foundation, Inc.
+   Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "frame.h"
 #include "gdbsupport/selftest.h"
@@ -36,7 +35,7 @@ validate_user_created_frame (frame_id id)
 }
 
 static frame_info_ptr
-user_created_frame_callee (frame_info_ptr frame)
+user_created_frame_callee (const frame_info_ptr &frame)
 {
   validate_user_created_frame (get_frame_id (frame));
 
@@ -51,7 +50,7 @@ static void
 test_user_created_frame ()
 {
   scoped_mock_context<test_target_ops> mock_context
-    (current_inferior ()->gdbarch);
+    (current_inferior ()->arch ());
   frame_info_ptr frame = create_new_frame (0x1234, 0x5678);
 
   validate_user_created_frame (get_frame_id (frame));
@@ -67,9 +66,7 @@ test_user_created_frame ()
 
 } /* namespace selftests */
 
-void _initialize_frame_info_ptr_selftests ();
-void
-_initialize_frame_info_ptr_selftests ()
+INIT_GDB_FILE (frame_info_ptr_selftests)
 {
   selftests::register_test ("frame_info_ptr_user",
 			    selftests::test_user_created_frame);

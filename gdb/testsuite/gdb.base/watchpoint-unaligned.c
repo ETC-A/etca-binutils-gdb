@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2017-2023 Free Software Foundation, Inc.
+   Copyright 2017-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <assert.h>
 
+static volatile int volatile_dummy;
+
 static int again;
 
 static volatile struct
@@ -29,7 +31,7 @@ static volatile struct
       uint32_t size4[2];
       uint16_t size2[4];
       uint8_t size1[8];
-      uint64_t size8twice[2];
+      uint64_t size8twice[3];
     }
   u;
 } data;
@@ -44,14 +46,49 @@ write_size8twice (void)
   static const uint64_t second = 2;
 
 #ifdef __aarch64__
+  volatile void *p = &data.u.size8twice[offset];
   asm volatile ("stp %1, %2, [%0]"
 		: /* output */
-		: "r" (data.u.size8twice), "r" (first), "r" (second) /* input */
+		: "r" (p), "r" (first), "r" (second) /* input */
 		: "memory" /* clobber */);
 #else
-  data.u.size8twice[0] = first;
-  data.u.size8twice[1] = second;
+  data.u.size8twice[offset] = first;
+  data.u.size8twice[offset + 1] = second;
 #endif
+
+  /* Setting a breakpoint on an instruction after an instruction triggering a
+     watchpoint makes it ambiguous which one will be reported.
+     Insert a dummy instruction in between to make sure the watchpoint gets
+     reported.  */
+  volatile_dummy = 1;
+
+  return; /* write_size8twice_return */
+}
+
+static void
+read_size8twice (void)
+{
+  static uint64_t volatile first;
+  static uint64_t volatile second;
+
+#ifdef __aarch64__
+  volatile void *p = &data.u.size8twice[offset];
+  asm volatile ("ldp %0, %1, [%2]"
+	       : "=r" (first), "=r" (second) /* output */
+	       : "r" (p)  /* input */
+	       : /* clobber */);
+#else
+  first = data.u.size8twice[offset];
+  second = data.u.size8twice[offset + 1];
+#endif
+
+  /* Setting a breakpoint on an instruction after an instruction triggering a
+     watchpoint makes it ambiguous which one will be reported.
+     Insert a dummy instruction in between to make sure the watchpoint gets
+     reported.  */
+  volatile_dummy = 1;
+
+  return; /* read_size8twice_return */
 }
 
 int
@@ -59,9 +96,10 @@ main (void)
 {
   volatile uint64_t local;
 
-  assert (sizeof (data) == 8 + 2 * 8);
+  assert (sizeof (data) == 8 + 3 * 8);
 
   write_size8twice ();
+  read_size8twice ();
 
   while (size)
     {

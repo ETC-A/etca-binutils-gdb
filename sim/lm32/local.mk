@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 2009-2023 Free Software Foundation, Inc.
+## Copyright (C) 2009-2026 Free Software Foundation, Inc.
 ## Contributed by Jon Beniston <jon@beniston.com>
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -72,15 +72,15 @@ BUILT_SOURCES += %D%/eng.h
 
 ## FIXME: Use of `mono' is wip.
 %D%/mloop.c %D%/eng.h: %D%/stamp-mloop ; @true
-%D%/stamp-mloop: $(srccom)/genmloop.sh %D%/mloop.in
-	$(AM_V_GEN)$(SHELL) $(srccom)/genmloop.sh -shell $(SHELL) \
+%D%/stamp-mloop: %D%/mloop.in $(srccom)/genmloop.sh
+	$(AM_V_GEN)$(CGEN_GEN_MLOOP) \
 		-mono -fast -pbb -switch sem-switch.c \
-		-cpu lm32bf \
-		-infile $(srcdir)/%D%/mloop.in -outfile-prefix %D%/
+		-cpu lm32bf
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/eng.hin %D%/eng.h
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/mloop.cin %D%/mloop.c
 	$(AM_V_at)touch $@
 
+CLEANFILES += %D%/eng.h
 MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 ## Target that triggers all cgen targets that works when --disable-cgen-maint.
@@ -88,8 +88,8 @@ MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 %D%/cgen-arch:
 	$(AM_V_GEN)mach=all FLAGS="with-scache with-profile=fn"; $(CGEN_GEN_ARCH)
-%D%/arch.h %D%/arch.c %D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
+$(srcdir)/%D%/arch.h $(srcdir)/%D%/arch.c $(srcdir)/%D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
 
 %D%/cgen-cpu-decode:
 	$(AM_V_GEN)cpu=lm32bf mach=lm32 FLAGS="with-scache with-profile=fn" EXTRAFILES="$(CGEN_CPU_SEM) $(CGEN_CPU_SEMSW)"; $(CGEN_GEN_CPU_DECODE)
-%D%/cpu.h %D%/sem.c %D%/sem-switch.c %D%/model.c %D%/decode.c %D%/decode.h: @CGEN_MAINT@ %D%/cgen-cpu-decode
+$(srcdir)/%D%/cpu.h $(srcdir)/%D%/sem.c $(srcdir)/%D%/sem-switch.c $(srcdir)/%D%/model.c $(srcdir)/%D%/decode.c $(srcdir)/%D%/decode.h: @CGEN_MAINT@ %D%/cgen-cpu-decode

@@ -1,11 +1,10 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: microblaze-with-stack-protect.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_microblaze_with_stack_protect;
+const_target_desc_up tdesc_microblaze_with_stack_protect;
 static void
 initialize_tdesc_microblaze_with_stack_protect (void)
 {
@@ -75,5 +74,5 @@ initialize_tdesc_microblaze_with_stack_protect (void)
   tdesc_create_reg (feature, "rslr", 57, 1, NULL, 32, "int");
   tdesc_create_reg (feature, "rshr", 58, 1, NULL, 32, "int");
 
-  tdesc_microblaze_with_stack_protect = result.release ();
+  tdesc_microblaze_with_stack_protect = std::move (result);
 }

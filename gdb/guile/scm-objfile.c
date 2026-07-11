@@ -1,6 +1,6 @@
 /* Scheme interface to objfiles.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,6 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
 #include "objfiles.h"
 #include "language.h"
 #include "guile-internal.h"
@@ -251,7 +250,7 @@ gdbscm_objfile_progspace (SCM self)
   objfile_smob *o_smob
     = ofscm_get_valid_objfile_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
 
-  return psscm_scm_from_pspace (o_smob->objfile->pspace);
+  return psscm_scm_from_pspace (o_smob->objfile->pspace ());
 }
 
 /* (objfile-pretty-printers <gdb:objfile>) -> list
@@ -354,9 +353,9 @@ gdbscm_objfiles (void)
 
   result = SCM_EOL;
 
-  for (objfile *objf : current_program_space->objfiles ())
+  for (objfile &objf : current_program_space->objfiles ())
     {
-      SCM item = ofscm_scm_from_objfile (objf);
+      SCM item = ofscm_scm_from_objfile (&objf);
 
       result = scm_cons (item, result);
     }

@@ -1,6 +1,6 @@
 /* Target-dependent code for the VAX.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "dis-asm.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
@@ -45,7 +45,7 @@ vax_register_name (struct gdbarch *gdbarch, int regnum)
     "ps",
   };
 
-  gdb_static_assert (VAX_NUM_REGS == ARRAY_SIZE (register_names));
+  static_assert (VAX_NUM_REGS == ARRAY_SIZE (register_names));
   return register_names[regnum];
 }
 
@@ -187,7 +187,7 @@ vax_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 }
 
 static struct frame_id
-vax_dummy_id (struct gdbarch *gdbarch, frame_info_ptr this_frame)
+vax_dummy_id (struct gdbarch *gdbarch, const frame_info_ptr &this_frame)
 {
   CORE_ADDR fp;
 
@@ -252,7 +252,7 @@ vax_return_value (struct gdbarch *gdbarch, struct value *function,
 
 constexpr gdb_byte vax_break_insn[] = { 3 };
 
-typedef BP_MANIPULATION (vax_break_insn) vax_breakpoint;
+using vax_breakpoint = BP_MANIPULATION (vax_break_insn);
 
 /* Advance PC across any function entry prologue instructions
    to reach some "real" code.  */
@@ -303,9 +303,8 @@ struct vax_frame_cache
 };
 
 static struct vax_frame_cache *
-vax_frame_cache (frame_info_ptr this_frame, void **this_cache)
+vax_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
-  struct vax_frame_cache *cache;
   CORE_ADDR addr;
   ULONGEST mask;
   int regnum;
@@ -314,7 +313,7 @@ vax_frame_cache (frame_info_ptr this_frame, void **this_cache)
     return (struct vax_frame_cache *) *this_cache;
 
   /* Allocate a new cache.  */
-  cache = FRAME_OBSTACK_ZALLOC (struct vax_frame_cache);
+  auto *cache = frame_obstack_zalloc<struct vax_frame_cache> ();
   cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
 
   /* The frame pointer is used as the base for the frame.  */
@@ -365,7 +364,7 @@ vax_frame_cache (frame_info_ptr this_frame, void **this_cache)
 }
 
 static void
-vax_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+vax_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		   struct frame_id *this_id)
 {
   struct vax_frame_cache *cache = vax_frame_cache (this_frame, this_cache);
@@ -378,7 +377,7 @@ vax_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 }
 
 static struct value *
-vax_frame_prev_register (frame_info_ptr this_frame,
+vax_frame_prev_register (const frame_info_ptr &this_frame,
 			 void **this_cache, int regnum)
 {
   struct vax_frame_cache *cache = vax_frame_cache (this_frame, this_cache);
@@ -386,20 +385,20 @@ vax_frame_prev_register (frame_info_ptr this_frame,
   return trad_frame_get_prev_register (this_frame, cache->saved_regs, regnum);
 }
 
-static const struct frame_unwind vax_frame_unwind =
-{
+static const struct frame_unwind_legacy vax_frame_unwind (
   "vax prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   vax_frame_this_id,
   vax_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 
 static CORE_ADDR
-vax_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+vax_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct vax_frame_cache *cache = vax_frame_cache (this_frame, this_cache);
 
@@ -407,7 +406,7 @@ vax_frame_base_address (frame_info_ptr this_frame, void **this_cache)
 }
 
 static CORE_ADDR
-vax_frame_args_address (frame_info_ptr this_frame, void **this_cache)
+vax_frame_args_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   return get_frame_register_unsigned (this_frame, VAX_AP_REGNUM);
 }
@@ -423,7 +422,7 @@ static const struct frame_base vax_frame_base =
 /* Return number of arguments for FRAME.  */
 
 static int
-vax_frame_num_args (frame_info_ptr frame)
+vax_frame_num_args (const frame_info_ptr &frame)
 {
   CORE_ADDR args;
 
@@ -438,7 +437,7 @@ vax_frame_num_args (frame_info_ptr frame)
 
 
 
-/* Initialize the current architecture based on INFO.  If possible, re-use an
+/* Initialize the current architecture based on INFO.  If possible, reuse an
    architecture from ARCHES, which is a list of architectures already created
    during this debugging session.
 
@@ -494,7 +493,6 @@ vax_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   /* Misc info */
   set_gdbarch_deprecated_function_start_offset (gdbarch, 2);
-  set_gdbarch_believe_pcc_promotion (gdbarch, 1);
 
   frame_base_set_default (gdbarch, &vax_frame_base);
 
@@ -506,9 +504,7 @@ vax_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return (gdbarch);
 }
 
-void _initialize_vax_tdep ();
-void
-_initialize_vax_tdep ()
+INIT_GDB_FILE (vax_tdep)
 {
   gdbarch_register (bfd_arch_vax, vax_gdbarch_init, NULL);
 }

@@ -1,6 +1,6 @@
 /* Target-dependent code for the GNU C Library (glibc).
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "symtab.h"
 #include "symfile.h"
@@ -30,7 +29,7 @@
 /* See the comments for SKIP_SOLIB_RESOLVER at the top of infrun.c.
    This function:
    1) decides whether a PLT has sent us into the linker to resolve
-      a function reference, and 
+      a function reference, and
    2) if so, tells us where to set a temporary breakpoint that will
       trigger when the dynamic linker is done.  */
 
@@ -46,29 +45,31 @@ glibc_skip_solib_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
      the same objfile.  If we are at the entry point of `fixup', then
      we set a breakpoint at the return address (at the top of the
      stack), and continue.
-  
+
      It's kind of gross to do all these checks every time we're
      called, since they don't change once the executable has gotten
      started.  But this is only a temporary hack --- upcoming versions
      of GNU/Linux will provide a portable, efficient interface for
      debugging programs that use shared libraries.  */
 
-  struct bound_minimal_symbol resolver 
-    = lookup_bound_minimal_symbol ("_dl_runtime_resolve");
+  bound_minimal_symbol resolver
+    = lookup_minimal_symbol (current_program_space, "_dl_runtime_resolve");
 
   if (resolver.minsym)
     {
       /* The dynamic linker began using this name in early 2005.  */
-      struct bound_minimal_symbol fixup
-	= lookup_minimal_symbol ("_dl_fixup", NULL, resolver.objfile);
-      
+      bound_minimal_symbol fixup
+	= lookup_minimal_symbol (current_program_space, "_dl_fixup",
+				 resolver.objfile);
+
       /* This is the name used in older versions.  */
       if (! fixup.minsym)
-	fixup = lookup_minimal_symbol ("fixup", NULL, resolver.objfile);
+	fixup = lookup_minimal_symbol (current_program_space, "fixup",
+				       resolver.objfile);
 
       if (fixup.minsym && fixup.value_address () == pc)
 	return frame_unwind_caller_pc (get_current_frame ());
     }
 
   return 0;
-}      
+}

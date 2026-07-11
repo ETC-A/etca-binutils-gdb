@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2023 Free Software Foundation, Inc.
+# Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@ standard_testfile python.c python-1.c
 
 if {[build_executable $testfile.exp $testfile \
 	 [list $srcfile $srcfile2] debug] == -1} {
-    return -1
+    return
 }
 
 clean_restart
@@ -48,7 +48,7 @@ gdb_test_multiple "python print (23)" "verify python support" {
 	  "print (23)" "" \
 	  "end" "not supported.*"
 
-      return -1
+      return
     }
     -re "$gdb_prompt $"	{}
 }
@@ -120,6 +120,13 @@ gdb_test "python gdb.execute('echo 2\\necho 3\\\\n\\n')" "23" \
     "multi-line execute"
 gdb_test " " "23" "gdb.execute does not affect repeat history"
 
+gdb_test_no_output \
+    "python x = gdb.execute(\"interpreter-exec mi '-data-evaluate-expression 23'\", to_string=True)" \
+    "execute MI command from python"
+gdb_test "python print(x)" \
+    "\\^done,value=\"23\"\r\n" \
+    "output of MI command"
+
 # Test post_event.
 gdb_test_multiline "post event insertion" \
   "python" "" \
@@ -132,7 +139,7 @@ gdb_test_multiline "post event insertion" \
   "end" ""
 
 gdb_test "python print (someVal)" "1" "test post event execution"
-gdb_test "python gdb.post_event(str(1))" "RuntimeError: Posted event is not callable.*" \
+gdb_test "python gdb.post_event(str(1))" "RuntimeError.*: Posted event is not callable.*" \
     "test non callable class"
 
 send_gdb "python gdb.post_event(lambda: invalid())\n"
@@ -152,33 +159,21 @@ gdb_test_no_output "set height $lines"
 
 set test "verify pagination beforehand"
 gdb_test_multiple "python print (\"\\n\" * $lines)" $test {
-    -re "--Type <RET>" {
-	exp_continue
-    }
-    -re " for more, q to quit" {
-	exp_continue
-    }
-    -re ", c to continue without paging--$" {
+    -re "$pagination_prompt$" {
 	pass $test
     }
 }
-gdb_test "q" "Quit.*Error while executing Python.*" "verify pagination beforehand: q"
+gdb_test "q" "Quit.*" "verify pagination beforehand: q"
 
-gdb_test "python if gdb.execute('python print (\"\\\\n\" * $lines)', to_string=True) == \"\\n\" * [expr $lines + 1]: print (\"yes\")" "yes" "gdb.execute does not page"
+gdb_test "python if gdb.execute('python print (\"\\\\n\" * $lines)', to_string=True) == \"\\n\" * [expr {$lines + 1}]: print (\"yes\")" "yes" "gdb.execute does not page"
 
 set test "verify pagination afterwards"
 gdb_test_multiple "python print (\"\\n\" * $lines)" $test {
-    -re "--Type <RET>" {
-	exp_continue
-    }
-    -re " for more, q to quit" {
-	exp_continue
-    }
-    -re ", c to continue without paging--$" {
+    -re "$pagination_prompt$" {
 	pass $test
     }
 }
-gdb_test "q" "Quit.*Error while executing Python.*" "verify pagination afterwards: q"
+gdb_test "q" "Quit.*" "verify pagination afterwards: q"
 
 gdb_test_no_output "set height 0"
 
@@ -215,7 +210,7 @@ clean_restart ${testfile}
 # The following tests require execution.
 
 if {![runto_main]} {
-    return 0
+    return
 }
 
 set lineno [gdb_get_line_number "Break to end."]
@@ -223,7 +218,7 @@ runto $lineno
 
 # Test gdb.decode_line.
 gdb_test "python gdb.decode_line(\"main.c:43\")" \
-    "gdb.error: No source file named main.c.*" "test decode_line no source named main"
+    "gdb.error.*: No source file named main.c.*" "test decode_line no source named main"
 
 with_test_prefix "test decode_line current location" {
     gdb_py_test_silent_cmd "python symtab = gdb.decode_line()" "decode current line" 1
@@ -253,7 +248,7 @@ with_test_prefix "test decode_line" {
     gdb_test "python print (symtab\[1\]\[0\].line)" "26" "python.c:26 line number"
 
     gdb_test "python gdb.decode_line(\"randomfunc\")" \
-	"gdb.error: Function \"randomfunc\" not defined.*" "randomfunc"
+	"gdb.error.*: Function \"randomfunc\" not defined.*" "randomfunc"
     gdb_py_test_silent_cmd "python symtab = gdb.decode_line(\"func1\")" "func1()" 1
     gdb_test "python print (len(symtab))" "2" "func1 length 2"
     gdb_test "python print (len(symtab\[1\]))" "1" "func1 length 1"
@@ -300,7 +295,7 @@ gdb_test "python gdb.write(\"Foo\\n\")" "Foo" "test default write"
 gdb_test "python gdb.write(\"Error stream\\n\", stream=gdb.STDERR)" "Error stream" "test stderr write"
 gdb_test "python gdb.write(\"Normal stream\\n\", stream=gdb.STDOUT)" "Normal stream" "test stdout write"
 
-if ![gdb_debug_enabled] {
+if {![gdb_debug_enabled]} {
   gdb_test "python gdb.write(\"Log stream\\n\", stream=gdb.STDLOG)" "Log stream" "test stdlog write"
 }
 
@@ -308,7 +303,7 @@ if ![gdb_debug_enabled] {
 gdb_py_test_silent_cmd "set python print-stack full" \
     "Set print-stack full for prompt tests" 1
 
-# Test prompt substituion
+# Test prompt substitution
 
 gdb_test_multiline "prompt substitution" \
   "python" "" \
@@ -385,7 +380,7 @@ gdb_test_multiple "python gdb.prompt_hook = program_prompt" "set the programming
     }
 }
 
-gdb_test_multiple "python" "test we ignore substitution for seconday prompts" {
+gdb_test_multiple "python" "test we ignore substitution for secondary prompts" {
     -re "\r\n>$" {
 	pass $gdb_test_name
     }
@@ -429,7 +424,7 @@ clean_restart ${testfile}
 # The following tests require execution.
 
 if {![runto_main]} {
-    return 0
+    return
 }
 
 # print-stack settings
@@ -484,7 +479,7 @@ clean_restart ${testfile}
 # The following tests require execution.
 
 if {![runto_main]} {
-    return 0
+    return
 }
 
 runto [gdb_get_line_number "Break at func2 call site."]
@@ -561,3 +556,35 @@ if { [use_gdb_stub] == 0 } {
 	}
     }
 }
+
+# Regression test for PR python/32163: several types were not
+# previously registered with the module, so could not be inspected
+# directly.
+foreach type {Instruction LazyString Membuf Record RecordFunctionSegment \
+		  RecordGap RecordInstruction TuiWindow} {
+    if { $type == "TuiWindow" && ![allow_tui_tests] } {
+	continue
+    }
+
+    gdb_test "python print(type(gdb.$type))" "<class 'type'>" \
+	"gdb.$type is registered"
+}
+
+set logfile [host_standard_output_file gdb.txt]
+gdb_test_no_output "set logging file $logfile" \
+    "set logging file [file tail $logfile]"
+gdb_test_no_output "set logging redirect on" \
+    "enable logging redirect via python"
+gdb_test_no_output "python gdb.execute('set logging enabled on')" \
+    "enable logging via python"
+
+# Even with logging redirect on, this should capture the output.
+gdb_test_no_output "python x = gdb.execute('print 23', to_string=True)" \
+    "print from python with logging redirect"
+
+gdb_test "set logging enabled off" \
+    "Done logging to .*gdb.txt." \
+    "disable logging"
+
+gdb_test "python print(x)" " = 23.*" \
+    "python still captured output"

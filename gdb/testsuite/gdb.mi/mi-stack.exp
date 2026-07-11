@@ -1,4 +1,4 @@
-# Copyright 2000-2023 Free Software Foundation, Inc.
+# Copyright 2000-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,11 +28,11 @@ set MIFLAGS "-i=mi"
 standard_testfile
 
 if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
-     untested "failed to compile"
-     return -1
+    untested "failed to compile"
+    return
 }
 
-if {[mi_clean_restart $binfile]} {
+if {[mi_clean_restart $::testfile]} {
     return
 }
 
@@ -65,9 +65,10 @@ proc test_stack_frame_listing {} {
 	"234\\^error,msg=\"-stack-list-frames: Usage.*FRAME_LOW FRAME_HIGH.*\"" \
 	"stack frame listing wrong"
 
-    mi_gdb_test "235-stack-info-frame" \
-	"235\\^done,frame=\{level=\"0\",addr=\"$hex\",func=\"callee4\",file=\".*${srcfile}\",fullname=\"${fullname_syntax}${srcfile}\",line=\"$callee4_begin\",arch=\"$any\"\}" \
-	"selected frame listing"
+    mi_info_frame "selected frame listing" \
+	-level 0 -addr $hex -func callee4 -file ".*${srcfile}" \
+	-fullname "${fullname_syntax}${srcfile}" -line $callee4_begin \
+	-arch $any
 
     mi_gdb_test "236-stack-list-frames 1 300" \
 	"236\\^done,stack=\\\[frame=\{level=\"1\",addr=\"$hex\",func=\"callee3\",.*\},frame=\{level=\"2\",addr=\"$hex\",func=\"callee2\",.*\},frame=\{level=\"3\",addr=\"$hex\",func=\"callee1\",.*\}\\\]" \
@@ -86,7 +87,7 @@ proc test_stack_args_listing {} {
     # -stack-list-arguments 1
     # -stack-list-arguments 1 1 1
     # -stack-list-arguments 1 1 3
-    # -stack-list-arguments 
+    # -stack-list-arguments
     # -stack-list-arguments 1 1 300
     # -stack-list-arguments 2 1 1
     # -stack-list-arguments --simple-values 1 1

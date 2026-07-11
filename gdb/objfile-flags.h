@@ -1,6 +1,6 @@
 /* Definition of objfile flags.
 
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#if !defined (OBJFILE_FLAGS_H)
-#define OBJFILE_FLAGS_H
+#ifndef GDB_OBJFILE_FLAGS_H
+#define GDB_OBJFILE_FLAGS_H
 
 #include "gdbsupport/enum-flags.h"
 
@@ -44,10 +44,6 @@ enum objfile_flag : unsigned
        add-symbol-file command.  */
     OBJF_USERLOADED = 1 << 2,	/* User loaded */
 
-    /* Set if we have tried to read partial symtabs for this objfile.
-       This is used to allow lazy reading of partial symtabs.  */
-    OBJF_PSYMTABS_READ = 1 << 3,
-
     /* Set if this is the main symbol file (as opposed to symbol file
        for dynamically loaded code).  */
     OBJF_MAINLINE = 1 << 4,
@@ -64,4 +60,4 @@ enum objfile_flag : unsigned
 
 DEF_ENUM_FLAGS_TYPE (enum objfile_flag, objfile_flags);
 
-#endif /* !defined (OBJFILE_FLAGS_H) */
+#endif /* GDB_OBJFILE_FLAGS_H */

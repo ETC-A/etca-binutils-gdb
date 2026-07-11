@@ -1,4 +1,4 @@
-# Copyright 2004-2023 Free Software Foundation, Inc.
+# Copyright 2004-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,19 +27,19 @@ proc gdb_find_gnatmake {} {
     set root "$tool_root_dir/gcc"
     set GM ""
 
-    if ![is_remote host] {
-        set file [lookfor_file $root gnatmake]
-        if { $file != "" } {
-            set GM "$file -I$root/ada/rts --GCC=$root/xgcc --GNATBIND=$root/gnatbind --GNATLINK=$root/gnatlink -cargs -B$root -largs --GCC=$root/xgcc -margs";
-        }   
+    if {![is_remote host]} {
+	set file [lookfor_file $root gnatmake]
+	if { $file != "" } {
+	    set GM "$file -I$root/ada/rts --GCC=$root/xgcc --GNATBIND=$root/gnatbind --GNATLINK=$root/gnatlink -cargs -B$root -largs --GCC=$root/xgcc -margs";
+	}
     }
 
     if {$GM == ""} {
-        set GM [transform gnatmake]
+	set GM [transform gnatmake]
     }
 
     return $GM
-}   
+}
 
 proc gdb_find_gdc {} {
     global tool_root_dir
@@ -138,7 +138,7 @@ proc gdb_find_hipcc {} {
 
 proc gdb_find_ldd {} {
     global LDD_FOR_TARGET
-    if [info exists LDD_FOR_TARGET] {
+    if {[info exists LDD_FOR_TARGET]} {
 	set ldd $LDD_FOR_TARGET
     } else {
 	set ldd "ldd"
@@ -148,7 +148,7 @@ proc gdb_find_ldd {} {
 
 proc gdb_find_objcopy {} {
     global OBJCOPY_FOR_TARGET
-    if [info exists OBJCOPY_FOR_TARGET] {
+    if {[info exists OBJCOPY_FOR_TARGET]} {
 	set objcopy $OBJCOPY_FOR_TARGET
     } else {
 	set objcopy [transform objcopy]
@@ -159,7 +159,7 @@ proc gdb_find_objcopy {} {
 # find target objdump
 proc gdb_find_objdump {} {
     global OBJDUMP_FOR_TARGET
-    if [info exists OBJDUMP_FOR_TARGET] {
+    if {[info exists OBJDUMP_FOR_TARGET]} {
 	set objdump $OBJDUMP_FOR_TARGET
     } else {
 	set objdump [transform objdump]
@@ -169,7 +169,7 @@ proc gdb_find_objdump {} {
 
 proc gdb_find_readelf {} {
     global READELF_FOR_TARGET
-    if [info exists READELF_FOR_TARGET] {
+    if {[info exists READELF_FOR_TARGET]} {
 	set readelf $READELF_FOR_TARGET
     } else {
 	set readelf [transform readelf]
@@ -179,7 +179,7 @@ proc gdb_find_readelf {} {
 
 proc gdb_find_eu-unstrip {} {
     global EU_UNSTRIP_FOR_TARGET
-    if [info exists EU_UNSTRIP_FOR_TARGET] {
+    if {[info exists EU_UNSTRIP_FOR_TARGET]} {
 	set eu_unstrip $EU_UNSTRIP_FOR_TARGET
     } else {
 	set eu_unstrip [transform eu-unstrip]
@@ -482,7 +482,7 @@ proc gdb_default_target_compile_1 {source destfile type options} {
 	}
 	if {[isnative]} {
 	    # This is a lose.
-	    catch "glob -nocomplain $tool_root_dir/libstdc++/libstdc++.so* $tool_root_dir/libstdc++/libstdc++.sl" tmp
+	    catch {glob -nocomplain $tool_root_dir/libstdc++/libstdc++.so* $tool_root_dir/libstdc++/libstdc++.sl} tmp
 	    if { ${tmp} != "" } {
 		if {[regexp ".*solaris2.*" $target_triplet]} {
 		    # Solaris 2
@@ -694,12 +694,16 @@ if {[info procs find_gnatmake] == ""} {
     rename gdb_find_gnatmake find_gnatmake
     set use_gdb_compile(ada) 1
     gdb_note [join [list $note_prefix "Ada" $note_suffix] ""]
+} else {
+    rename gdb_find_gnatmake ""
 }
 
 if {[info procs find_gfortran] == ""} {
     rename gdb_find_gfortran find_gfortran
     set use_gdb_compile(fortran) 1
     gdb_note [join [list $note_prefix "Fortran" $note_suffix] ""]
+} else {
+    rename gdb_find_gfortran ""
 }
 
 if {[info procs find_go_linker] == ""} {
@@ -707,24 +711,33 @@ if {[info procs find_go_linker] == ""} {
     rename gdb_find_go_linker find_go_linker
     set use_gdb_compile(go) 1
     gdb_note [join [list $note_prefix "Go" $note_suffix] ""]
+} else {
+    rename gdb_find_go ""
+    rename gdb_find_go_linker ""
 }
 
 if {[info procs find_gdc] == ""} {
     rename gdb_find_gdc find_gdc
     set use_gdb_compile(d) 1
     gdb_note [join [list $note_prefix "D" $note_suffix] ""]
+} else {
+    rename gdb_find_gdc ""
 }
 
 if {[info procs find_rustc] == ""} {
     rename gdb_find_rustc find_rustc
     set use_gdb_compile(rust) 1
     gdb_note [join [list $note_prefix "Rust" $note_suffix] ""]
+} else {
+    rename gdb_find_rustc ""
 }
 
 if {[info procs find_hipcc] == ""} {
     rename gdb_find_hipcc find_hipcc
     set use_gdb_compile(hip) 1
     gdb_note [join [list $note_prefix "HIP" $note_suffix] ""]
+} else {
+    rename gdb_find_hipcc ""
 }
 
 # If dejagnu's default_target_compile is missing support for any language,
@@ -732,19 +745,8 @@ if {[info procs find_hipcc] == ""} {
 if { [array size use_gdb_compile] != 0 } {
     catch {rename default_target_compile dejagnu_default_target_compile}
     rename gdb_default_target_compile default_target_compile
-}
-
-
-# Provide 'lreverse' missing in Tcl before 7.5.
-
-if {[info procs lreverse] == ""} {
-    proc lreverse { arg } {
-	set retval {}
-	while { [llength $retval] < [llength $arg] } {
-	    lappend retval [lindex $arg end-[llength $retval]]
-	}
-	return $retval
-    }
+} else {
+    rename gdb_default_target_compile ""
 }
 
 # Various ccache versions provide incorrect debug info such as ignoring

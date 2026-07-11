@@ -1,6 +1,6 @@
 /* Native-dependent code for NetBSD/sh.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by Wasabi Systems, Inc.
 
@@ -19,7 +19,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 
 #include <sys/types.h>
@@ -99,9 +98,7 @@ sh_nbsd_nat_target::store_registers (struct regcache *regcache, int regno)
     }
 }
 
-void _initialize_shnbsd_nat ();
-void
-_initialize_shnbsd_nat ()
+INIT_GDB_FILE (shnbsd_nat)
 {
   add_inf_child_target (&the_sh_nbsd_nat_target);
 }

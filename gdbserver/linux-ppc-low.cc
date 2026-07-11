@@ -1,6 +1,6 @@
 /* GNU/Linux/PowerPC specific low level interface, for the remote server for
    GDB.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "linux-low.h"
 
 #include "elf/common.h"
@@ -880,15 +879,14 @@ ppc_target::low_arch_setup ()
   const struct target_desc *tdesc;
   struct regset_info *regset;
   struct ppc_linux_features features = ppc_linux_no_features;
-
-  int tid = lwpid_of (current_thread);
+  int tid = current_thread->id.lwp ();
 
   features.wordsize = ppc_linux_target_wordsize (tid);
 
   if (features.wordsize == 4)
-      tdesc = tdesc_powerpc_32l;
+      tdesc = tdesc_powerpc_32l.get ();
   else
-      tdesc = tdesc_powerpc_64l;
+      tdesc = tdesc_powerpc_64l.get ();
 
   current_process ()->tdesc = tdesc;
 
@@ -934,7 +932,7 @@ ppc_target::low_arch_setup ()
      Set the low target's regmap field as appropriately.  */
 #ifndef __powerpc64__
   if (ppc_hwcap & PPC_FEATURE_HAS_SPE)
-    tdesc = tdesc_powerpc_e500l;
+    tdesc = tdesc_powerpc_e500l.get ();
 
   if (!ppc_regmap_adjusted)
     {
@@ -1054,8 +1052,8 @@ int
 ppc_target::low_get_thread_area (int lwpid, CORE_ADDR *addr)
 {
   struct lwp_info *lwp = find_lwp_pid (ptid_t (lwpid));
-  struct thread_info *thr = get_lwp_thread (lwp);
-  struct regcache *regcache = get_thread_regcache (thr, 1);
+  thread_info *thr = lwp->thread;
+  regcache *regcache = get_thread_regcache (thr);
   ULONGEST tp = 0;
 
 #ifdef __powerpc64__
@@ -1133,7 +1131,7 @@ gen_ds_form (uint32_t *buf, int opcd, int rst, int ra, int ds, int xo)
   return 1;
 }
 
-/* Followings are frequently used ds-form instructions.  */
+/* Following are frequently used ds-form instructions.  */
 
 #define GEN_STD(buf, rs, ra, offset)	gen_ds_form (buf, 62, rs, ra, offset, 0)
 #define GEN_STDU(buf, rs, ra, offset)	gen_ds_form (buf, 62, rs, ra, offset, 1)
@@ -1159,7 +1157,7 @@ gen_d_form (uint32_t *buf, int opcd, int rst, int ra, int si)
   return 1;
 }
 
-/* Followings are frequently used d-form instructions.  */
+/* Following are frequently used d-form instructions.  */
 
 #define GEN_ADDI(buf, rt, ra, si)	gen_d_form (buf, 14, rt, ra, si)
 #define GEN_ADDIS(buf, rt, ra, si)	gen_d_form (buf, 15, rt, ra, si)
@@ -1192,7 +1190,7 @@ gen_xfx_form (uint32_t *buf, int opcd, int rst, int ri, int xo)
   return 1;
 }
 
-/* Followings are frequently used xfx-form instructions.  */
+/* Following are frequently used xfx-form instructions.  */
 
 #define GEN_MFSPR(buf, rt, spr)		gen_xfx_form (buf, 31, rt, spr, 339)
 #define GEN_MTSPR(buf, rt, spr)		gen_xfx_form (buf, 31, rt, spr, 467)
@@ -1225,7 +1223,7 @@ gen_x_form (uint32_t *buf, int opcd, int rst, int ra, int rb, int xo, int rc)
   return 1;
 }
 
-/* Followings are frequently used x-form instructions.  */
+/* Following are frequently used x-form instructions.  */
 
 #define GEN_OR(buf, ra, rs, rb)		gen_x_form (buf, 31, rs, ra, rb, 444, 0)
 #define GEN_MR(buf, ra, rs)		GEN_OR (buf, ra, rs, rs)
@@ -1609,8 +1607,7 @@ ppc_target::install_fast_tracepoint_jump_pad (CORE_ADDR tpoint,
   const CORE_ADDR entryaddr = *jump_entry;
   int rsz, min_frame, frame_size, tp_reg;
 #ifdef __powerpc64__
-  struct regcache *regcache = get_thread_regcache (current_thread, 0);
-  int is_64 = register_size (regcache->tdesc, 0) == 8;
+  int is_64 = register_size (current_process ()->tdesc, 0) == 8;
   int is_opd = is_64 && !is_elfv2_inferior ();
 #else
   int is_64 = 0, is_opd = 0;
@@ -3381,9 +3378,7 @@ emit_ops *
 ppc_target::emit_ops ()
 {
 #ifdef __powerpc64__
-  struct regcache *regcache = get_thread_regcache (current_thread, 0);
-
-  if (register_size (regcache->tdesc, 0) == 8)
+  if (register_size (current_process ()->tdesc, 0) == 8)
     {
       if (is_elfv2_inferior ())
 	return &ppc64v2_emit_ops_impl;
@@ -3399,49 +3394,48 @@ ppc_target::emit_ops ()
 int
 ppc_target::get_ipa_tdesc_idx ()
 {
-  struct regcache *regcache = get_thread_regcache (current_thread, 0);
-  const struct target_desc *tdesc = regcache->tdesc;
+  const target_desc *tdesc = current_process ()->tdesc;
 
 #ifdef __powerpc64__
-  if (tdesc == tdesc_powerpc_64l)
+  if (tdesc == tdesc_powerpc_64l.get ())
     return PPC_TDESC_BASE;
-  if (tdesc == tdesc_powerpc_altivec64l)
+  if (tdesc == tdesc_powerpc_altivec64l.get ())
     return PPC_TDESC_ALTIVEC;
-  if (tdesc == tdesc_powerpc_vsx64l)
+  if (tdesc == tdesc_powerpc_vsx64l.get ())
     return PPC_TDESC_VSX;
-  if (tdesc == tdesc_powerpc_isa205_64l)
+  if (tdesc == tdesc_powerpc_isa205_64l.get ())
     return PPC_TDESC_ISA205;
-  if (tdesc == tdesc_powerpc_isa205_altivec64l)
+  if (tdesc == tdesc_powerpc_isa205_altivec64l.get ())
     return PPC_TDESC_ISA205_ALTIVEC;
-  if (tdesc == tdesc_powerpc_isa205_vsx64l)
+  if (tdesc == tdesc_powerpc_isa205_vsx64l.get ())
     return PPC_TDESC_ISA205_VSX;
-  if (tdesc == tdesc_powerpc_isa205_ppr_dscr_vsx64l)
+  if (tdesc == tdesc_powerpc_isa205_ppr_dscr_vsx64l.get ())
     return PPC_TDESC_ISA205_PPR_DSCR_VSX;
-  if (tdesc == tdesc_powerpc_isa207_vsx64l)
+  if (tdesc == tdesc_powerpc_isa207_vsx64l.get ())
     return PPC_TDESC_ISA207_VSX;
-  if (tdesc == tdesc_powerpc_isa207_htm_vsx64l)
+  if (tdesc == tdesc_powerpc_isa207_htm_vsx64l.get ())
     return PPC_TDESC_ISA207_HTM_VSX;
 #endif
 
-  if (tdesc == tdesc_powerpc_32l)
+  if (tdesc == tdesc_powerpc_32l.get ())
     return PPC_TDESC_BASE;
-  if (tdesc == tdesc_powerpc_altivec32l)
+  if (tdesc == tdesc_powerpc_altivec32l.get ())
     return PPC_TDESC_ALTIVEC;
-  if (tdesc == tdesc_powerpc_vsx32l)
+  if (tdesc == tdesc_powerpc_vsx32l.get ())
     return PPC_TDESC_VSX;
-  if (tdesc == tdesc_powerpc_isa205_32l)
+  if (tdesc == tdesc_powerpc_isa205_32l.get ())
     return PPC_TDESC_ISA205;
-  if (tdesc == tdesc_powerpc_isa205_altivec32l)
+  if (tdesc == tdesc_powerpc_isa205_altivec32l.get ())
     return PPC_TDESC_ISA205_ALTIVEC;
-  if (tdesc == tdesc_powerpc_isa205_vsx32l)
+  if (tdesc == tdesc_powerpc_isa205_vsx32l.get ())
     return PPC_TDESC_ISA205_VSX;
-  if (tdesc == tdesc_powerpc_isa205_ppr_dscr_vsx32l)
+  if (tdesc == tdesc_powerpc_isa205_ppr_dscr_vsx32l.get ())
     return PPC_TDESC_ISA205_PPR_DSCR_VSX;
-  if (tdesc == tdesc_powerpc_isa207_vsx32l)
+  if (tdesc == tdesc_powerpc_isa207_vsx32l.get ())
     return PPC_TDESC_ISA207_VSX;
-  if (tdesc == tdesc_powerpc_isa207_htm_vsx32l)
+  if (tdesc == tdesc_powerpc_isa207_htm_vsx32l.get ())
     return PPC_TDESC_ISA207_HTM_VSX;
-  if (tdesc == tdesc_powerpc_e500l)
+  if (tdesc == tdesc_powerpc_e500l.get ())
     return PPC_TDESC_E500;
 
   return 0;

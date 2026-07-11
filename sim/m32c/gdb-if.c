@@ -1,6 +1,6 @@
 /* gdb.c --- sim interface to GDB.
 
-Copyright (C) 2005-2023 Free Software Foundation, Inc.
+Copyright (C) 2005-2026 Free Software Foundation, Inc.
 Contributed by Red Hat, Inc.
 
 This file is part of the GNU simulators.
@@ -159,24 +159,24 @@ sim_create_inferior (SIM_DESC sd, struct bfd * abfd,
 }
 
 uint64_t
-sim_read (SIM_DESC sd, uint64_t mem, void *buf, uint64_t length)
+sim_read (SIM_DESC sd, uint64_t addr, void *buf, uint64_t length)
 {
   check_desc (sd);
 
-  if (mem == 0)
+  if (addr == 0)
     return 0;
 
-  mem_get_blk ((int) mem, buf, length);
+  mem_get_blk ((int) addr, buf, length);
 
   return length;
 }
 
 uint64_t
-sim_write (SIM_DESC sd, uint64_t mem, const void *buf, uint64_t length)
+sim_write (SIM_DESC sd, uint64_t addr, const void *buf, uint64_t length)
 {
   check_desc (sd);
 
-  mem_put_blk ((int) mem, buf, length);
+  mem_put_blk ((int) addr, buf, length);
 
   return length;
 }

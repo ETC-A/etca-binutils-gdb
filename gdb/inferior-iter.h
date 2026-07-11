@@ -1,6 +1,6 @@
 /* Inferior iterators and ranges for GDB, the GNU debugger.
 
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef INFERIOR_ITER_H
-#define INFERIOR_ITER_H
+#ifndef GDB_INFERIOR_ITER_H
+#define GDB_INFERIOR_ITER_H
 
 #include "gdbsupport/filtered-iterator.h"
 #include "gdbsupport/safe-iterator.h"
@@ -28,12 +28,12 @@
 class all_inferiors_iterator
 {
 public:
-  typedef all_inferiors_iterator self_type;
-  typedef struct inferior *value_type;
-  typedef struct inferior *&reference;
-  typedef struct inferior **pointer;
-  typedef std::forward_iterator_tag iterator_category;
-  typedef int difference_type;
+  using self_type = all_inferiors_iterator;
+  using value_type = struct inferior *;
+  using reference = struct inferior *&;
+  using pointer = struct inferior **;
+  using iterator_category = std::forward_iterator_tag;
+  using difference_type = int;
 
   /* Create an iterator pointing at HEAD.  */
   all_inferiors_iterator (process_stratum_target *proc_target,
@@ -132,4 +132,4 @@ using all_inferiors_safe_iterator
 
 using all_inferiors_safe_range = iterator_range<all_inferiors_safe_iterator>;
 
-#endif /* !defined (INFERIOR_ITER_H) */
+#endif /* GDB_INFERIOR_ITER_H */

@@ -1,7 +1,7 @@
 /* Abstraction of GNU v3 abi.
    Contributed by Jim Blandy <jimb@redhat.com>
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "language.h"
 #include "value.h"
 #include "cp-abi.h"
@@ -33,6 +33,7 @@
 #include "cli/cli-style.h"
 #include "dwarf2/loc.h"
 #include "inferior.h"
+#include "gdbsupport/unordered_map.h"
 
 static struct cp_abi_ops gnu_v3_abi_ops;
 
@@ -113,7 +114,6 @@ static struct type *
 get_gdb_vtable_type (struct gdbarch *arch)
 {
   struct type *t;
-  struct field *field_list, *field;
   int offset;
 
   struct type *result = vtable_type_gdbarch_data.get (arch);
@@ -131,50 +131,56 @@ get_gdb_vtable_type (struct gdbarch *arch)
   struct type *ptrdiff_type
     = init_integer_type (alloc, gdbarch_ptr_bit (arch), 0, "ptrdiff_t");
 
+  t = alloc.new_type (TYPE_CODE_STRUCT, 0, nullptr);
+
   /* We assume no padding is necessary, since GDB doesn't know
      anything about alignment at the moment.  If this assumption bites
      us, we should add a gdbarch method which, given a type, returns
      the alignment that type requires, and then use that here.  */
 
   /* Build the field list.  */
-  field_list = XCNEWVEC (struct field, 4);
-  field = &field_list[0];
+  t->alloc_fields (4);
+
   offset = 0;
 
   /* ptrdiff_t vcall_and_vbase_offsets[0]; */
-  field->set_name ("vcall_and_vbase_offsets");
-  field->set_type (lookup_array_range_type (ptrdiff_type, 0, -1));
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field0 = t->field (0);
+    field0.set_name ("vcall_and_vbase_offsets");
+    field0.set_type (lookup_array_range_type (ptrdiff_type, 0, -1));
+    field0.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field0.type ()->length ();
+  }
 
   /* ptrdiff_t offset_to_top; */
-  field->set_name ("offset_to_top");
-  field->set_type (ptrdiff_type);
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field1 = t->field (1);
+    field1.set_name ("offset_to_top");
+    field1.set_type (ptrdiff_type);
+    field1.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field1.type ()->length ();
+  }
 
   /* void *type_info; */
-  field->set_name ("type_info");
-  field->set_type (void_ptr_type);
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field2 = t->field (2);
+    field2.set_name ("type_info");
+    field2.set_type (void_ptr_type);
+    field2.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field2.type ()->length ();
+  }
 
   /* void (*virtual_functions[0]) (); */
-  field->set_name ("virtual_functions");
-  field->set_type (lookup_array_range_type (ptr_to_void_fn_type, 0, -1));
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field3 = t->field (3);
+    field3.set_name ("virtual_functions");
+    field3.set_type (lookup_array_range_type (ptr_to_void_fn_type, 0, -1));
+    field3.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field3.type ()->length ();
+  }
 
-  /* We assumed in the allocation above that there were four fields.  */
-  gdb_assert (field == (field_list + 4));
+  t->set_length (offset);
 
-  t = alloc.new_type (TYPE_CODE_STRUCT, offset * TARGET_CHAR_BIT, NULL);
-  t->set_num_fields (field - field_list);
-  t->set_fields (field_list);
   t->set_name ("gdb_gnu_v3_abi_vtable");
   INIT_CPLUS_SPECIFIC (t);
 
@@ -331,7 +337,7 @@ gnuv3_rtti_type (struct value *value,
 				   + vtable->embedded_offset ()).minsym;
   if (! vtable_symbol)
     return NULL;
-  
+
   /* The symbol's demangled name should be something like "vtable for
      CLASS", where CLASS is the name of the run-time type of VALUE.
      If we didn't like this approach, we could instead look in the
@@ -342,7 +348,7 @@ gnuv3_rtti_type (struct value *value,
       || !startswith (vtable_symbol_name, "vtable for "))
     {
       warning (_("can't find linker symbol for virtual table for `%s' value"),
-	       TYPE_SAFE_NAME (values_type));
+	       values_type->safe_name ());
       if (vtable_symbol_name)
 	warning (_("  found `%s' instead"), vtable_symbol_name);
       return NULL;
@@ -370,7 +376,7 @@ gnuv3_rtti_type (struct value *value,
   /* Get the offset from VALUE to the top of the complete object.
      NOTE: this is the reverse of the meaning of *TOP_P.  */
   offset_to_top
-    = value_as_long (value_field (vtable, vtable_field_offset_to_top));
+    = value_as_long (vtable->field (vtable_field_offset_to_top));
 
   if (full_p)
     *full_p = (- offset_to_top == value->embedded_offset ()
@@ -396,7 +402,7 @@ gnuv3_get_virtual_fn (struct gdbarch *gdbarch, struct value *container,
   gdb_assert (vtable != NULL);
 
   /* Fetch the appropriate function pointer from the vtable.  */
-  vfn = value_subscript (value_field (vtable, vtable_field_virtual_functions),
+  vfn = value_subscript (vtable->field (vtable_field_virtual_functions),
 			 vtable_index);
 
   /* If this architecture uses function descriptors directly in the vtable,
@@ -470,7 +476,7 @@ gnuv3_baseclass_offset (struct type *type, int index,
     return TYPE_BASECLASS_BITPOS (type, index) / 8;
 
   /* If we have a DWARF expression for the offset, evaluate it.  */
-  if (type->field (index).loc_kind () == FIELD_LOC_KIND_DWARF_BLOCK)
+  if (type->field (index).loc_kind () == FIELD_LOC_KIND_DWARF_BLOCK_ADDR)
     {
       struct dwarf2_property_baton baton;
       baton.property_type
@@ -509,7 +515,7 @@ gnuv3_baseclass_offset (struct type *type, int index,
 
   vtable = gnuv3_get_vtable (gdbarch, type, address + embedded_offset);
   gdb_assert (vtable != NULL);
-  vbase_array = value_field (vtable, vtable_field_vcall_and_vbase_offsets);
+  vbase_array = vtable->field (vtable_field_vcall_and_vbase_offsets);
   base_offset = value_as_long (value_subscript (vbase_array, cur_base_offset));
   return base_offset;
 }
@@ -538,7 +544,6 @@ gnuv3_find_method_in (struct type *domain, CORE_ADDR voffset,
 	  f = TYPE_FN_FIELDLIST1 (domain, i);
 	  len2 = TYPE_FN_FIELDLIST_LENGTH (domain, i);
 
-	  check_stub_method_group (domain, i);
 	  for (j = 0; j < len2; j++)
 	    if (TYPE_FN_FIELD_VOFFSET (f, j) == voffset)
 	      return TYPE_FN_FIELD_PHYSNAME (f, j);
@@ -786,51 +791,32 @@ gnuv3_method_ptr_to_value (struct value **this_p, struct value *method_ptr)
     return value_from_pointer (lookup_pointer_type (method_type), ptr_value);
 }
 
-/* Objects of this type are stored in a hash table and a vector when
-   printing the vtables for a class.  */
-
-struct value_and_voffset
+struct vtable_value_hash_t
 {
-  /* The value representing the object.  */
-  struct value *value;
-
-  /* The maximum vtable offset we've found for any object at this
-     offset in the outermost object.  */
-  int max_voffset;
+  std::size_t operator() (value *val) const noexcept
+  { return val->address () + val->embedded_offset (); }
 };
 
-/* Hash function for value_and_voffset.  */
-
-static hashval_t
-hash_value_and_voffset (const void *p)
+struct vtable_value_eq_t
 {
-  const struct value_and_voffset *o = (const struct value_and_voffset *) p;
+  bool operator() (value *lhs, value *rhs) const noexcept
+  {
+    return (lhs->address () + lhs->embedded_offset ()
+	    == rhs->address () + rhs->embedded_offset ());
+  }
+};
 
-  return o->value->address () + o->value->embedded_offset ();
-}
+using vtable_hash_t
+  = gdb::unordered_map<value *, int, vtable_value_hash_t, vtable_value_eq_t>;
 
-/* Equality function for value_and_voffset.  */
-
-static int
-eq_value_and_voffset (const void *a, const void *b)
-{
-  const struct value_and_voffset *ova = (const struct value_and_voffset *) a;
-  const struct value_and_voffset *ovb = (const struct value_and_voffset *) b;
-
-  return (ova->value->address () + ova->value->embedded_offset ()
-	  == ovb->value->address () + ovb->value->embedded_offset ());
-}
-
-/* Comparison function for value_and_voffset.  */
+/* Comparison function used for sorting the vtable entries.  */
 
 static bool
-compare_value_and_voffset (const struct value_and_voffset *va,
-			   const struct value_and_voffset *vb)
+compare_value_and_voffset (const std::pair<value *, int> &va,
+			   const std::pair<value *, int> &vb)
 {
-  CORE_ADDR addra = (va->value->address ()
-		     + va->value->embedded_offset ());
-  CORE_ADDR addrb = (vb->value->address ()
-		     + vb->value->embedded_offset ());
+  CORE_ADDR addra = va.first->address () + va.first->embedded_offset ();
+  CORE_ADDR addrb = vb.first->address () + vb.first->embedded_offset ();
 
   return addra < addrb;
 }
@@ -838,18 +824,14 @@ compare_value_and_voffset (const struct value_and_voffset *va,
 /* A helper function used when printing vtables.  This determines the
    key (most derived) sub-object at each address and also computes the
    maximum vtable offset seen for the corresponding vtable.  Updates
-   OFFSET_HASH and OFFSET_VEC with a new value_and_voffset object, if
-   needed.  VALUE is the object to examine.  */
+   OFFSET_HASH with a new value_and_voffset object, if needed.  VALUE
+   is the object to examine.  */
 
 static void
-compute_vtable_size (htab_t offset_hash,
-		     std::vector<value_and_voffset *> *offset_vec,
-		     struct value *value)
+compute_vtable_size (vtable_hash_t &offset_hash, struct value *value)
 {
   int i;
   struct type *type = check_typedef (value->type ());
-  void **slot;
-  struct value_and_voffset search_vo, *current_vo;
 
   gdb_assert (type->code () == TYPE_CODE_STRUCT);
 
@@ -859,18 +841,7 @@ compute_vtable_size (htab_t offset_hash,
     return;
 
   /* Update the hash and the vec, if needed.  */
-  search_vo.value = value;
-  slot = htab_find_slot (offset_hash, &search_vo, INSERT);
-  if (*slot)
-    current_vo = (struct value_and_voffset *) *slot;
-  else
-    {
-      current_vo = XNEW (struct value_and_voffset);
-      current_vo->value = value;
-      current_vo->max_voffset = -1;
-      *slot = current_vo;
-      offset_vec->push_back (current_vo);
-    }
+  int &current_max_voffset = offset_hash.emplace (value, -1).first->second;
 
   /* Update the value_and_voffset object with the highest vtable
      offset from this class.  */
@@ -885,15 +856,15 @@ compute_vtable_size (htab_t offset_hash,
 	    {
 	      int voffset = TYPE_FN_FIELD_VOFFSET (fn, j);
 
-	      if (voffset > current_vo->max_voffset)
-		current_vo->max_voffset = voffset;
+	      if (voffset > current_max_voffset)
+		current_max_voffset = voffset;
 	    }
 	}
     }
 
   /* Recurse into base classes.  */
   for (i = 0; i < TYPE_N_BASECLASSES (type); ++i)
-    compute_vtable_size (offset_hash, offset_vec, value_field (value, i));
+    compute_vtable_size (offset_hash, value->field (i));
 }
 
 /* Helper for gnuv3_print_vtable that prints a single vtable.  */
@@ -911,11 +882,10 @@ print_one_vtable (struct gdbarch *gdbarch, struct value *value,
   vtable = gnuv3_get_vtable (gdbarch, type,
 			     value->address ()
 			     + value->embedded_offset ());
-  vt_addr = value_field (vtable,
-			 vtable_field_virtual_functions)->address ();
+  vt_addr = vtable->field (vtable_field_virtual_functions)->address ();
 
   gdb_printf (_("vtable for '%s' @ %s (subobject @ %s):\n"),
-	      TYPE_SAFE_NAME (type),
+	      type->safe_name (),
 	      paddress (gdbarch, vt_addr),
 	      paddress (gdbarch, (value->address ()
 				  + value->embedded_offset ())));
@@ -929,8 +899,7 @@ print_one_vtable (struct gdbarch *gdbarch, struct value *value,
 
       gdb_printf ("[%d]: ", i);
 
-      vfn = value_subscript (value_field (vtable,
-					  vtable_field_virtual_functions),
+      vfn = value_subscript (vtable->field (vtable_field_virtual_functions),
 			     i);
 
       if (gdbarch_vtable_function_descriptors (gdbarch))
@@ -994,23 +963,22 @@ gnuv3_print_vtable (struct value *value)
       return;
     }
 
-  htab_up offset_hash (htab_create_alloc (1, hash_value_and_voffset,
-					  eq_value_and_voffset,
-					  xfree, xcalloc, xfree));
-  std::vector<value_and_voffset *> result_vec;
+  vtable_hash_t offset_hash;
+  compute_vtable_size (offset_hash, value);
 
-  compute_vtable_size (offset_hash.get (), &result_vec, value);
+  std::vector<std::pair<struct value *, int>> result_vec (offset_hash.begin (),
+							  offset_hash.end ());
   std::sort (result_vec.begin (), result_vec.end (),
 	     compare_value_and_voffset);
 
   count = 0;
-  for (value_and_voffset *iter : result_vec)
+  for (auto &item : result_vec)
     {
-      if (iter->max_voffset >= 0)
+      if (item.second >= 0)
 	{
 	  if (count > 0)
 	    gdb_printf ("\n");
-	  print_one_vtable (gdbarch, iter->value, iter->max_voffset, &opts);
+	  print_one_vtable (gdbarch, item.first, item.second, &opts);
 	  ++count;
 	}
     }
@@ -1026,39 +994,40 @@ static struct type *
 build_std_type_info_type (struct gdbarch *arch)
 {
   struct type *t;
-  struct field *field_list, *field;
   int offset;
   struct type *void_ptr_type
     = builtin_type (arch)->builtin_data_ptr;
   struct type *char_type
     = builtin_type (arch)->builtin_char;
   struct type *char_ptr_type
-    = make_pointer_type (make_cv_type (1, 0, char_type, NULL), NULL);
+    = make_pointer_type (make_cv_type (1, 0, char_type));
 
-  field_list = XCNEWVEC (struct field, 2);
-  field = &field_list[0];
+  t = type_allocator (arch).new_type (TYPE_CODE_STRUCT, 0, nullptr);
+
+  t->alloc_fields (2);
+
   offset = 0;
 
   /* The vtable.  */
-  field->set_name ("_vptr.type_info");
-  field->set_type (void_ptr_type);
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field0 = t->field (0);
+    field0.set_name ("_vptr.type_info");
+    field0.set_type (void_ptr_type);
+    field0.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field0.type ()->length ();
+  }
 
   /* The name.  */
-  field->set_name ("__name");
-  field->set_type (char_ptr_type);
-  field->set_loc_bitpos (offset * TARGET_CHAR_BIT);
-  offset += field->type ()->length ();
-  field++;
+  {
+    struct field &field1 = t->field (1);
+    field1.set_name ("__name");
+    field1.set_type (char_ptr_type);
+    field1.set_loc_bitpos (offset * TARGET_CHAR_BIT);
+    offset += field1.type ()->length ();
+  }
 
-  gdb_assert (field == (field_list + 2));
+  t->set_length (offset);
 
-  t = type_allocator (arch).new_type (TYPE_CODE_STRUCT,
-				      offset * TARGET_CHAR_BIT, nullptr);
-  t->set_num_fields (field - field_list);
-  t->set_fields (field_list);
   t->set_name ("gdb_gnu_v3_type_info");
   INIT_CPLUS_SPECIFIC (t);
 
@@ -1073,7 +1042,7 @@ gnuv3_get_typeid_type (struct gdbarch *gdbarch)
   struct symbol *typeinfo;
   struct type *typeinfo_type;
 
-  typeinfo = lookup_symbol ("std::type_info", NULL, STRUCT_DOMAIN,
+  typeinfo = lookup_symbol ("std::type_info", NULL, SEARCH_STRUCT_DOMAIN,
 			    NULL).symbol;
   if (typeinfo == NULL)
     {
@@ -1116,7 +1085,7 @@ gnuv3_get_typeid (struct value *value)
     type = check_typedef (type->target_type ());
 
   /* Ignore top-level cv-qualifiers.  */
-  type = make_cv_type (0, 0, type, NULL);
+  type = make_cv_type (0, 0, type);
   gdbarch = type->arch ();
 
   type_name = type_to_string (type);
@@ -1147,15 +1116,15 @@ gnuv3_get_typeid (struct value *value)
       if (vtable == NULL)
 	error (_("cannot find typeinfo for object of type '%s'"),
 	       name);
-      typeinfo_value = value_field (vtable, vtable_field_type_info);
-      result = value_ind (value_cast (make_pointer_type (typeinfo_type, NULL),
+      typeinfo_value = vtable->field (vtable_field_type_info);
+      result = value_ind (value_cast (make_pointer_type (typeinfo_type),
 				      typeinfo_value));
     }
   else
     {
       std::string sym_name = std::string ("typeinfo for ") + name;
       bound_minimal_symbol minsym
-	= lookup_minimal_symbol (sym_name.c_str (), NULL, NULL);
+	= lookup_minimal_symbol (current_program_space, sym_name.c_str ());
 
       if (minsym.minsym == NULL)
 	error (_("could not find typeinfo symbol for '%s'"), name);
@@ -1172,14 +1141,13 @@ static std::string
 gnuv3_get_typename_from_type_info (struct value *type_info_ptr)
 {
   struct gdbarch *gdbarch = type_info_ptr->type ()->arch ();
-  struct bound_minimal_symbol typeinfo_sym;
   CORE_ADDR addr;
   const char *symname;
   const char *class_name;
   const char *atsign;
 
   addr = value_as_address (type_info_ptr);
-  typeinfo_sym = lookup_minimal_symbol_by_pc (addr);
+  bound_minimal_symbol typeinfo_sym = lookup_minimal_symbol_by_pc (addr);
   if (typeinfo_sym.minsym == NULL)
     error (_("could not find minimal symbol for typeinfo address %s"),
 	   paddress (gdbarch, addr));
@@ -1207,7 +1175,7 @@ gnuv3_get_type_from_type_info (struct value *type_info_ptr)
 {
   /* We have to parse the type name, since in general there is not a
      symbol for a type.  This is somewhat bogus since there may be a
-     mis-parse.  Another approach might be to re-use the demangler's
+     mis-parse.  Another approach might be to reuse the demangler's
      internal form to reconstruct the type somehow.  */
   std::string type_name = gnuv3_get_typename_from_type_info (type_info_ptr);
   expression_up expr (parse_expression (type_name.c_str ()));
@@ -1218,21 +1186,20 @@ gnuv3_get_type_from_type_info (struct value *type_info_ptr)
 /* Determine if we are currently in a C++ thunk.  If so, get the address
    of the routine we are thunking to and continue to there instead.  */
 
-static CORE_ADDR 
-gnuv3_skip_trampoline (frame_info_ptr frame, CORE_ADDR stop_pc)
+static CORE_ADDR
+gnuv3_skip_trampoline (const frame_info_ptr &frame, CORE_ADDR stop_pc)
 {
   CORE_ADDR real_stop_pc, method_stop_pc, func_addr;
   struct gdbarch *gdbarch = get_frame_arch (frame);
-  struct bound_minimal_symbol thunk_sym, fn_sym;
   struct obj_section *section;
   const char *thunk_name, *fn_name;
-  
+
   real_stop_pc = gdbarch_skip_trampoline_code (gdbarch, frame, stop_pc);
   if (real_stop_pc == 0)
     real_stop_pc = stop_pc;
 
   /* Find the linker symbol for this potential thunk.  */
-  thunk_sym = lookup_minimal_symbol_by_pc (real_stop_pc);
+  bound_minimal_symbol thunk_sym = lookup_minimal_symbol_by_pc (real_stop_pc);
   section = find_pc_section (real_stop_pc);
   if (thunk_sym.minsym == NULL || section == NULL)
     return 0;
@@ -1245,7 +1212,8 @@ gnuv3_skip_trampoline (frame_info_ptr frame, CORE_ADDR stop_pc)
     return 0;
 
   fn_name = strstr (thunk_name, " thunk to ") + strlen (" thunk to ");
-  fn_sym = lookup_minimal_symbol (fn_name, NULL, section->objfile);
+  bound_minimal_symbol fn_sym
+    = lookup_minimal_symbol (current_program_space, fn_name, section->objfile);
   if (fn_sym.minsym == NULL)
     return 0;
 
@@ -1599,9 +1567,7 @@ init_gnuv3_ops (void)
   gnu_v3_abi_ops.pass_by_reference = gnuv3_pass_by_reference;
 }
 
-void _initialize_gnu_v3_abi ();
-void
-_initialize_gnu_v3_abi ()
+INIT_GDB_FILE (gnu_v3_abi)
 {
   init_gnuv3_ops ();
 

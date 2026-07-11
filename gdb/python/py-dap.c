@@ -1,6 +1,6 @@
 /* Python DAP interpreter
 
-   Copyright (C) 2022, 2023 Free Software Foundation, Inc.
+   Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "python-internal.h"
 #include "interps.h"
 #include "cli-out.h"
@@ -28,14 +27,14 @@ class dap_interp final : public interp
 public:
 
   explicit dap_interp (const char *name)
-    : interp (name),
-      m_ui_out (new cli_ui_out (gdb_stdout))
+    : interp (name)
   {
+    m_ui_out = std::make_unique<cli_ui_out> (m_stdout.get ());
   }
 
   ~dap_interp () override = default;
 
-  void init (bool top_level) override;
+  void do_init (bool top_level) override;
 
   void suspend () override
   {
@@ -50,24 +49,26 @@ public:
     /* Just ignore it.  */
   }
 
-  void set_logging (ui_file_up logfile, bool logging_redirect,
-		    bool debug_redirect) override
-  {
-    /* Just ignore it.  */
-  }
-
   ui_out *interp_ui_out () override
   {
     return m_ui_out.get ();
   }
+
+  void pre_command_loop () override;
+
+  bool supports_new_ui () const override
+  { return false; }
 
 private:
 
   std::unique_ptr<ui_out> m_ui_out;
 };
 
-void
-dap_interp::init (bool top_level)
+
+/* Call function FN_NAME from module gdb.dap. */
+
+static void
+call_dap_fn (const char *fn_name)
 {
   gdbpy_enter enter_py;
 
@@ -75,24 +76,41 @@ dap_interp::init (bool top_level)
   if (dap_module == nullptr)
     gdbpy_handle_exception ();
 
-  gdbpy_ref<> func (PyObject_GetAttrString (dap_module.get (), "run"));
+  gdbpy_ref<> func (PyObject_GetAttrString (dap_module.get (), fn_name));
   if (func == nullptr)
     gdbpy_handle_exception ();
 
   gdbpy_ref<> result_obj (PyObject_CallObject (func.get (), nullptr));
   if (result_obj == nullptr)
     gdbpy_handle_exception ();
+}
+
+void
+dap_interp::do_init (bool top_level)
+{
+#if CXX_STD_THREAD
+  call_dap_fn ("run");
 
   current_ui->input_fd = -1;
   current_ui->m_input_interactive_p = false;
+#else
+  error (_("GDB was compiled without threading, which DAP requires"));
+#endif
 }
 
-void _initialize_py_interp ();
 void
-_initialize_py_interp ()
+dap_interp::pre_command_loop ()
 {
+  call_dap_fn ("pre_command_loop");
+}
+
+INIT_GDB_FILE (py_interp)
+{
+  /* The dap code uses module typing, available starting python 3.5.  */
+#if PY_VERSION_HEX >= 0x03050000
   interp_factory_register ("dap", [] (const char *name) -> interp *
     {
       return new dap_interp (name);
     });
+#endif
 }

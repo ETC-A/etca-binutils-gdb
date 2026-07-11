@@ -1,6 +1,6 @@
 /* Header file for Compile and inject module.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,17 +15,45 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMPILE_COMPILE_H
-#define COMPILE_COMPILE_H
+#ifndef GDB_COMPILE_COMPILE_H
+#define GDB_COMPILE_COMPILE_H
 
 #include "gcc-c-interface.h"
+#include "gdbsupport/unordered_map.h"
 
 struct ui_file;
 struct gdbarch;
-struct dwarf2_per_cu_data;
+struct dwarf2_per_cu;
 struct dwarf2_per_objfile;
 struct symbol;
 struct dynamic_prop;
+
+/* Scope types enumerator.  List the types of scopes the compiler will
+   accept.  */
+
+enum compile_i_scope_types
+  {
+    COMPILE_I_INVALID_SCOPE,
+
+    /* A simple scope.  Wrap an expression into a simple scope that
+       takes no arguments, returns no value, and uses the generic
+       function name "_gdb_expr". */
+
+    COMPILE_I_SIMPLE_SCOPE,
+
+    /* Do not wrap the expression,
+       it has to provide function "_gdb_expr" on its own.  */
+    COMPILE_I_RAW_SCOPE,
+
+    /* A printable expression scope.  Wrap an expression into a scope
+       suitable for the "compile print" command.  It uses the generic
+       function name "_gdb_expr".  COMPILE_I_PRINT_ADDRESS_SCOPE variant
+       is the usual one, taking address of the object.
+       COMPILE_I_PRINT_VALUE_SCOPE is needed for arrays where the array
+       name already specifies its address.  See get_out_value_type.  */
+    COMPILE_I_PRINT_ADDRESS_SCOPE,
+    COMPILE_I_PRINT_VALUE_SCOPE,
+  };
 
 /* An object of this type holds state associated with a given
    compilation job.  */
@@ -33,7 +61,10 @@ struct dynamic_prop;
 class compile_instance
 {
 public:
-  compile_instance (struct gcc_base_context *gcc_fe, const char *options);
+  compile_instance (struct gcc_base_context *gcc_fe, const char *options)
+    : m_gcc_fe (gcc_fe),
+      m_gcc_target_options (options)
+  {}
 
   virtual ~compile_instance ()
   {
@@ -135,10 +166,10 @@ protected:
   std::string m_gcc_target_options;
 
   /* Map from gdb types to gcc types.  */
-  htab_up m_type_map;
+  gdb::unordered_map<type *, gcc_type> m_type_map;
 
   /* Map from gdb symbols to gcc error messages to emit.  */
-  htab_up m_symbol_err_map;
+  gdb::unordered_map<const symbol *, std::string> m_symbol_err_map;
 };
 
 /* Public function that is called from compile_control case in the
@@ -167,7 +198,7 @@ extern void eval_compile_command (struct command_line *cmd,
 
    ADDR_SIZE is the DWARF address size to use.
 
-   OPT_PTR and OP_END are the bounds of the DWARF expression.
+   EXPR is the DWARF expression.
 
    PER_CU is the per-CU object used for looking up various other
    things.
@@ -182,9 +213,8 @@ extern void compile_dwarf_expr_to_c (string_file *stream,
 				     struct gdbarch *arch,
 				     std::vector<bool> &registers_used,
 				     unsigned int addr_size,
-				     const gdb_byte *op_ptr,
-				     const gdb_byte *op_end,
-				     dwarf2_per_cu_data *per_cu,
+				     gdb::array_view<const gdb_byte> expr,
+				     dwarf2_per_cu *per_cu,
 				     dwarf2_per_objfile *per_objfile);
 
 /* Compile a DWARF bounds expression to C, suitable for use by the
@@ -206,7 +236,7 @@ extern void compile_dwarf_expr_to_c (string_file *stream,
 
    ADDR_SIZE is the DWARF address size to use.
 
-   OPT_PTR and OP_END are the bounds of the DWARF expression.
+   EXPR is the DWARF expression.
 
    PER_CU is the per-CU object used for looking up various other
    things.
@@ -221,9 +251,8 @@ extern void compile_dwarf_bounds_to_c (string_file *stream,
 				       struct gdbarch *arch,
 				       std::vector<bool> &registers_used,
 				       unsigned int addr_size,
-				       const gdb_byte *op_ptr,
-				       const gdb_byte *op_end,
-				       dwarf2_per_cu_data *per_cu,
+				       gdb::array_view<const gdb_byte> expr,
+				       dwarf2_per_cu *per_cu,
 				       dwarf2_per_objfile *per_objfile);
 
 extern void compile_print_value (struct value *val, void *data_voidp);
@@ -231,4 +260,4 @@ extern void compile_print_value (struct value *val, void *data_voidp);
 /* Command element for the 'compile' command.  */
 extern cmd_list_element *compile_cmd_element;
 
-#endif /* COMPILE_COMPILE_H */
+#endif /* GDB_COMPILE_COMPILE_H */

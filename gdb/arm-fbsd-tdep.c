@@ -1,6 +1,6 @@
 /* Target-dependent code for FreeBSD/arm.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "elf/common.h"
 #include "target-descriptions.h"
@@ -105,7 +104,7 @@ static const struct regcache_map_entry arm_fbsd_tls_regmap[] =
 
 static void
 arm_fbsd_sigframe_init (const struct tramp_frame *self,
-			frame_info_ptr this_frame,
+			const frame_info_ptr &this_frame,
 			struct trad_frame_cache *this_cache,
 			CORE_ADDR func)
 {
@@ -215,7 +214,7 @@ arm_fbsd_iterate_over_regset_sections (struct gdbarch *gdbarch,
 /* See arm-fbsd-tdep.h.  */
 
 const struct target_desc *
-arm_fbsd_read_description_auxv (const gdb::optional<gdb::byte_vector> &auxv,
+arm_fbsd_read_description_auxv (const std::optional<gdb::byte_vector> &auxv,
 				target_ops *target, gdbarch *gdbarch, bool tls)
 {
   CORE_ADDR arm_hwcap = 0;
@@ -228,7 +227,7 @@ arm_fbsd_read_description_auxv (const gdb::optional<gdb::byte_vector> &auxv,
   if (arm_hwcap & HWCAP_VFP)
     {
       if (arm_hwcap & HWCAP_NEON)
-	return aarch32_read_description ();
+	return aarch32_read_description (tls);
       else if ((arm_hwcap & (HWCAP_VFPv3 | HWCAP_VFPD32))
 	       == (HWCAP_VFPv3 | HWCAP_VFPD32))
 	return arm_read_description (ARM_FP_TYPE_VFPV3, tls);
@@ -244,10 +243,10 @@ arm_fbsd_read_description_auxv (const gdb::optional<gdb::byte_vector> &auxv,
 const struct target_desc *
 arm_fbsd_read_description_auxv (bool tls)
 {
-  gdb::optional<gdb::byte_vector> auxv = target_read_auxv ();
+  const std::optional<gdb::byte_vector> &auxv = target_read_auxv ();
   return arm_fbsd_read_description_auxv (auxv,
 					 current_inferior ()->top_target (),
-					 current_inferior ()->gdbarch,
+					 current_inferior ()->arch (),
 					 tls);
 }
 
@@ -260,7 +259,7 @@ arm_fbsd_core_read_description (struct gdbarch *gdbarch,
 {
   asection *tls = bfd_get_section_by_name (abfd, ".reg-aarch-tls");
 
-  gdb::optional<gdb::byte_vector> auxv = target_read_auxv_raw (target);
+  std::optional<gdb::byte_vector> auxv = target_read_auxv_raw (target);
   return arm_fbsd_read_description_auxv (auxv, target, gdbarch, tls != nullptr);
 }
 
@@ -271,10 +270,8 @@ arm_fbsd_get_thread_local_address (struct gdbarch *gdbarch, ptid_t ptid,
 				   CORE_ADDR lm_addr, CORE_ADDR offset)
 {
   arm_gdbarch_tdep *tdep = gdbarch_tdep<arm_gdbarch_tdep> (gdbarch);
-  struct regcache *regcache;
-
-  regcache = get_thread_arch_regcache (current_inferior ()->process_target (),
-				       ptid, gdbarch);
+  regcache *regcache
+    = get_thread_arch_regcache (current_inferior (), ptid, gdbarch);
 
   target_fetch_registers (regcache, tdep->tls_regnum);
 
@@ -303,8 +300,7 @@ arm_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   tramp_frame_prepend_unwinder (gdbarch, &arm_fbsd_sigframe);
 
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
 
   tdep->jb_pc = 24;
   tdep->jb_elt_size = 4;
@@ -322,12 +318,10 @@ arm_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
     }
 
   /* Single stepping.  */
-  set_gdbarch_software_single_step (gdbarch, arm_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, arm_software_single_step);
 }
 
-void _initialize_arm_fbsd_tdep ();
-void
-_initialize_arm_fbsd_tdep ()
+INIT_GDB_FILE (arm_fbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_arm, 0, GDB_OSABI_FREEBSD,
 			  arm_fbsd_init_abi);

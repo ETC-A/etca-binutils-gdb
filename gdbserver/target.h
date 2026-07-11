@@ -1,5 +1,5 @@
 /* Target operations for the remote server for GDB.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -21,7 +21,7 @@
 #ifndef GDBSERVER_TARGET_H
 #define GDBSERVER_TARGET_H
 
-#include <sys/types.h> /* for mode_t */
+#include <sys/types.h>
 #include "target/target.h"
 #include "target/resume.h"
 #include "target/wait.h"
@@ -31,6 +31,7 @@
 #include "gdbsupport/btrace-common.h"
 #include <vector>
 #include "gdbsupport/byte-vector.h"
+#include <sys/stat.h>
 
 struct emit_ops;
 struct process_info;
@@ -77,13 +78,13 @@ public:
   /* Start a new process.
 
      PROGRAM is a path to the program to execute.
-     PROGRAM_ARGS is a standard NULL-terminated array of arguments,
-     to be passed to the inferior as ``argv'' (along with PROGRAM).
+     PROGRAM_ARGS is a string containing all of the arguments that will be
+     used to start the inferior.
 
      Returns the new PID on success, -1 on failure.  Registers the new
      process with the process list.  */
   virtual int create_inferior (const char *program,
-			       const std::vector<char *> &program_args) = 0;
+			       const std::string &program_args) = 0;
 
   /* Do additional setup after a new process is created, including
      exec-wrapper completion.  */
@@ -217,9 +218,9 @@ public:
      otherwise.  */
   virtual bool stopped_by_watchpoint ();
 
-  /* Returns the address associated with the watchpoint that hit, if any;
-     returns 0 otherwise.  */
-  virtual CORE_ADDR stopped_data_address ();
+  /* Returns the list of addresses associated with the watchpoint(s)
+     that were hit, if any; returns an empty vector otherwise.  */
+  virtual std::vector<CORE_ADDR> stopped_data_addresses ();
 
   /* Return true if the read_offsets target op is supported.  */
   virtual bool supports_read_offsets ();
@@ -276,6 +277,9 @@ public:
   /* Returns true if vfork events are supported.  */
   virtual bool supports_vfork_events ();
 
+  /* Returns the set of supported thread options.  */
+  virtual gdb_thread_options supported_thread_options ();
+
   /* Returns true if exec events are supported.  */
   virtual bool supports_exec_events ();
 
@@ -284,7 +288,7 @@ public:
 
   /* The target-specific routine to process monitor command.
      Returns 1 if handled, or 0 to perform default processing.  */
-  virtual int handle_monitor_command (char *mon);
+  virtual int handle_monitor_command (const char *mon);
 
   /* Returns the core given a thread, or -1 if not known.  */
   virtual int core_of_thread (ptid_t ptid);
@@ -315,6 +319,9 @@ public:
 
   /* Return true if THREAD is known to be stopped now.  */
   virtual bool thread_stopped (thread_info *thread);
+
+  /* Return true if any thread is known to be resumed.  */
+  virtual bool any_resumed ();
 
   /* Return true if the get_tib_address op is supported.  */
   virtual bool supports_get_tib_address ();
@@ -435,6 +442,12 @@ public:
   virtual int multifs_open (int pid, const char *filename,
 			    int flags, mode_t mode);
 
+  /* Multiple-filesystem-aware lstat.  Like lstat(2), but operating in
+     the filesystem as it appears to process PID.  Systems where all
+     processes share a common filesystem should not override this.
+     The default behavior is to use lstat(2).  */
+  virtual int multifs_lstat (int pid, const char *filename, struct stat *sb);
+
   /* Multiple-filesystem-aware unlink.  Like unlink(2), but operates
      in the filesystem as it appears to process PID.  Systems where
      all processes share a common filesystem should not override this.
@@ -469,19 +482,28 @@ public:
      caller.  */
   virtual const char *thread_name (ptid_t thread);
 
+  /* Return the string translation for THREAD's id.  This gives the
+     target a chance to completely re-interpret the thread id and
+     present a target-specific description for displaying to the user.
+     Return empty if the target is fine with how an id is displayed
+     by default.  */
+  virtual std::string thread_id_str (thread_info *thread);
+
   /* Thread ID to (numeric) thread handle: Return true on success and
      false for failure.  Return pointer to thread handle via HANDLE
      and the handle's length via HANDLE_LEN.  */
   virtual bool thread_handle (ptid_t ptid, gdb_byte **handle,
 			      int *handle_len);
 
-  /* If THREAD is a fork child that was not reported to GDB, return its parent
-     else nullptr.  */
+  /* If THREAD is a fork/vfork/clone child that was not reported to
+     GDB, return its parent else nullptr.  */
   virtual thread_info *thread_pending_parent (thread_info *thread);
 
-  /* If THREAD is the parent of a fork child that was not reported to GDB,
-     return this child, else nullptr.  */
-  virtual thread_info *thread_pending_child (thread_info *thread);
+  /* If THREAD is the parent of a fork/vfork/clone child that was not
+     reported to GDB, return this child and fill in KIND with the
+     matching waitkind, otherwise nullptr.  */
+  virtual thread_info *thread_pending_child (thread_info *thread,
+					     target_waitkind *kind);
 
   /* Returns true if the target can software single step.  */
   virtual bool supports_software_single_step ();
@@ -530,6 +552,9 @@ int kill_inferior (process_info *proc);
 
 #define target_supports_vfork_events() \
   the_target->supports_vfork_events ()
+
+#define target_supported_thread_options(options) \
+  the_target->supported_thread_options (options)
 
 #define target_supports_exec_events() \
   the_target->supports_exec_events ()
@@ -675,6 +700,9 @@ target_read_btrace_conf (struct btrace_target_info *tinfo,
 #define target_supports_software_single_step() \
   the_target->supports_software_single_step ()
 
+#define target_any_resumed() \
+  the_target->any_resumed ()
+
 ptid_t mywait (ptid_t ptid, struct target_waitstatus *ourstatus,
 	       target_wait_flags options, int connected_wait);
 
@@ -694,9 +722,9 @@ target_thread_pending_parent (thread_info *thread)
 }
 
 static inline thread_info *
-target_thread_pending_child (thread_info *thread)
+target_thread_pending_child (thread_info *thread, target_waitkind *kind)
 {
-  return the_target->thread_pending_child (thread);
+  return the_target->thread_pending_child (thread, kind);
 }
 
 /* Read LEN bytes from MEMADDR in the buffer MYADDR.  Return 0 if the read
@@ -720,5 +748,11 @@ bool set_desired_thread ();
 bool set_desired_process ();
 
 std::string target_pid_to_str (ptid_t);
+
+static inline std::string
+target_thread_id_str (thread_info *thread)
+{
+  return the_target->thread_id_str (thread);
+}
 
 #endif /* GDBSERVER_TARGET_H */

@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux ARC.
 
-   Copyright 2020-2023 Free Software Foundation, Inc.
+   Copyright 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "inferior.h"
 #include "gdbcore.h"
@@ -310,9 +309,7 @@ ps_get_thread_area (struct ps_prochandle *ph, lwpid_t lwpid, int idx,
 }
 
 /* Suppress warning from -Wmissing-prototypes.  */
-void _initialize_arc_linux_nat ();
-void
-_initialize_arc_linux_nat ()
+INIT_GDB_FILE (arc_linux_nat)
 {
   /* Register the target.  */
   linux_target = &the_arc_linux_nat_target;

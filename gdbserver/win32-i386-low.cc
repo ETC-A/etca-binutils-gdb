@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,7 +15,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "win32-low.h"
 #include "x86-low.h"
 #include "gdbsupport/x86-xstate.h"
@@ -32,17 +31,33 @@ using namespace windows_nat;
 #define CONTEXT_EXTENDED_REGISTERS 0
 #endif
 
-#define FCS_REGNUM 27
-#define FOP_REGNUM 31
+#define I386_FISEG_REGNUM 27
+#define I386_FOP_REGNUM 31
+
+#define I386_CS_REGNUM 10
+#define I386_GS_REGNUM 15
+
+#define AMD64_FISEG_REGNUM 35
+#define AMD64_FOP_REGNUM 39
+
+#define AMD64_CS_REGNUM 18
+#define AMD64_GS_REGNUM 23
 
 #define FLAG_TRACE_BIT 0x100
 
 static struct x86_debug_reg_state debug_reg_state;
 
+/* The inferior's target description.  This is a global because the
+   Windows ports support neither bi-arch nor multi-process.  */
+static const_target_desc_up win32_tdesc;
+#ifdef __x86_64__
+static const_target_desc_up wow64_win32_tdesc;
+#endif
+
 static void
 update_debug_registers (thread_info *thread)
 {
-  windows_thread_info *th = (windows_thread_info *) thread_target_data (thread);
+  auto th = static_cast<windows_thread_info *> (thread->target_data ());
 
   /* The actual update is done later just before resuming the lwp,
      we just mark that the registers need updating.  */
@@ -57,7 +72,7 @@ x86_dr_low_set_addr (int regnum, CORE_ADDR addr)
   gdb_assert (DR_FIRSTADDR <= regnum && regnum <= DR_LASTADDR);
 
   /* Only update the threads of this process.  */
-  for_each_thread (current_thread->id.pid (), update_debug_registers);
+  current_process ()->for_each_thread (update_debug_registers);
 }
 
 /* Update the inferior's DR7 debug control register from STATE.  */
@@ -66,7 +81,7 @@ static void
 x86_dr_low_set_control (unsigned long control)
 {
   /* Only update the threads of this process.  */
-  for_each_thread (current_thread->id.pid (), update_debug_registers);
+  current_process ()->for_each_thread (update_debug_registers);
 }
 
 /* Return the current value of a DR register of the current thread's
@@ -75,18 +90,17 @@ x86_dr_low_set_control (unsigned long control)
 static DWORD64
 win32_get_current_dr (int dr)
 {
-  windows_thread_info *th
-    = (windows_thread_info *) thread_target_data (current_thread);
+  auto th
+    = static_cast<windows_thread_info *> (current_thread->target_data ());
 
   win32_require_context (th);
 
-#ifdef __x86_64__
-#define RET_DR(DR)				\
-  case DR:					\
-    return th->wow64_context.Dr ## DR
-
-  if (windows_process.wow64_process)
+  return windows_process.with_context (th, [&] (auto *context) -> DWORD64
     {
+#define RET_DR(DR)				\
+      case DR:					\
+	return context->Dr ## DR
+
       switch (dr)
 	{
 	  RET_DR (0);
@@ -96,29 +110,10 @@ win32_get_current_dr (int dr)
 	  RET_DR (6);
 	  RET_DR (7);
 	}
-    }
-  else
-#undef RET_DR
-#endif
-#define RET_DR(DR)				\
-  case DR:					\
-    return th->context.Dr ## DR
-
-    {
-      switch (dr)
-	{
-	  RET_DR (0);
-	  RET_DR (1);
-	  RET_DR (2);
-	  RET_DR (3);
-	  RET_DR (6);
-	  RET_DR (7);
-	}
-    }
-
 #undef RET_DR
 
-  gdb_assert_not_reached ("unhandled dr");
+      gdb_assert_not_reached ("unhandled dr");
+    });
 }
 
 static CORE_ADDR
@@ -221,61 +216,58 @@ x86_stopped_by_watchpoint (void)
   return x86_dr_stopped_by_watchpoint (&debug_reg_state);
 }
 
-static CORE_ADDR
-x86_stopped_data_address (void)
+static std::vector<CORE_ADDR>
+x86_stopped_data_addresses ()
 {
   CORE_ADDR addr;
   if (x86_dr_stopped_data_address (&debug_reg_state, &addr))
-    return addr;
-  return 0;
+    return { addr };
+  return {};
 }
 
 static void
-i386_initial_stuff (void)
+i386_initial_stuff (process_info *proc)
 {
+#ifdef __x86_64__
+  if (windows_process.wow64_process)
+    proc->tdesc = wow64_win32_tdesc.get ();
+  else
+#endif
+    proc->tdesc = win32_tdesc.get ();
+
   x86_low_init_dregs (&debug_reg_state);
 }
 
 static void
 i386_get_thread_context (windows_thread_info *th)
 {
-  /* Requesting the CONTEXT_EXTENDED_REGISTERS register set fails if
-     the system doesn't support extended registers.  */
-  static DWORD extended_registers = CONTEXT_EXTENDED_REGISTERS;
+  windows_process.with_context (th, [&] (auto *context)
+    {
+      /* Requesting the CONTEXT_EXTENDED_REGISTERS register set fails if
+	 the system doesn't support extended registers.  */
+      static DWORD extended_registers
+	= WindowsContext<decltype(context)>::extended;
 
  again:
-#ifdef __x86_64__
-  if (windows_process.wow64_process)
-    th->wow64_context.ContextFlags = (CONTEXT_FULL
-				      | CONTEXT_FLOATING_POINT
-				      | CONTEXT_DEBUG_REGISTERS
-				      | extended_registers);
-  else
-#endif
-    th->context.ContextFlags = (CONTEXT_FULL
-				| CONTEXT_FLOATING_POINT
-				| CONTEXT_DEBUG_REGISTERS
-				| extended_registers);
+      context->ContextFlags = (WindowsContext<decltype(context)>::full
+			       | WindowsContext<decltype(context)>::floating
+			       | WindowsContext<decltype(context)>::debug
+			       | extended_registers);
 
-  BOOL ret;
-#ifdef __x86_64__
-  if (windows_process.wow64_process)
-    ret = Wow64GetThreadContext (th->h, &th->wow64_context);
-  else
-#endif
-    ret = GetThreadContext (th->h, &th->context);
-  if (!ret)
-    {
-      DWORD e = GetLastError ();
-
-      if (extended_registers && e == ERROR_INVALID_PARAMETER)
+      BOOL ret = get_thread_context (th->h, context);
+      if (!ret)
 	{
-	  extended_registers = 0;
-	  goto again;
-	}
+	  DWORD e = GetLastError ();
 
-      error ("GetThreadContext failure %ld\n", (long) e);
-    }
+	  if (extended_registers && e == ERROR_INVALID_PARAMETER)
+	    {
+	      extended_registers = 0;
+	      goto again;
+	    }
+
+	  error (_("GetThreadContext failure %ld\n"), (long) e);
+	}
+    });
 }
 
 static void
@@ -287,28 +279,16 @@ i386_prepare_to_resume (windows_thread_info *th)
 
       win32_require_context (th);
 
-#ifdef __x86_64__
-      if (windows_process.wow64_process)
+      windows_process.with_context (th, [&] (auto *context)
 	{
-	  th->wow64_context.Dr0 = dr->dr_mirror[0];
-	  th->wow64_context.Dr1 = dr->dr_mirror[1];
-	  th->wow64_context.Dr2 = dr->dr_mirror[2];
-	  th->wow64_context.Dr3 = dr->dr_mirror[3];
-	  /* th->wow64_context.Dr6 = dr->dr_status_mirror;
+	  context->Dr0 = dr->dr_mirror[0];
+	  context->Dr1 = dr->dr_mirror[1];
+	  context->Dr2 = dr->dr_mirror[2];
+	  context->Dr3 = dr->dr_mirror[3];
+	  /* context->Dr6 = dr->dr_status_mirror;
 	     FIXME: should we set dr6 also ?? */
-	  th->wow64_context.Dr7 = dr->dr_control_mirror;
-	}
-      else
-#endif
-	{
-	  th->context.Dr0 = dr->dr_mirror[0];
-	  th->context.Dr1 = dr->dr_mirror[1];
-	  th->context.Dr2 = dr->dr_mirror[2];
-	  th->context.Dr3 = dr->dr_mirror[3];
-	  /* th->context.Dr6 = dr->dr_status_mirror;
-	     FIXME: should we set dr6 also ?? */
-	  th->context.Dr7 = dr->dr_control_mirror;
-	}
+	  context->Dr7 = dr->dr_control_mirror;
+	});
 
       th->debug_registers_changed = false;
     }
@@ -323,12 +303,10 @@ i386_thread_added (windows_thread_info *th)
 static void
 i386_single_step (windows_thread_info *th)
 {
-#ifdef __x86_64__
-  if (windows_process.wow64_process)
-    th->wow64_context.EFlags |= FLAG_TRACE_BIT;
-  else
-#endif
-    th->context.EFlags |= FLAG_TRACE_BIT;
+  windows_process.with_context (th, [] (auto *context)
+    {
+      context->EFlags |= FLAG_TRACE_BIT;
+    });
 }
 
 /* An array of offset mappings into a Win32 Context structure.
@@ -459,6 +437,42 @@ static const int amd64_mappings[] =
 
 #endif /* __x86_64__ */
 
+/* Return true if R is the FISEG register.  */
+static bool
+is_fiseg_register (int r)
+{
+#ifdef __x86_64__
+  if (!windows_process.wow64_process)
+    return r == AMD64_FISEG_REGNUM;
+  else
+#endif
+    return r == I386_FISEG_REGNUM;
+}
+
+/* Return true if R is the FOP register.  */
+static bool
+is_fop_register (int r)
+{
+#ifdef __x86_64__
+  if (!windows_process.wow64_process)
+    return r == AMD64_FOP_REGNUM;
+  else
+#endif
+    return r == I386_FOP_REGNUM;
+}
+
+/* Return true if R is a segment register.  */
+static bool
+is_segment_register (int r)
+{
+#ifdef __x86_64__
+  if (!windows_process.wow64_process)
+    return r >= AMD64_CS_REGNUM && r <= AMD64_GS_REGNUM;
+  else
+#endif
+    return r >= I386_CS_REGNUM && r <= I386_GS_REGNUM;
+}
+
 /* Fetch register from gdbserver regcache data.  */
 static void
 i386_fetch_inferior_register (struct regcache *regcache,
@@ -472,23 +486,23 @@ i386_fetch_inferior_register (struct regcache *regcache,
 #endif
     mappings = i386_mappings;
 
-  char *context_offset;
-#ifdef __x86_64__
-  if (windows_process.wow64_process)
-    context_offset = (char *) &th->wow64_context + mappings[r];
-  else
-#endif
-    context_offset = (char *) &th->context + mappings[r];
+  char *context_offset = windows_process.with_context (th, [&] (auto *context)
+    {
+      return (char *) context + mappings[r];
+    });
 
-  long l;
-  if (r == FCS_REGNUM)
+  /* GDB treats some registers as 32-bit, where they are in fact only
+     16 bits long.  These cases must be handled specially to avoid
+     reading extraneous bits from the context.  */
+  if (is_fiseg_register (r) || is_segment_register (r))
     {
-      l = *((long *) context_offset) & 0xffff;
-      supply_register (regcache, r, (char *) &l);
+      gdb_byte bytes[4] = {};
+      memcpy (bytes, context_offset, 2);
+      supply_register (regcache, r, bytes);
     }
-  else if (r == FOP_REGNUM)
+  else if (is_fop_register (r))
     {
-      l = (*((long *) context_offset) >> 16) & ((1 << 11) - 1);
+      long l = (*((long *) context_offset) >> 16) & ((1 << 11) - 1);
       supply_register (regcache, r, (char *) &l);
     }
   else
@@ -508,15 +522,31 @@ i386_store_inferior_register (struct regcache *regcache,
 #endif
     mappings = i386_mappings;
 
-  char *context_offset;
-#ifdef __x86_64__
-  if (windows_process.wow64_process)
-    context_offset = (char *) &th->wow64_context + mappings[r];
-  else
-#endif
-    context_offset = (char *) &th->context + mappings[r];
+  char *context_offset = windows_process.with_context (th, [&] (auto *context)
+    {
+      return (char *) context + mappings[r];
+    });
 
-  collect_register (regcache, r, context_offset);
+  /* GDB treats some registers as 32-bit, where they are in fact only
+     16 bits long.  These cases must be handled specially to avoid
+     overwriting other registers in the context.  */
+  if (is_fiseg_register (r) || is_segment_register (r))
+    {
+      gdb_byte bytes[4];
+      collect_register (regcache, r, bytes);
+      memcpy (context_offset, bytes, 2);
+    }
+  else if (is_fop_register (r))
+    {
+      gdb_byte bytes[4];
+      collect_register (regcache, r, bytes);
+      /* The value of FOP occupies the top two bytes in the context,
+	 so write the two low-order bytes from the cache into the
+	 appropriate spot.  */
+      memcpy (context_offset + 2, bytes, 2);
+    }
+  else
+    collect_register (regcache, r, context_offset);
 }
 
 static const unsigned char i386_win32_breakpoint = 0xcc;
@@ -525,21 +555,21 @@ static const unsigned char i386_win32_breakpoint = 0xcc;
 static void
 i386_arch_setup (void)
 {
-  struct target_desc *tdesc;
+ target_desc_up tdesc;
 
 #ifdef __x86_64__
   tdesc = amd64_create_target_description (X86_XSTATE_SSE_MASK, false,
 					   false, false);
-  init_target_desc (tdesc, amd64_expedite_regs);
-  win32_tdesc = tdesc;
+  init_target_desc (tdesc.get (), amd64_expedite_regs, WINDOWS_OSABI);
+  win32_tdesc = std::move (tdesc);
 #endif
 
   tdesc = i386_create_target_description (X86_XSTATE_SSE_MASK, false, false);
-  init_target_desc (tdesc, i386_expedite_regs);
+  init_target_desc (tdesc.get (), i386_expedite_regs, WINDOWS_OSABI);
 #ifdef __x86_64__
-  wow64_win32_tdesc = tdesc;
+  wow64_win32_tdesc = std::move (tdesc);
 #else
-  win32_tdesc = tdesc;
+  win32_tdesc = std::move (tdesc);
 #endif
 }
 
@@ -602,6 +632,15 @@ i386_win32_set_pc (struct regcache *regcache, CORE_ADDR pc)
     }
 }
 
+/* Implement win32_target_ops "is_sw_breakpoint" method.  */
+
+static bool
+i386_is_sw_breakpoint (const EXCEPTION_RECORD *er)
+{
+  return (er->ExceptionCode == EXCEPTION_BREAKPOINT
+	  || er->ExceptionCode == STATUS_WX86_BREAKPOINT);
+}
+
 struct win32_target_ops the_low_target = {
   i386_arch_setup,
   i386_win32_num_regs,
@@ -621,5 +660,6 @@ struct win32_target_ops the_low_target = {
   i386_insert_point,
   i386_remove_point,
   x86_stopped_by_watchpoint,
-  x86_stopped_data_address
+  x86_stopped_data_addresses,
+  i386_is_sw_breakpoint,
 };

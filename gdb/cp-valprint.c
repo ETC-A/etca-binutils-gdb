@@ -1,6 +1,6 @@
 /* Support for printing C++ values for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "event-top.h"
+#include "extract-store-integer.h"
 #include "gdbsupport/gdb_obstack.h"
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "expression.h"
 #include "value.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "demangle.h"
 #include "annotate.h"
 #include "c-lang.h"
@@ -65,7 +66,7 @@ cp_is_vtbl_ptr_type (struct type *type)
 {
   const char *type_name = type->name ();
 
-  return (type_name != NULL && !strcmp (type_name, vtbl_ptr_name));
+  return (type_name != NULL && streq (type_name, vtbl_ptr_name));
 }
 
 /* Return truth value for the assertion that TYPE is of the type
@@ -99,7 +100,7 @@ cp_is_vtbl_member (struct type *type)
 	  /* The type name of the thunk pointer is NULL when using
 	     dwarf2.  We could test for a pointer to a function, but
 	     there is no type info for the virtual table either, so it
-	     wont help.  */
+	     won't help.  */
 	  return cp_is_vtbl_ptr_type (type);
 	}
     }
@@ -246,7 +247,7 @@ cp_print_value_fields (struct value *val, struct ui_file *stream,
 
 	  /* Do not print leading '=' in case of anonymous
 	     unions.  */
-	  if (strcmp (type->field (i).name (), ""))
+	  if (!streq (type->field (i).name (), ""))
 	    gdb_puts (" = ", stream);
 	  else
 	    {
@@ -259,20 +260,20 @@ cp_print_value_fields (struct value *val, struct ui_file *stream,
 	  annotate_field_value ();
 
 	  if (!type->field (i).is_static ()
-	      && TYPE_FIELD_PACKED (type, i))
+	      && type->field (i).is_packed ())
 	    {
 	      struct value *v;
 
 	      /* Bitfields require special handling, especially due to
 		 byte order problems.  */
-	      if (TYPE_FIELD_IGNORE (type, i))
+	      if (type->field (i).is_ignored ())
 		{
 		  fputs_styled ("<optimized out or zero length>",
 				metadata_style.style (), stream);
 		}
 	      else if (val->bits_synthetic_pointer
 		       (type->field (i).loc_bitpos (),
-			TYPE_FIELD_BITSIZE (type, i)))
+			type->field (i).bitsize ()))
 		{
 		  fputs_styled (_("<synthetic pointer>"),
 				metadata_style.style (), stream);
@@ -290,7 +291,7 @@ cp_print_value_fields (struct value *val, struct ui_file *stream,
 	    }
 	  else
 	    {
-	      if (TYPE_FIELD_IGNORE (type, i))
+	      if (type->field (i).is_ignored ())
 		{
 		  fputs_styled ("<optimized out or zero length>",
 				metadata_style.style (), stream);
@@ -681,21 +682,17 @@ cp_find_class_member (struct type **self_p, int *fieldno,
 }
 
 void
-cp_print_class_member (const gdb_byte *valaddr, struct type *type,
-		       struct ui_file *stream, const char *prefix)
+cp_print_class_memberptr (struct value *val, struct ui_file *stream)
 {
+  struct type *type = check_typedef (val->type ());
   enum bfd_endian byte_order = type_byte_order (type);
 
-  /* VAL is a byte offset into the structure type SELF_TYPE.
-     Find the name of the field for that offset and
-     print it.  */
   struct type *self_type = TYPE_SELF_TYPE (type);
-  LONGEST val;
   int fieldno;
 
-  val = extract_signed_integer (valaddr,
-				type->length (),
-				byte_order);
+  const gdb_byte *valaddr = val->contents_for_printing ().data ();
+  LONGEST pos = extract_signed_integer (valaddr, type->length (),
+					byte_order);
 
   /* Pointers to data members are usually byte offsets into an object.
      Because a data member can have offset zero, and a NULL pointer to
@@ -707,19 +704,19 @@ cp_print_class_member (const gdb_byte *valaddr, struct type *type,
      value.  GDB only supports that last form; to add support for
      another form, make this into a cp-abi hook.  */
 
-  if (val == -1)
+  if (pos == -1)
     {
       gdb_printf (stream, "NULL");
       return;
     }
 
-  cp_find_class_member (&self_type, &fieldno, val << 3);
+  cp_find_class_member (&self_type, &fieldno, 8 * pos);
 
   if (self_type != NULL)
     {
       const char *name;
 
-      gdb_puts (prefix, stream);
+      gdb_puts ("&", stream);
       name = self_type->name ();
       if (name)
 	gdb_puts (name, stream);
@@ -730,7 +727,7 @@ cp_print_class_member (const gdb_byte *valaddr, struct type *type,
 		    variable_name_style.style (), stream);
     }
   else
-    gdb_printf (stream, "%ld", (long) val);
+    gdb_printf (stream, "%s", plongest (pos));
 }
 
 #if GDB_SELF_TEST
@@ -752,13 +749,13 @@ test_print_fields (gdbarch *arch)
     {
       f = append_composite_type_field_raw (the_struct, "A", bool_type);
       f->set_loc_bitpos (1);
-      FIELD_BITSIZE (*f) = 1;
+      f->set_bitsize (1);
       f = append_composite_type_field_raw (the_struct, "B", uint8_type);
       f->set_loc_bitpos (3);
-      FIELD_BITSIZE (*f) = 3;
+      f->set_bitsize (3);
       f = append_composite_type_field_raw (the_struct, "C", bool_type);
       f->set_loc_bitpos (7);
-      FIELD_BITSIZE (*f) = 1;
+      f->set_bitsize (1);
     }
   /* According to the logic commented in "make_gdb_type_struct ()" of
    * target-descriptions.c, bit positions are numbered differently for
@@ -767,13 +764,13 @@ test_print_fields (gdbarch *arch)
     {
       f = append_composite_type_field_raw (the_struct, "A", bool_type);
       f->set_loc_bitpos (30);
-      FIELD_BITSIZE (*f) = 1;
+      f->set_bitsize (1);
       f = append_composite_type_field_raw (the_struct, "B", uint8_type);
       f->set_loc_bitpos (26);
-      FIELD_BITSIZE (*f) = 3;
+      f->set_bitsize (3);
       f = append_composite_type_field_raw (the_struct, "C", bool_type);
       f->set_loc_bitpos (24);
-      FIELD_BITSIZE (*f) = 1;
+      f->set_bitsize (1);
     }
 
   value *val = value::allocate (the_struct);
@@ -796,9 +793,7 @@ test_print_fields (gdbarch *arch)
 #endif
 
 
-void _initialize_cp_valprint ();
-void
-_initialize_cp_valprint ()
+INIT_GDB_FILE (cp_valprint)
 {
 #if GDB_SELF_TEST
   selftests::register_test_foreach_arch ("print-fields", test_print_fields);

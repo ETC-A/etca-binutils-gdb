@@ -1,6 +1,5 @@
 # Check instructions with optimized encoding
 
-	.allow_index_reg
 	.text
 _start:
 	testl	$0x7f, %eax
@@ -22,6 +21,47 @@ _start:
 
 	lock xchg %ecx, (%edx)
 	lock xchg (%ecx), %edx
+
+	xchg	%cl, %cl
+	{load} xchg %dx, %dx
+	xchg	%edi, %edi
+
+	movsb	%al, %ax
+	movsbw	%al, %ax
+
+	movsw	%ax, %eax
+	movswl	%ax, %eax
+
+	movzb	%al, %ax
+	movzbw	%cl, %cx
+
+	.intel_syntax noprefix
+	movsx	ax, al
+	movsx	eax, ax
+	movzx	dx, dl
+	.att_syntax prefix
+
+	shl	$1, %dl
+	shl	%dl
+
+	shl	$1, %dx
+	shl	%dx
+
+	shl	$1, %edx
+	shl	%edx
+
+	sal	$1, %dl
+	sal	%dl
+
+	sal	$1, %dx
+	sal	%dx
+
+	sal	$1, %edx
+	sal	%edx
+
+	xadd	%cl, %cl
+	xadd	%dx, %dx
+	xadd	%edi, %edi
 
 	vandnpd	%zmm1, %zmm1, %zmm5
 
@@ -185,4 +225,20 @@ _start:
 	vpcmpeqq	%xmm2, %xmm2, %xmm0
 	vpcmpeqq	%ymm2, %ymm2, %ymm0
 
+	psllw	$1, %mm2
+	psllw	$1, %xmm2
+	vpsllw	$1, %xmm2, %xmm3
+	vpsllw	$1, %xmm2, %xmm3{%k4}
+
+	pslld	$1, %mm2
+	pslld	$1, %xmm2
+	vpslld	$1, %ymm2, %ymm3
+	vpslld	$1, %ymm2, %ymm3{%k4}
+
+	psllq	$1, %mm2			# This needs leaving alone.
+	psllq	$1, %xmm2
+	vpsllq	$1, %xmm2, %xmm3
+	vpsllq	$1, %zmm2, %zmm3
+
 	vpbroadcastq	%xmm2, %xmm0
+	vpbroadcastq	%xmm2, %ymm0

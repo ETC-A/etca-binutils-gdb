@@ -1,6 +1,6 @@
 /* Target dependent code for ARC architecture, for GDB.
 
-   Copyright 2005-2023 Free Software Foundation, Inc.
+   Copyright 2005-2026 Free Software Foundation, Inc.
    Contributed by Synopsys Inc.
 
    This file is part of GDB.
@@ -18,8 +18,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef ARC_TDEP_H
-#define ARC_TDEP_H
+#ifndef GDB_ARC_TDEP_H
+#define GDB_ARC_TDEP_H
 
 /* Need disassemble_info.  */
 #include "dis-asm.h"
@@ -131,10 +131,10 @@ struct arc_gdbarch_tdep : gdbarch_tdep_base
   bool has_hw_loops = false;
 
   /* Detect sigtramp.  */
-  bool (*is_sigtramp) (frame_info_ptr) = nullptr;
+  bool (*is_sigtramp) (const frame_info_ptr &) = nullptr;
 
   /* Get address of sigcontext for sigtramp.  */
-  CORE_ADDR (*sigcontext_addr) (frame_info_ptr) = nullptr;
+  CORE_ADDR (*sigcontext_addr) (const frame_info_ptr &) = nullptr;
 
   /* Offset of registers in `struct sigcontext'.  */
   const int *sc_reg_offset = nullptr;
@@ -146,20 +146,20 @@ struct arc_gdbarch_tdep : gdbarch_tdep_base
 
 /* Utility functions used by other ARC-specific modules.  */
 
-static inline int
+static inline bool
 arc_mach_is_arc600 (struct gdbarch *gdbarch)
 {
   return (gdbarch_bfd_arch_info (gdbarch)->mach == bfd_mach_arc_arc600
 	  || gdbarch_bfd_arch_info (gdbarch)->mach == bfd_mach_arc_arc601);
 }
 
-static inline int
+static inline bool
 arc_mach_is_arc700 (struct gdbarch *gdbarch)
 {
   return gdbarch_bfd_arch_info (gdbarch)->mach == bfd_mach_arc_arc700;
 }
 
-static inline int
+static inline bool
 arc_mach_is_arcv2 (struct gdbarch *gdbarch)
 {
   return gdbarch_bfd_arch_info (gdbarch)->mach == bfd_mach_arc_arcv2;
@@ -205,4 +205,4 @@ CORE_ADDR arc_insn_get_linear_next_pc (const struct arc_instruction &insn);
 arc_arch_features arc_arch_features_create (const bfd *abfd,
 					    const unsigned long mach);
 
-#endif /* ARC_TDEP_H */
+#endif /* GDB_ARC_TDEP_H */

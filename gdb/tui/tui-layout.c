@@ -1,6 +1,6 @@
 /* TUI layout window management.
 
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -19,33 +19,24 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "arch-utils.h"
 #include "command.h"
 #include "symtab.h"
 #include "frame.h"
-#include "source.h"
-#include "cli/cli-cmds.h"
 #include "cli/cli-decode.h"
 #include "cli/cli-utils.h"
-#include <ctype.h>
-#include <unordered_set>
+#include "gdbsupport/unordered_set.h"
 
 #include "tui/tui.h"
 #include "tui/tui-command.h"
 #include "tui/tui-data.h"
 #include "tui/tui-wingeneral.h"
-#include "tui/tui-stack.h"
+#include "tui/tui-status.h"
 #include "tui/tui-regs.h"
 #include "tui/tui-win.h"
-#include "tui/tui-winsource.h"
 #include "tui/tui-disasm.h"
 #include "tui/tui-layout.h"
 #include "tui/tui-source.h"
 #include "gdb_curses.h"
-#include "gdbsupport/gdb-safe-ctype.h"
-
-static void extract_display_start_addr (struct gdbarch **, CORE_ADDR *);
 
 /* The layouts.  */
 static std::vector<std::unique_ptr<tui_layout_split>> layouts;
@@ -69,10 +60,7 @@ std::vector<tui_win_info *> tui_windows;
 void
 tui_apply_current_layout (bool preserve_cmd_win_size_p)
 {
-  struct gdbarch *gdbarch;
-  CORE_ADDR addr;
-
-  extract_display_start_addr (&gdbarch, &addr);
+  tui_batch_rendering defer;
 
   for (tui_win_info *win_info : tui_windows)
     win_info->make_visible (false);
@@ -87,8 +75,8 @@ tui_apply_current_layout (bool preserve_cmd_win_size_p)
       tui_win_list[win_type] = nullptr;
 
   /* This should always be made visible by a layout.  */
-  gdb_assert (TUI_CMD_WIN != nullptr);
-  gdb_assert (TUI_CMD_WIN->is_visible ());
+  gdb_assert (tui_cmd_win () != nullptr);
+  gdb_assert (tui_cmd_win ()->is_visible ());
 
   /* Get the new list of currently visible windows.  */
   std::vector<tui_win_info *> new_tui_windows;
@@ -108,10 +96,6 @@ tui_apply_current_layout (bool preserve_cmd_win_size_p)
 
   /* Replace the global list of active windows.  */
   tui_windows = std::move (new_tui_windows);
-
-  if (gdbarch == nullptr && TUI_DISASM_WIN != nullptr)
-    tui_get_begin_asm_address (&gdbarch, &addr);
-  tui_update_source_windows_with_addr (gdbarch, addr);
 }
 
 /* See tui-layout.  */
@@ -144,7 +128,7 @@ tui_set_layout (tui_layout_split *layout)
 
   std::string new_fingerprint = applied_layout->layout_fingerprint ();
   bool preserve_command_window_size
-    = (TUI_CMD_WIN != nullptr && old_fingerprint == new_fingerprint);
+    = (tui_cmd_win () != nullptr && old_fingerprint == new_fingerprint);
 
   tui_apply_current_layout (preserve_command_window_size);
 }
@@ -245,10 +229,10 @@ void
 tui_regs_layout ()
 {
   /* If there's already a register window, we're done.  */
-  if (TUI_DATA_WIN != nullptr)
+  if (tui_data_win () != nullptr)
     return;
 
-  tui_set_layout (TUI_DISASM_WIN != nullptr
+  tui_set_layout (tui_disasm_win () != nullptr
 		  ? asm_regs_layout
 		  : src_regs_layout);
 }
@@ -269,33 +253,19 @@ tui_remove_some_windows ()
 {
   tui_win_info *focus = tui_win_with_focus ();
 
-  if (strcmp (focus->name (), CMD_NAME) == 0)
+  if (streq (focus->name (), CMD_NAME))
     {
       /* Try leaving the source or disassembly window.  If neither
 	 exists, just do nothing.  */
-      focus = TUI_SRC_WIN;
+      focus = tui_src_win ();
       if (focus == nullptr)
-	focus = TUI_DISASM_WIN;
+	focus = tui_disasm_win ();
       if (focus == nullptr)
 	return;
     }
 
   applied_layout->remove_windows (focus->name ());
   tui_apply_current_layout (true);
-}
-
-static void
-extract_display_start_addr (struct gdbarch **gdbarch_p, CORE_ADDR *addr_p)
-{
-  if (TUI_SRC_WIN != nullptr)
-    TUI_SRC_WIN->display_start_addr (gdbarch_p, addr_p);
-  else if (TUI_DISASM_WIN != nullptr)
-    TUI_DISASM_WIN->display_start_addr (gdbarch_p, addr_p);
-  else
-    {
-      *gdbarch_p = nullptr;
-      *addr_p = 0;
-    }
 }
 
 void
@@ -331,7 +301,7 @@ tui_win_info::resize (int height_, int width_,
 
 
 
-/* Helper function to create one of the built-in (non-locator)
+/* Helper function to create one of the built-in (non-status)
    windows.  */
 
 template<enum tui_win_type V, class T>
@@ -394,7 +364,7 @@ initialize_known_windows ()
 						    tui_disasm_window>);
   known_window_types.emplace (STATUS_NAME,
 			       make_standard_window<STATUS_WIN,
-						    tui_locator_window>);
+						    tui_status_window>);
 }
 
 /* See tui-layout.h.  */
@@ -410,14 +380,14 @@ tui_register_window (const char *name, window_factory &&factory)
 
   for (const char &c : name_copy)
     {
-      if (ISSPACE (c))
+      if (c_isspace (c))
 	error (_("invalid whitespace character in window name"));
 
-      if (!ISALNUM (c) && strchr ("-_.", c) == nullptr)
+      if (!c_isalnum (c) && strchr ("-_.", c) == nullptr)
 	error (_("invalid character '%c' in window name"), c);
     }
 
-  if (!ISALPHA (name_copy[0]))
+  if (!c_isalpha (name_copy[0]))
     error (_("window name must start with a letter, not '%c'"), name_copy[0]);
 
   /* We already check above for all the builtin window names.  If we get
@@ -452,6 +422,13 @@ tui_layout_window::apply (int x_, int y_, int width_, int height_,
   width = width_;
   height = height_;
   gdb_assert (m_window != nullptr);
+  if (width == 0 || height == 0)
+    {
+      /* The window was dropped, so it's going to be deleted, reset the
+	 soon to be dangling pointer.  */
+      m_window = nullptr;
+      return;
+    }
   m_window->resize (height, width, x, y);
 }
 
@@ -529,7 +506,7 @@ tui_layout_window::specification (ui_file *output, int depth)
 std::string
 tui_layout_window::layout_fingerprint () const
 {
-  if (strcmp (get_name (), "cmd") == 0)
+  if (streq (get_name (), "cmd"))
     return "C";
   else
     return "";
@@ -819,7 +796,7 @@ tui_layout_split::apply (int x_, int y_, int width_, int height_,
   };
 
   /* This is given a value only if we fix the size of the cmd window.  */
-  gdb::optional<old_size_info> old_cmd_info;
+  std::optional<old_size_info> old_cmd_info;
 
   std::vector<size_info> info (m_splits.size ());
 
@@ -833,9 +810,10 @@ tui_layout_split::apply (int x_, int y_, int width_, int height_,
   int available_size = m_vertical ? height : width;
   int last_index = -1;
   int total_weight = 0;
+  int prev = -1;
   for (int i = 0; i < m_splits.size (); ++i)
     {
-      bool cmd_win_already_exists = TUI_CMD_WIN != nullptr;
+      bool cmd_win_already_exists = tui_cmd_win () != nullptr;
 
       /* Always call get_sizes, to ensure that the window is
 	 instantiated.  This is a bit gross but less gross than adding
@@ -846,7 +824,7 @@ tui_layout_split::apply (int x_, int y_, int width_, int height_,
       if (preserve_cmd_win_size_p
 	  && cmd_win_already_exists
 	  && m_splits[i].layout->get_name () != nullptr
-	  && strcmp (m_splits[i].layout->get_name (), "cmd") == 0)
+	  && streq (m_splits[i].layout->get_name (), "cmd"))
 	{
 	  /* Save the old cmd window information, in case we need to
 	     restore it later.  */
@@ -859,25 +837,41 @@ tui_layout_split::apply (int x_, int y_, int width_, int height_,
 	     that the resizing step, below, does the right thing with
 	     this window.  */
 	  info[i].min_size = (m_vertical
-			      ? TUI_CMD_WIN->height
-			      : TUI_CMD_WIN->width);
+			      ? tui_cmd_win ()->height
+			      : tui_cmd_win ()->width);
 	  info[i].max_size = info[i].min_size;
 	}
 
+      if (info[i].min_size > info[i].max_size)
+	{
+	  /* There is not enough room for this window, drop it.  */
+	  info[i].min_size = 0;
+	  info[i].max_size = 0;
+	  continue;
+	}
+
+      /* Two adjacent boxed windows will share a border.  */
+      if (prev != -1
+	  && m_splits[prev].layout->last_edge_has_border_p ()
+	  && m_splits[i].layout->first_edge_has_border_p ())
+	info[i].share_box = true;
+
       if (info[i].min_size == info[i].max_size)
-	available_size -= info[i].min_size;
+	{
+	  available_size -= info[i].min_size;
+	  if (info[i].share_box)
+	    {
+	      /* A shared border makes a bit more size available.  */
+	      ++available_size;
+	    }
+	}
       else
 	{
 	  last_index = i;
 	  total_weight += m_splits[i].weight;
 	}
 
-      /* Two adjacent boxed windows will share a border, making a bit
-	 more size available.  */
-      if (i > 0
-	  && m_splits[i - 1].layout->last_edge_has_border_p ()
-	  && m_splits[i].layout->first_edge_has_border_p ())
-	info[i].share_box = true;
+      prev = i;
     }
 
   /* If last_index is set then we have a window that is not of a fixed
@@ -907,7 +901,10 @@ tui_layout_split::apply (int x_, int y_, int width_, int height_,
 	     this function.  */
 	  used_size += info[i].size;
 	  if (info[i].share_box)
-	    --used_size;
+	    {
+	      /* A shared border makes a bit more size available.  */
+	      --used_size;
+	    }
 	}
       else
 	info[i].size = info[i].min_size;
@@ -1045,9 +1042,9 @@ tui_layout_split::remove_windows (const char *name)
       const char *this_name = m_splits[i].layout->get_name ();
       if (this_name == nullptr)
 	m_splits[i].layout->remove_windows (name);
-      else if (strcmp (this_name, name) == 0
-	       || strcmp (this_name, CMD_NAME) == 0
-	       || strcmp (this_name, STATUS_NAME) == 0)
+      else if (streq (this_name, name)
+	       || streq (this_name, CMD_NAME)
+	       || streq (this_name, STATUS_NAME))
 	{
 	  /* Keep.  */
 	}
@@ -1121,14 +1118,6 @@ destroy_layout (struct cmd_list_element *self, void *context)
 /* List holding the sub-commands of "layout".  */
 
 static struct cmd_list_element *layout_list;
-
-/* Called to implement 'tui layout'.  */
-
-static void
-tui_layout_command (const char *args, int from_tty)
-{
-  help_list (layout_list, "tui layout ", all_commands, gdb_stdout);
-}
 
 /* Add a "layout" command with name NAME that switches to LAYOUT.  */
 
@@ -1231,7 +1220,7 @@ tui_new_layout_command (const char *spec, int from_tty)
 
   std::vector<std::unique_ptr<tui_layout_split>> splits;
   splits.emplace_back (new tui_layout_split (is_vertical));
-  std::unordered_set<std::string> seen_windows;
+  gdb::unordered_set<std::string> seen_windows;
   while (true)
     {
       spec = skip_spaces (spec);
@@ -1304,12 +1293,10 @@ tui_new_layout_command (const char *spec, int from_tty)
 /* Function to initialize gdb commands, for tui window layout
    manipulation.  */
 
-void _initialize_tui_layout ();
-void
-_initialize_tui_layout ()
+INIT_GDB_FILE (tui_layout)
 {
   struct cmd_list_element *layout_cmd
-    = add_prefix_cmd ("layout", class_tui, tui_layout_command, _("\
+    = add_basic_prefix_cmd ("layout", class_tui, _("\
 Change the layout of windows.\n\
 Usage: tui layout prev | next | LAYOUT-NAME"),
 		      &layout_list, 0, tui_get_cmd_list ());

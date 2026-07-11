@@ -1,6 +1,6 @@
 /* Target-dependent code for NetBSD/hppa
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "osabi.h"
 #include "regcache.h"
 #include "regset.h"
@@ -36,7 +35,7 @@ static int hppanbsd_mc_reg_offset[] =
   /* r0 ... r31 */
       -1,   1 * 4,   2 * 4,   3 * 4,
    4 * 4,   5 * 4,   6 * 4,   7 * 4,
-   8 * 4,   9 * 4,  10 * 4,  11 * 4, 
+   8 * 4,   9 * 4,  10 * 4,  11 * 4,
   12 * 4,  13 * 4,  14 * 4,  15 * 4,
   16 * 4,  17 * 4,  18 * 4,  19 * 4,
   20 * 4,  21 * 4,  22 * 4,  23 * 4,
@@ -64,7 +63,7 @@ static int hppanbsd_mc_reg_offset[] =
 };
 
 static void hppanbsd_sigtramp_cache_init (const struct tramp_frame *,
-					 frame_info_ptr,
+					 const frame_info_ptr &,
 					 struct trad_frame_cache *,
 					 CORE_ADDR);
 
@@ -99,7 +98,7 @@ static const struct tramp_frame hppanbsd_sigtramp_si4 =
 
 static void
 hppanbsd_sigtramp_cache_init (const struct tramp_frame *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     struct trad_frame_cache *this_cache,
 			     CORE_ADDR func)
 {
@@ -137,7 +136,7 @@ static int hppanbsd_reg_offset[] =
   /* r0 ... r31 */
       -1,   1 * 4,   2 * 4,   3 * 4,
    4 * 4,   5 * 4,   6 * 4,   7 * 4,
-   8 * 4,   9 * 4,  10 * 4,  11 * 4, 
+   8 * 4,   9 * 4,  10 * 4,  11 * 4,
   12 * 4,  13 * 4,  14 * 4,  15 * 4,
   16 * 4,  17 * 4,  18 * 4,  19 * 4,
   20 * 4,  21 * 4,  22 * 4,  23 * 4,
@@ -211,9 +210,7 @@ hppanbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tramp_frame_prepend_unwinder (gdbarch, &hppanbsd_sigtramp_si4);
 }
 
-void _initialize_hppanbsd_tdep ();
-void
-_initialize_hppanbsd_tdep ()
+INIT_GDB_FILE (hppanbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_hppa, 0, GDB_OSABI_NETBSD,
 			  hppanbsd_init_abi);

@@ -1,6 +1,6 @@
 /* Python interface to values.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "top.h"		/* For quit_force ().  */
+#include "top.h"
 #include "charset.h"
 #include "value.h"
 #include "language.h"
@@ -28,6 +27,7 @@
 #include "expression.h"
 #include "cp-abi.h"
 #include "python.h"
+#include "ada-lang.h"
 
 #include "python-internal.h"
 
@@ -54,15 +54,17 @@
 #define builtin_type_pybool \
   language_bool_type (current_language, gdbpy_enter::get_gdbarch ())
 
-struct value_object {
-  PyObject_HEAD
+struct value_object : public PyObject
+{
   struct value_object *next;
   struct value_object *prev;
   struct value *value;
   PyObject *address;
-  PyObject *type;
   PyObject *dynamic_type;
+  PyObject *content_bytes;
 };
+
+static_assert (gdb::is_python_allocatable_v<value_object>);
 
 /* List of all values which are currently exposed to Python. It is
    maintained so that when an objfile is discarded, preserve_values
@@ -83,8 +85,7 @@ valpy_clear_value (value_object *self)
   self->value = nullptr;
 
   Py_CLEAR (self->address);
-  Py_CLEAR (self->type);
-  Py_CLEAR (self->dynamic_type);
+  Py_CLEAR (self->content_bytes);
 }
 
 /* Called by the Python interpreter when deallocating a value object.  */
@@ -134,15 +135,19 @@ note_value (value_object *value_obj)
 /* Convert a python object OBJ with type TYPE to a gdb value.  The
    python object in question must conform to the python buffer
    protocol.  On success, return the converted value, otherwise
-   nullptr.  */
+   nullptr.  When REQUIRE_EXACT_SIZE_P is true the buffer OBJ must be the
+   exact length of TYPE.  When REQUIRE_EXACT_SIZE_P is false then the
+   buffer OBJ can be longer than TYPE, in which case only the least
+   significant bytes from the buffer are used.  */
 
 static struct value *
-convert_buffer_and_type_to_value (PyObject *obj, struct type *type)
+convert_buffer_and_type_to_value (PyObject *obj, struct type *type,
+				  bool require_exact_size_p)
 {
   Py_buffer_up buffer_up;
   Py_buffer py_buf;
 
-  if (PyObject_CheckBuffer (obj) 
+  if (PyObject_CheckBuffer (obj)
       && PyObject_GetBuffer (obj, &py_buf, PyBUF_SIMPLE) == 0)
     {
       /* Got a buffer, py_buf, out of obj.  Cause it to be released
@@ -156,7 +161,13 @@ convert_buffer_and_type_to_value (PyObject *obj, struct type *type)
       return nullptr;
     }
 
-  if (type->length () > py_buf.len)
+  if (require_exact_size_p && type->length () != py_buf.len)
+    {
+      PyErr_SetString (PyExc_ValueError,
+		       _("Size of type is not equal to that of buffer object."));
+      return nullptr;
+    }
+  else if (!require_exact_size_p && type->length () > py_buf.len)
     {
       PyErr_SetString (PyExc_ValueError,
 		       _("Size of type is larger than that of buffer object."));
@@ -195,7 +206,7 @@ valpy_init (PyObject *self, PyObject *args, PyObject *kwds)
   if (type == nullptr)
     value = convert_value_from_python (val_obj);
   else
-    value = convert_buffer_and_type_to_value (val_obj, type);
+    value = convert_buffer_and_type_to_value (val_obj, type, false);
   if (value == nullptr)
     {
       gdb_assert (PyErr_Occurred ());
@@ -221,7 +232,8 @@ valpy_init (PyObject *self, PyObject *args, PyObject *kwds)
    each.  */
 void
 gdbpy_preserve_values (const struct extension_language_defn *extlang,
-		       struct objfile *objfile, htab_t copied_types)
+		       struct objfile *objfile,
+		       copied_types_hash_t &copied_types)
 {
   value_object *iter;
 
@@ -233,7 +245,7 @@ gdbpy_preserve_values (const struct extension_language_defn *extlang,
 static PyObject *
 valpy_dereference (PyObject *self, PyObject *args)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -245,10 +257,10 @@ valpy_dereference (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Given a value of a pointer type or a reference type, return the value
@@ -262,7 +274,7 @@ valpy_dereference (PyObject *self, PyObject *args)
 static PyObject *
 valpy_referenced_value (PyObject *self, PyObject *args)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -288,10 +300,10 @@ valpy_referenced_value (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Return a value which is a reference to the value.  */
@@ -299,7 +311,7 @@ valpy_referenced_value (PyObject *self, PyObject *args)
 static PyObject *
 valpy_reference_value (PyObject *self, PyObject *args, enum type_code refcode)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -311,10 +323,10 @@ valpy_reference_value (PyObject *self, PyObject *args, enum type_code refcode)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 static PyObject *
@@ -329,12 +341,43 @@ valpy_rvalue_reference_value (PyObject *self, PyObject *args)
   return valpy_reference_value (self, args, TYPE_CODE_RVALUE_REF);
 }
 
+/* Implement Value.to_array.  */
+
+static PyObject *
+valpy_to_array (PyObject *self, PyObject *args)
+{
+  gdbpy_ref<> result;
+
+  try
+    {
+      struct value *val = ((value_object *) self)->value;
+      struct type *type = check_typedef (val->type ());
+
+      if (type->code () == TYPE_CODE_ARRAY)
+	result = gdbpy_ref<>::new_reference (self);
+      else
+	{
+	  val = value_to_array (val);
+	  if (val == nullptr)
+	    PyErr_SetString (PyExc_TypeError, _("Value is not array-like."));
+	  else
+	    result = value_to_value_object (val);
+	}
+    }
+  catch (const gdb_exception &except)
+    {
+      return gdbpy_handle_gdb_exception (nullptr, except);
+    }
+
+  return result.release ();
+}
+
 /* Return a "const" qualified version of the value.  */
 
 static PyObject *
 valpy_const_value (PyObject *self, PyObject *args)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -347,10 +390,10 @@ valpy_const_value (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Return "&value".  */
@@ -367,7 +410,7 @@ valpy_get_address (PyObject *self, void *closure)
 	  scoped_value_mark free_values;
 
 	  res_val = value_addr (val_obj->value);
-	  val_obj->address = value_to_value_object (res_val);
+	  val_obj->address = value_to_value_object (res_val).release ();
 	}
       catch (const gdb_exception_forced_quit &except)
 	{
@@ -375,8 +418,7 @@ valpy_get_address (PyObject *self, void *closure)
 	}
       catch (const gdb_exception &except)
 	{
-	  val_obj->address = Py_None;
-	  Py_INCREF (Py_None);
+	  val_obj->address = py_none ().release ();
 	}
     }
 
@@ -391,14 +433,7 @@ valpy_get_type (PyObject *self, void *closure)
 {
   value_object *obj = (value_object *) self;
 
-  if (!obj->type)
-    {
-      obj->type = type_to_type_object (obj->value->type ());
-      if (!obj->type)
-	return NULL;
-    }
-  Py_INCREF (obj->type);
-  return obj->type;
+  return type_to_type_object (obj->value->type ()).release ();
 }
 
 /* Return dynamic type of the value.  */
@@ -407,13 +442,7 @@ static PyObject *
 valpy_get_dynamic_type (PyObject *self, void *closure)
 {
   value_object *obj = (value_object *) self;
-  struct type *type = NULL;
-
-  if (obj->dynamic_type != NULL)
-    {
-      Py_INCREF (obj->dynamic_type);
-      return obj->dynamic_type;
-    }
+  struct type *type = nullptr;
 
   try
     {
@@ -446,23 +475,17 @@ valpy_get_dynamic_type (PyObject *self, void *closure)
       else if (type->code () == TYPE_CODE_STRUCT)
 	type = value_rtti_type (val, NULL, NULL, NULL);
       else
-	{
-	  /* Re-use object's static type.  */
-	  type = NULL;
-	}
+	type = val->type ();
+
+      if (type == nullptr)
+	type = val->type ();
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  if (type == NULL)
-    obj->dynamic_type = valpy_get_type (self, NULL);
-  else
-    obj->dynamic_type = type_to_type_object (type);
-
-  Py_XINCREF (obj->dynamic_type);
-  return obj->dynamic_type;
+  return type_to_type_object (type).release ();
 }
 
 /* Implementation of gdb.Value.lazy_string ([encoding] [, length]) ->
@@ -474,14 +497,7 @@ valpy_get_dynamic_type (PyObject *self, void *closure)
    If LENGTH is provided then the length parameter is set to LENGTH.
    Otherwise if the value is an array of known length then the array's length
    is used.  Otherwise the length will be set to -1 (meaning first null of
-   appropriate with).
-
-   Note: In order to not break any existing uses this allows creating
-   lazy strings from anything.  PR 20769.  E.g.,
-   gdb.parse_and_eval("my_int_variable").lazy_string().
-   "It's easier to relax restrictions than it is to impose them after the
-   fact."  So we should be flagging any unintended uses as errors, but it's
-   perhaps too late for that.  */
+   appropriate with).  */
 
 static PyObject *
 valpy_lazy_string (PyObject *self, PyObject *args, PyObject *kw)
@@ -549,9 +565,7 @@ valpy_lazy_string (PyObject *self, PyObject *args, PyObject *kw)
 	  addr = value_as_address (value);
 	  break;
 	default:
-	  /* Should flag an error here.  PR 20769.  */
-	  addr = value->address ();
-	  break;
+	  error (_("Cannot make lazy string from this object"));
 	}
 
       str_obj = gdbpy_create_lazy_string_object (addr, length, user_encoding,
@@ -559,7 +573,7 @@ valpy_lazy_string (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return str_obj;
@@ -594,7 +608,7 @@ valpy_string (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   encoding = (user_encoding && *user_encoding) ? user_encoding : la_encoding;
@@ -769,7 +783,9 @@ valpy_format_string (PyObject *self, PyObject *args, PyObject *kw)
 	}
     }
 
-  string_file stb (PyObject_IsTrue (styling_obj));
+  /* We force styling_obj to be a 'bool' when we parse the args above.  */
+  gdb_assert (PyBool_Check (styling_obj));
+  string_file stb (styling_obj == Py_True);
 
   try
     {
@@ -778,7 +794,7 @@ valpy_format_string (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return PyUnicode_Decode (stb.c_str (), stb.size (), host_charset (), NULL);
@@ -789,7 +805,7 @@ valpy_format_string (PyObject *self, PyObject *args, PyObject *kw)
 static PyObject *
 valpy_do_cast (PyObject *self, PyObject *args, enum exp_opcode op)
 {
-  PyObject *type_obj, *result = NULL;
+  PyObject *type_obj;
   struct type *type;
 
   if (! PyArg_ParseTuple (args, "O", &type_obj))
@@ -803,6 +819,7 @@ valpy_do_cast (PyObject *self, PyObject *args, enum exp_opcode op)
       return NULL;
     }
 
+  gdbpy_ref<> result;
   try
     {
       struct value *val = ((value_object *) self)->value;
@@ -823,10 +840,10 @@ valpy_do_cast (PyObject *self, PyObject *args, enum exp_opcode op)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Implementation of the "cast" method.  */
@@ -853,6 +870,34 @@ valpy_reinterpret_cast (PyObject *self, PyObject *args)
   return valpy_do_cast (self, args, UNOP_REINTERPRET_CAST);
 }
 
+/* Assign NEW_VALUE into SELF, handles 'struct value' reference counting,
+   and also clearing the bytes data cached within SELF.  Return true if
+   the assignment was successful, otherwise return false, in which case a
+   Python exception will be set.  */
+
+static bool
+valpy_assign_core (value_object *self, struct value *new_value)
+{
+  try
+    {
+      new_value = value_assign (self->value, new_value);
+
+      /* value_as_address returns a new value with the same location
+	 as the old one.  Ensure that this gdb.Value is updated to
+	 reflect the new value.  */
+      new_value->incref ();
+      self->value->decref ();
+      Py_CLEAR (self->content_bytes);
+      self->value = new_value;
+    }
+  catch (const gdb_exception &except)
+    {
+      return gdbpy_handle_gdb_exception (false, except);
+    }
+
+  return true;
+}
+
 /* Implementation of the "assign" method.  */
 
 static PyObject *
@@ -867,17 +912,11 @@ valpy_assign (PyObject *self_obj, PyObject *args)
   if (val == nullptr)
     return nullptr;
 
-  try
-    {
-      value_object *self = (value_object *) self_obj;
-      value_assign (self->value, val);
-    }
-  catch (const gdb_exception &except)
-    {
-      GDB_PY_HANDLE_EXCEPTION (except);
-    }
+  value_object *self = (value_object *) self_obj;
+  if (!valpy_assign_core (self, val))
+    return nullptr;
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 static Py_ssize_t
@@ -928,7 +967,7 @@ value_has_field (struct value *v, PyObject *field)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_SET_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (-1, except);
     }
 
   return has_field;
@@ -976,12 +1015,11 @@ get_field_type (PyObject *field)
 static PyObject *
 valpy_getitem (PyObject *self, PyObject *key)
 {
-  struct gdb_exception except;
   value_object *self_value = (value_object *) self;
   gdb::unique_xmalloc_ptr<char> field;
   struct type *base_class_type = NULL, *field_type = NULL;
   long bitpos = -1;
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   if (gdbpy_is_string (key))
     {
@@ -1060,8 +1098,7 @@ valpy_getitem (PyObject *self, PyObject *key)
 	res_val = value_struct_elt (&tmp, {}, field.get (), NULL,
 				    "struct/class/union");
       else if (bitpos >= 0)
-	res_val = value_struct_elt_bitpos (&tmp, bitpos, field_type,
-					   "struct/class/union");
+	res_val = value_struct_elt_bitpos (tmp, bitpos, field_type);
       else if (base_class_type != NULL)
 	{
 	  struct type *val_type;
@@ -1085,7 +1122,11 @@ valpy_getitem (PyObject *self, PyObject *key)
 	     type.  */
 	  struct value *idx = convert_value_from_python (key);
 
-	  if (idx != NULL)
+	  if (idx != NULL
+	      && binop_user_defined_p (BINOP_SUBSCRIPT, tmp, idx))
+	    res_val = value_x_binop (tmp, idx, BINOP_SUBSCRIPT,
+				     OP_NULL, EVAL_NORMAL);
+	  else if (idx != NULL)
 	    {
 	      /* Check the value's type is something that can be accessed via
 		 a subscript.  */
@@ -1096,6 +1137,8 @@ valpy_getitem (PyObject *self, PyObject *key)
 	      if (type->code () != TYPE_CODE_ARRAY
 		  && type->code () != TYPE_CODE_PTR)
 		  error (_("Cannot subscript requested type."));
+	      else if (ADA_TYPE_P (type))
+		res_val = ada_value_subscript (tmp, 1, &idx);
 	      else
 		res_val = value_subscript (tmp, value_as_long (idx));
 	    }
@@ -1104,14 +1147,12 @@ valpy_getitem (PyObject *self, PyObject *key)
       if (res_val)
 	result = value_to_value_object (res_val);
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
-      except = std::move (ex);
+      return gdbpy_handle_gdb_exception (nullptr, ex);
     }
 
-  GDB_PY_HANDLE_EXCEPTION (except);
-
-  return result;
+  return result.release ();
 }
 
 static int
@@ -1131,7 +1172,7 @@ valpy_call (PyObject *self, PyObject *args, PyObject *keywords)
   struct value *function = ((value_object *) self)->value;
   struct value **vargs = NULL;
   struct type *ftype = NULL;
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -1139,13 +1180,16 @@ valpy_call (PyObject *self, PyObject *args, PyObject *keywords)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  if (ftype->code () != TYPE_CODE_FUNC)
+  if (ftype->code () != TYPE_CODE_FUNC && ftype->code () != TYPE_CODE_METHOD
+      && ftype->code () != TYPE_CODE_INTERNAL_FUNCTION)
     {
       PyErr_SetString (PyExc_RuntimeError,
-		       _("Value is not callable (not TYPE_CODE_FUNC)."));
+		       _("Value is not callable (not TYPE_CODE_FUNC"
+			 " or TYPE_CODE_METHOD"
+			 " or TYPE_CODE_INTERNAL_FUNCTION)."));
       return NULL;
     }
 
@@ -1179,17 +1223,24 @@ valpy_call (PyObject *self, PyObject *args, PyObject *keywords)
     {
       scoped_value_mark free_values;
 
-      value *return_value
-	= call_function_by_hand (function, NULL,
-				 gdb::make_array_view (vargs, args_count));
+      value *return_value;
+      if (ftype->code () == TYPE_CODE_INTERNAL_FUNCTION)
+	return_value = call_internal_function (gdbpy_enter::get_gdbarch (),
+					       current_language,
+					       function, args_count, vargs,
+					       EVAL_NORMAL);
+      else
+	return_value
+	  = call_function_by_hand (function, NULL,
+				   gdb::make_array_view (vargs, args_count));
       result = value_to_value_object (return_value);
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Called by the Python interpreter to obtain string representation
@@ -1211,7 +1262,7 @@ valpy_str (PyObject *self)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return PyUnicode_Decode (stb.c_str (), stb.size (), host_charset (), NULL);
@@ -1230,13 +1281,37 @@ valpy_get_is_optimized_out (PyObject *self, void *closure)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   if (opt)
-    Py_RETURN_TRUE;
+    return py_true ().release ();
 
-  Py_RETURN_FALSE;
+  return py_false ().release ();
+}
+
+/* Implements gdb.Value.is_unavailable.  Return true if any part of the
+   value is unavailable.  */
+
+static PyObject *
+valpy_get_is_unavailable (PyObject *self, void *closure)
+{
+  struct value *value = ((value_object *) self)->value;
+  bool entirely_available = false;
+
+  try
+    {
+      entirely_available = value->entirely_available ();
+    }
+  catch (const gdb_exception &except)
+    {
+      return gdbpy_handle_gdb_exception (nullptr, except);
+    }
+
+  if (!entirely_available)
+    return py_true ().release ();
+
+  return py_false ().release ();
 }
 
 /* Implements gdb.Value.is_lazy.  */
@@ -1252,13 +1327,65 @@ valpy_get_is_lazy (PyObject *self, void *closure)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   if (opt)
-    Py_RETURN_TRUE;
+    return py_true ().release ();
 
-  Py_RETURN_FALSE;
+  return py_false ().release ();
+}
+
+/* Get gdb.Value.bytes attribute.  */
+
+static PyObject *
+valpy_get_bytes (PyObject *self, void *closure)
+{
+  value_object *value_obj = (value_object *) self;
+  struct value *value = value_obj->value;
+
+  if (value_obj->content_bytes != nullptr)
+    {
+      Py_INCREF (value_obj->content_bytes);
+      return value_obj->content_bytes;
+    }
+
+  gdb::array_view<const gdb_byte> contents;
+  try
+    {
+      contents = value->contents ();
+    }
+  catch (const gdb_exception &except)
+    {
+      return gdbpy_handle_gdb_exception (nullptr, except);
+    }
+
+  value_obj->content_bytes
+    =  PyBytes_FromStringAndSize ((const char *) contents.data (),
+				  contents.size ());
+  Py_XINCREF (value_obj->content_bytes);
+  return value_obj->content_bytes;
+}
+
+/* Set gdb.Value.bytes attribute.  */
+
+static int
+valpy_set_bytes (PyObject *self_obj, PyObject *new_value_obj, void *closure)
+{
+  value_object *self = (value_object *) self_obj;
+
+  /* Create a new value from the buffer NEW_VALUE_OBJ.  We pass true here
+     to indicate that NEW_VALUE_OBJ must match exactly the type length.  */
+  struct value *new_value
+    = convert_buffer_and_type_to_value (new_value_obj, self->value->type (),
+					true);
+  if (new_value == nullptr)
+    return -1;
+
+  if (!valpy_assign_core (self, new_value))
+    return -1;
+
+  return 0;
 }
 
 /* Implements gdb.Value.fetch_lazy ().  */
@@ -1274,10 +1401,10 @@ valpy_fetch_lazy (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Calculate and return the address of the PyObject as the value of
@@ -1311,10 +1438,10 @@ enum valpy_opcode
    of applying the operation specified by OPCODE to the given
    arguments.  Throws a GDB exception on error.  */
 
-static PyObject *
+static gdbpy_ref<>
 valpy_binop_throw (enum valpy_opcode opcode, PyObject *self, PyObject *other)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   struct value *arg1, *arg2;
   struct value *res_val = NULL;
@@ -1437,7 +1564,7 @@ valpy_binop_throw (enum valpy_opcode opcode, PyObject *self, PyObject *other)
 static PyObject *
 valpy_binop (enum valpy_opcode opcode, PyObject *self, PyObject *other)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -1445,10 +1572,10 @@ valpy_binop (enum valpy_opcode opcode, PyObject *self, PyObject *other)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 static PyObject *
@@ -1500,7 +1627,7 @@ valpy_power (PyObject *self, PyObject *other, PyObject *unused)
 static PyObject *
 valpy_negative (PyObject *self)
 {
-  PyObject *result = NULL;
+  gdbpy_ref<> result;
 
   try
     {
@@ -1513,16 +1640,16 @@ valpy_negative (PyObject *self)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 static PyObject *
 valpy_positive (PyObject *self)
 {
-  return value_to_value_object (((value_object *) self)->value);
+  return value_to_value_object (((value_object *) self)->value).release ();
 }
 
 static PyObject *
@@ -1540,7 +1667,7 @@ valpy_absolute (PyObject *self)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   if (isabs)
@@ -1553,7 +1680,6 @@ valpy_absolute (PyObject *self)
 static int
 valpy_nonzero (PyObject *self)
 {
-  struct gdb_exception except;
   value_object *self_value = (value_object *) self;
   struct type *type;
   int nonzero = 0; /* Appease GCC warning.  */
@@ -1571,15 +1697,13 @@ valpy_nonzero (PyObject *self)
 	/* All other values are True.  */
 	nonzero = 1;
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
-      except = std::move (ex);
+      /* This is not documented in the Python documentation, but if
+	 this function fails, return -1 as slot_nb_nonzero does (the
+	 default Python nonzero function).  */
+      return gdbpy_handle_gdb_exception (-1, ex);
     }
-
-  /* This is not documented in the Python documentation, but if this
-     function fails, return -1 as slot_nb_nonzero does (the default
-     Python nonzero function).  */
-  GDB_PY_SET_HANDLE_EXCEPTION (except);
 
   return nonzero;
 }
@@ -1588,7 +1712,7 @@ valpy_nonzero (PyObject *self)
 static PyObject *
 valpy_invert (PyObject *self)
 {
-  PyObject *result = nullptr;
+  gdbpy_ref<> result;
 
   try
     {
@@ -1598,10 +1722,10 @@ valpy_invert (PyObject *self)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Implements left shift for value objects.  */
@@ -1707,11 +1831,11 @@ valpy_richcompare (PyObject *self, PyObject *other, int op)
       case Py_LT:
       case Py_LE:
       case Py_EQ:
-	Py_RETURN_FALSE;
+	return py_false ().release ();
       case Py_NE:
       case Py_GT:
       case Py_GE:
-	Py_RETURN_TRUE;
+	return py_true ().release ();
       default:
 	/* Can't happen.  */
 	PyErr_SetString (PyExc_NotImplementedError,
@@ -1725,7 +1849,7 @@ valpy_richcompare (PyObject *self, PyObject *other, int op)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   /* In this case, the Python exception has already been set.  */
@@ -1733,9 +1857,9 @@ valpy_richcompare (PyObject *self, PyObject *other, int op)
     return NULL;
 
   if (result == 1)
-    Py_RETURN_TRUE;
+    return py_true ().release ();
 
-  Py_RETURN_FALSE;
+  return py_false ().release ();
 }
 
 /* Implements conversion to long.  */
@@ -1744,7 +1868,7 @@ valpy_long (PyObject *self)
 {
   struct value *value = ((value_object *) self)->value;
   struct type *type = value->type ();
-  LONGEST l = 0;
+  PyObject *result;
 
   try
     {
@@ -1760,17 +1884,57 @@ valpy_long (PyObject *self)
 	  && type->code () != TYPE_CODE_PTR)
 	error (_("Cannot convert value to long."));
 
-      l = value_as_long (value);
+      gdb::array_view<const gdb_byte> contents = value->contents ();
+#if PY_VERSION_HEX >= 0x030d0000
+      int flags = (type_byte_order (type) == BFD_ENDIAN_BIG
+		   ? Py_ASNATIVEBYTES_BIG_ENDIAN
+		   : Py_ASNATIVEBYTES_LITTLE_ENDIAN);
+      if (type->is_unsigned ())
+	flags |= Py_ASNATIVEBYTES_UNSIGNED_BUFFER;
+      result = PyLong_FromNativeBytes (contents.data (), contents.size (),
+				       flags);
+#else
+      /* Here we construct a call to "int.from_bytes", passing in the
+	 appropriate arguments.  We need a somewhat roundabout
+	 approach because int.from_bytes requires "signed" to be a
+	 keyword arg.  */
+
+      /* PyObject_Call requires a tuple argument.  */
+      gdbpy_ref<> empty_tuple (PyTuple_New (0));
+      if (empty_tuple == nullptr)
+	return nullptr;
+
+      /* Since we need a dictionary anyway, we pass all arguments as
+	 keywords, building the dictionary here.  */
+      gdbpy_ref<> args
+	(Py_BuildValue ("{sy#sssO}",
+			"bytes", contents.data (),
+			(Py_ssize_t) contents.size (),
+			"byteorder",
+			(type_byte_order (type) == BFD_ENDIAN_BIG
+			 ? "big" : "little"),
+			"signed",
+			type->is_unsigned ()
+			? Py_False : Py_True));
+      if (args == nullptr)
+	return nullptr;
+
+      /* Find the "int.from_bytes" callable.  */
+      gdbpy_ref<> callable (PyObject_GetAttrString ((PyObject *) &PyLong_Type,
+						    "from_bytes"));
+      if (callable == nullptr)
+	return nullptr;
+
+      result = PyObject_Call (callable.get (), empty_tuple.get (),
+			      args.get ());
+#endif
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  if (type->is_unsigned ())
-    return gdb_py_object_from_ulongest (l).release ();
-  else
-    return gdb_py_object_from_longest (l).release ();
+  return result;
 }
 
 /* Implements conversion to float.  */
@@ -1799,7 +1963,7 @@ valpy_float (PyObject *self)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return PyFloat_FromDouble (d);
@@ -1807,25 +1971,25 @@ valpy_float (PyObject *self)
 
 /* Returns an object for a value, without releasing it from the
    all_values chain.  */
-PyObject *
+gdbpy_ref<>
 value_to_value_object (struct value *val)
 {
   value_object *val_obj;
 
   val_obj = PyObject_New (value_object, &value_object_type);
-  if (val_obj != NULL)
+  if (val_obj != nullptr)
     {
       val->incref ();
       val_obj->value = val;
       val_obj->next = nullptr;
       val_obj->prev = nullptr;
-      val_obj->address = NULL;
-      val_obj->type = NULL;
-      val_obj->dynamic_type = NULL;
+      val_obj->address = nullptr;
+      val_obj->dynamic_type = nullptr;
+      val_obj->content_bytes = nullptr;
       note_value (val_obj);
     }
 
-  return (PyObject *) val_obj;
+  return gdbpy_ref<> (val_obj);
 }
 
 /* Returns a borrowed reference to the struct value corresponding to
@@ -1835,7 +1999,7 @@ value_object_to_value (PyObject *self)
 {
   value_object *real;
 
-  if (! PyObject_TypeCheck (self, &value_object_type))
+  if (!gdbpy_is_value_object (self))
     return NULL;
   real = (value_object *) self;
   return real->value;
@@ -1857,9 +2021,8 @@ convert_value_from_python (PyObject *obj)
     {
       if (PyBool_Check (obj))
 	{
-	  cmp = PyObject_IsTrue (obj);
-	  if (cmp >= 0)
-	    value = value_from_longest (builtin_type_pybool, cmp);
+	  cmp = obj == Py_True ? 1 : 0;
+	  value = value_from_longest (builtin_type_pybool, cmp);
 	}
       else if (PyLong_Check (obj))
 	{
@@ -1909,7 +2072,7 @@ convert_value_from_python (PyObject *obj)
 	      = current_language->value_string (gdbpy_enter::get_gdbarch (),
 						s.get (), strlen (s.get ()));
 	}
-      else if (PyObject_TypeCheck (obj, &value_object_type))
+      else if (gdbpy_is_value_object (obj))
 	value = ((value_object *) obj)->value->copy ();
       else if (gdbpy_is_lazy_string (obj))
 	{
@@ -1924,8 +2087,7 @@ convert_value_from_python (PyObject *obj)
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
-      return NULL;
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return value;
@@ -1940,7 +2102,7 @@ gdbpy_history (PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple (args, "i", &i))
     return NULL;
 
-  PyObject *result = nullptr;
+  gdbpy_ref<> result;
   try
     {
       scoped_value_mark free_values;
@@ -1949,10 +2111,10 @@ gdbpy_history (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  return result;
+  return result.release ();
 }
 
 /* Add a gdb.Value into GDB's history, and return (as an integer) the
@@ -1976,7 +2138,7 @@ gdbpy_add_history (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   return nullptr;
@@ -2000,7 +2162,7 @@ gdbpy_convenience_variable (PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple (args, "s", &varname))
     return NULL;
 
-  PyObject *result = nullptr;
+  gdbpy_ref<> result;
   bool found = false;
   try
     {
@@ -2021,13 +2183,13 @@ gdbpy_convenience_variable (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
   if (result == nullptr && !found)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
-  return result;
+  return result.release ();
 }
 
 /* Set the value of a convenience variable.  */
@@ -2067,10 +2229,10 @@ gdbpy_set_convenience_variable (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Returns 1 in OBJ is a gdb.Value object, 0 otherwise.  */
@@ -2081,14 +2243,10 @@ gdbpy_is_value_object (PyObject *obj)
   return PyObject_TypeCheck (obj, &value_object_type);
 }
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_values (void)
+static int
+gdbpy_initialize_values ()
 {
-  if (PyType_Ready (&value_object_type) < 0)
-    return -1;
-
-  return gdb_pymodule_addobject (gdb_module, "Value",
-				 (PyObject *) &value_object_type);
+  return gdbpy_type_ready (&value_object_type);
 }
 
 GDBPY_INITIALIZE_FILE (gdbpy_initialize_values);
@@ -2102,6 +2260,9 @@ static gdb_PyGetSetDef value_object_getset[] = {
     "Boolean telling whether the value is optimized "
     "out (i.e., not available).",
     NULL },
+  { "is_unavailable", valpy_get_is_unavailable, nullptr,
+    "Boolean telling whether the value is unavailable.",
+    nullptr },
   { "type", valpy_get_type, NULL, "Type of the value.", NULL },
   { "dynamic_type", valpy_get_dynamic_type, NULL,
     "Dynamic type of the value.", NULL },
@@ -2109,6 +2270,8 @@ static gdb_PyGetSetDef value_object_getset[] = {
     "Boolean telling whether the value is lazy (not fetched yet\n\
 from the inferior).  A lazy value is fetched when needed, or when\n\
 the \"fetch_lazy()\" method is called.", NULL },
+  { "bytes", valpy_get_bytes, valpy_set_bytes,
+    "Return a bytearray containing the bytes of this value.", nullptr },
   {NULL}  /* Sentinel */
 };
 
@@ -2149,6 +2312,9 @@ formatting options" },
   { "assign", (PyCFunction) valpy_assign, METH_VARARGS,
     "assign (VAL) -> None\n\
 Assign VAL to this value." },
+  { "to_array", valpy_to_array, METH_NOARGS,
+    "to_array () -> Value\n\
+Return value as an array, if possible." },
   {NULL}  /* Sentinel */
 };
 
@@ -2215,8 +2381,7 @@ PyTypeObject value_object_type = {
   0,				  /*tp_getattro*/
   0,				  /*tp_setattro*/
   0,				  /*tp_as_buffer*/
-  Py_TPFLAGS_DEFAULT | Py_TPFLAGS_CHECKTYPES
-  | Py_TPFLAGS_BASETYPE,	  /*tp_flags*/
+  Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
   "GDB value object",		  /* tp_doc */
   0,				  /* tp_traverse */
   0,				  /* tp_clear */

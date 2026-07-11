@@ -21,14 +21,58 @@ Disassembly of section .text:
  +[a-f0-9]+:	f7 c7 7f 00 00 00    	test   \$0x7f,%edi
  +[a-f0-9]+:	66 f7 c7 7f 00       	test   \$0x7f,%di
  +[a-f0-9]+:	40 f6 c7 7f          	test   \$0x7f,%dil
- +[a-f0-9]+:	41 f7 c1 7f 00 00 00 	test   \$0x7f,%r9d
+ +[a-f0-9]+:	49 f7 c1 7f 00 00 00 	test   \$0x7f,%r9
  +[a-f0-9]+:	41 f7 c1 7f 00 00 00 	test   \$0x7f,%r9d
  +[a-f0-9]+:	66 41 f7 c1 7f 00    	test   \$0x7f,%r9w
  +[a-f0-9]+:	41 f6 c1 7f          	test   \$0x7f,%r9b
- +[a-f0-9]+:	41 f7 c4 7f 00 00 00 	test   \$0x7f,%r12d
+ +[a-f0-9]+:	49 f7 c4 7f 00 00 00 	test   \$0x7f,%r12
  +[a-f0-9]+:	41 f7 c4 7f 00 00 00 	test   \$0x7f,%r12d
  +[a-f0-9]+:	66 41 f7 c4 7f 00    	test   \$0x7f,%r12w
  +[a-f0-9]+:	41 f6 c4 7f          	test   \$0x7f,%r12b
+ +[a-f0-9]+:	d5 18 f7 c6 7f 00 00 00 	test   \$0x7f,%r22
+ +[a-f0-9]+:	d5 10 f7 c6 7f 00 00 00 	test   \$0x7f,%r22d
+ +[a-f0-9]+:	66 d5 10 f7 c6 7f 00 	test   \$0x7f,%r22w
+ +[a-f0-9]+:	d5 10 f6 c6 7f       	test   \$0x7f,%r22b
+ +[a-f0-9]+:	62 f4 84 0a f7 c3 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%rbx
+ +[a-f0-9]+:	62 f4 04 0a f7 c3 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%ebx
+ +[a-f0-9]+:	62 f4 05 0a f7 c3 7f 00 	ctestt( \{dfv=\})? \$0x7f,%bx
+ +[a-f0-9]+:	62 f4 04 0a f6 c3 7f 	ctestt( \{dfv=\})? \$0x7f,%bl
+ +[a-f0-9]+:	62 f4 84 0a f7 c7 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%rdi
+ +[a-f0-9]+:	62 f4 04 0a f7 c7 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%edi
+ +[a-f0-9]+:	62 f4 05 0a f7 c7 7f 00 	ctestt( \{dfv=\})? \$0x7f,%di
+ +[a-f0-9]+:	62 f4 04 0a f6 c7 7f 	ctestt( \{dfv=\})? \$0x7f,%dil
+ +[a-f0-9]+:	62 d4 84 0a f7 c1 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r9
+ +[a-f0-9]+:	62 d4 04 0a f7 c1 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r9d
+ +[a-f0-9]+:	62 d4 05 0a f7 c1 7f 00 	ctestt( \{dfv=\})? \$0x7f,%r9w
+ +[a-f0-9]+:	62 d4 04 0a f6 c1 7f 	ctestt( \{dfv=\})? \$0x7f,%r9b
+ +[a-f0-9]+:	62 d4 84 0a f7 c4 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r12
+ +[a-f0-9]+:	62 d4 04 0a f7 c4 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r12d
+ +[a-f0-9]+:	62 d4 05 0a f7 c4 7f 00 	ctestt( \{dfv=\})? \$0x7f,%r12w
+ +[a-f0-9]+:	62 d4 04 0a f6 c4 7f 	ctestt( \{dfv=\})? \$0x7f,%r12b
+ +[a-f0-9]+:	62 fc 84 0a f7 c6 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r22
+ +[a-f0-9]+:	62 fc 04 0a f7 c6 7f 00 00 00 	ctestt( \{dfv=\})? \$0x7f,%r22d
+ +[a-f0-9]+:	62 fc 05 0a f7 c6 7f 00 	ctestt( \{dfv=\})? \$0x7f,%r22w
+ +[a-f0-9]+:	62 fc 04 0a f6 c6 7f 	ctestt( \{dfv=\})? \$0x7f,%r22b
+ +[a-f0-9]+:	62 f4 84 02 f7 c3 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%rbx
+ +[a-f0-9]+:	62 f4 04 02 f7 c3 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%ebx
+ +[a-f0-9]+:	62 f4 05 02 f7 c3 7f 00 	ctestb( \{dfv=\})? \$0x7f,%bx
+ +[a-f0-9]+:	62 f4 04 02 f6 c3 7f 	ctestb( \{dfv=\})? \$0x7f,%bl
+ +[a-f0-9]+:	62 f4 84 02 f7 c7 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%rdi
+ +[a-f0-9]+:	62 f4 04 02 f7 c7 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%edi
+ +[a-f0-9]+:	62 f4 05 02 f7 c7 7f 00 	ctestb( \{dfv=\})? \$0x7f,%di
+ +[a-f0-9]+:	62 f4 04 02 f6 c7 7f 	ctestb( \{dfv=\})? \$0x7f,%dil
+ +[a-f0-9]+:	62 d4 84 02 f7 c1 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r9
+ +[a-f0-9]+:	62 d4 04 02 f7 c1 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r9d
+ +[a-f0-9]+:	62 d4 05 02 f7 c1 7f 00 	ctestb( \{dfv=\})? \$0x7f,%r9w
+ +[a-f0-9]+:	62 d4 04 02 f6 c1 7f 	ctestb( \{dfv=\})? \$0x7f,%r9b
+ +[a-f0-9]+:	62 d4 84 02 f7 c4 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r12
+ +[a-f0-9]+:	62 d4 04 02 f7 c4 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r12d
+ +[a-f0-9]+:	62 d4 05 02 f7 c4 7f 00 	ctestb( \{dfv=\})? \$0x7f,%r12w
+ +[a-f0-9]+:	62 d4 04 02 f6 c4 7f 	ctestb( \{dfv=\})? \$0x7f,%r12b
+ +[a-f0-9]+:	62 fc 84 02 f7 c6 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r22
+ +[a-f0-9]+:	62 fc 04 02 f7 c6 7f 00 00 00 	ctestb( \{dfv=\})? \$0x7f,%r22d
+ +[a-f0-9]+:	62 fc 05 02 f7 c6 7f 00 	ctestb( \{dfv=\})? \$0x7f,%r22w
+ +[a-f0-9]+:	62 fc 04 02 f6 c6 7f 	ctestb( \{dfv=\})? \$0x7f,%r22b
  +[a-f0-9]+:	84 c9                	test   %cl,%cl
  +[a-f0-9]+:	66 85 d2             	test   %dx,%dx
  +[a-f0-9]+:	21 db                	and    %ebx,%ebx
@@ -37,6 +81,24 @@ Disassembly of section .text:
  +[a-f0-9]+:	66 85 f6             	test   %si,%si
  +[a-f0-9]+:	09 ff                	or     %edi,%edi
  +[a-f0-9]+:	4d 85 c0             	test   %r8,%r8
+ +[a-f0-9]+:	d5 50 88 c9          	mov    %r17b,%r17b
+ +[a-f0-9]+:	66 45 8b c0          	mov    %r8w,%r8w
+ +[a-f0-9]+:	89 c0                	mov    %eax,%eax
+ +[a-f0-9]+:	4d 89 ff             	mov    %r15,%r15
+ +[a-f0-9]+:	66 98                	cbtw
+ +[a-f0-9]+:	66 98                	cbtw
+ +[a-f0-9]+:	98                   	cwtl
+ +[a-f0-9]+:	98                   	cwtl
+ +[a-f0-9]+:	48 98                	cltq
+ +[a-f0-9]+:	48 98                	cltq
+ +[a-f0-9]+:	48 98                	cltq
+ +[a-f0-9]+:	66 98                	cbtw
+ +[a-f0-9]+:	98                   	cwtl
+ +[a-f0-9]+:	48 98                	cltq
+ +[a-f0-9]+:	d5 50 00 c9          	add    %r17b,%r17b
+ +[a-f0-9]+:	66 45 01 c0          	add    %r8w,%r8w
+ +[a-f0-9]+:	01 c0                	add    %eax,%eax
+ +[a-f0-9]+:	4d 01 ff             	add    %r15,%r15
  +[a-f0-9]+:	c5 f1 55 e9          	vandnpd %xmm1,%xmm1,%xmm5
  +[a-f0-9]+:	c5 f9 6f d1          	vmovdqa %xmm1,%xmm2
  +[a-f0-9]+:	c5 f9 6f d1          	vmovdqa %xmm1,%xmm2

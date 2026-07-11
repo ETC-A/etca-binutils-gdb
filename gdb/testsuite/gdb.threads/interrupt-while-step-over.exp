@@ -1,4 +1,4 @@
-# Copyright (C) 2016-2023 Free Software Foundation, Inc.
+# Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,11 +20,11 @@ standard_testfile
 
 if {[prepare_for_testing "failed to prepare" $testfile $srcfile \
 	 {debug pthreads}] == -1} {
-    return -1
+    return
 }
 
 if {![runto_main]} {
-    return -1
+    return
 }
 
 # Read the number of threads out of the inferior.
@@ -67,13 +67,14 @@ proc return_if_nonzero { result } {
     }
 }
 
-# Do one iteration of "c -a& -> interrupt -a".  Return zero on sucess,
+# Do one iteration of "c -a& -> interrupt -a".  Return zero on success,
 # and non-zero if some test fails.
 
 proc test_one_iteration {} {
     global gdb_prompt
     global NUM_THREADS
     global decimal
+    global tdlabel_re
 
     set saw_continuing 0
     set test "continue -a &"
@@ -83,7 +84,7 @@ proc test_one_iteration {} {
 	    exp_continue
 	}
 	-re "$gdb_prompt " {
-	    if ![gdb_assert $saw_continuing $test] {
+	    if {![gdb_assert $saw_continuing $test]} {
 		return 1
 	    }
 	}
@@ -100,7 +101,7 @@ proc test_one_iteration {} {
 	    exp_continue
 	}
 	-re "$gdb_prompt " {
-	    if ![gdb_assert {$running_count == $NUM_THREADS} $test] {
+	    if {![gdb_assert {$running_count == $NUM_THREADS} $test]} {
 		return 1
 	    }
 	}
@@ -145,12 +146,12 @@ proc test_one_iteration {} {
     set running_count 0
     set test "all threads are stopped"
     return_if_nonzero [gdb_test_multiple "info threads" $test {
-	-re "Thread \[^\r\n\]* \\(running\\)" {
+	-re "${tdlabel_re} \[^\r\n\]* \\(running\\)" {
 	    incr running_count
 	    exp_continue
 	}
 	-re "$gdb_prompt " {
-	    if ![gdb_assert {$running_count == 0} $test] {
+	    if {![gdb_assert {$running_count == 0} $test]} {
 		return 1
 	    }
 	}
@@ -168,12 +169,12 @@ proc testdriver {displaced} {
 
     save_vars { GDBFLAGS } {
 	append GDBFLAGS " -ex \"set non-stop on\""
-	clean_restart $binfile
+	clean_restart $::testfile
     }
 
     gdb_test_no_output "set displaced-stepping $displaced"
 
-    if ![runto all_started] {
+    if {![runto all_started]} {
 	return
     }
     set break_line [gdb_get_line_number "set breakpoint here"]

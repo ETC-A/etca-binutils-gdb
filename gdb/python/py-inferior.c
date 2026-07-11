@@ -1,6 +1,6 @@
 /* Python interface to inferiors.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "auto-load.h"
 #include "gdbcore.h"
 #include "gdbthread.h"
@@ -31,25 +30,9 @@
 #include "py-event.h"
 #include "py-stopevent.h"
 #include "progspace-and-thread.h"
-#include <unordered_map>
+#include "gdbsupport/unordered_map.h"
 
-using thread_map_t
-  = std::unordered_map<thread_info *, gdbpy_ref<thread_object>>;
-
-struct inferior_object
-{
-  PyObject_HEAD
-
-  /* The inferior we represent.  */
-  struct inferior *inferior;
-
-  /* thread_object instances under this inferior.  This owns a
-     reference to each object it contains.  */
-  thread_map_t *threads;
-};
-
-extern PyTypeObject inferior_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("inferior_object");
+extern PyTypeObject inferior_object_type;
 
 /* Deleter to clean up when an inferior is removed.  */
 struct infpy_deleter
@@ -107,7 +90,7 @@ python_on_resume (ptid_t ptid)
   if (!gdb_python_initialized)
     return;
 
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (emit_continue_event (ptid) < 0)
     gdbpy_print_stack ();
@@ -119,7 +102,7 @@ python_on_resume (ptid_t ptid)
 static void
 python_on_inferior_call_pre (ptid_t thread, CORE_ADDR address)
 {
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (emit_inferior_call_event (INFERIOR_CALL_PRE, thread, address) < 0)
     gdbpy_print_stack ();
@@ -131,7 +114,7 @@ python_on_inferior_call_pre (ptid_t thread, CORE_ADDR address)
 static void
 python_on_inferior_call_post (ptid_t thread, CORE_ADDR address)
 {
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (emit_inferior_call_event (INFERIOR_CALL_POST, thread, address) < 0)
     gdbpy_print_stack ();
@@ -144,7 +127,7 @@ python_on_inferior_call_post (ptid_t thread, CORE_ADDR address)
 static void
 python_on_memory_change (struct inferior *inferior, CORE_ADDR addr, ssize_t len, const bfd_byte *data)
 {
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (emit_memory_changed_event (addr, len) < 0)
     gdbpy_print_stack ();
@@ -155,9 +138,9 @@ python_on_memory_change (struct inferior *inferior, CORE_ADDR addr, ssize_t len,
    command). */
 
 static void
-python_on_register_change (frame_info_ptr frame, int regnum)
+python_on_register_change (const frame_info_ptr &frame, int regnum)
 {
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (emit_register_changed_event (frame, regnum) < 0)
     gdbpy_print_stack ();
@@ -171,7 +154,7 @@ python_inferior_exit (struct inferior *inf)
   if (!gdb_python_initialized)
     return;
 
-  gdbpy_enter enter_py (target_gdbarch ());
+  gdbpy_enter enter_py (current_inferior ()->arch ());
 
   if (inf->has_exit_code)
     exit_code = &inf->exit_code;
@@ -180,30 +163,31 @@ python_inferior_exit (struct inferior *inf)
     gdbpy_print_stack ();
 }
 
-/* Callback used to notify Python listeners about new objfiles loaded in the
-   inferior.  OBJFILE may be NULL which means that the objfile list has been
-   cleared (emptied).  */
+/* Callback used to notify Python listeners that OBJFILE has been loaded in
+   to the current inferior.  */
 
 static void
-python_new_objfile (struct objfile *objfile)
+python_new_objfile (struct objfile &objfile)
 {
   if (!gdb_python_initialized)
     return;
 
-  gdbpy_enter enter_py (objfile != NULL
-			? objfile->arch ()
-			: target_gdbarch ());
+  gdbpy_enter enter_py (objfile.arch ());
 
-  if (objfile == NULL)
-    {
-      if (emit_clear_objfiles_event () < 0)
-	gdbpy_print_stack ();
-    }
-  else
-    {
-      if (emit_new_objfile_event (objfile) < 0)
-	gdbpy_print_stack ();
-    }
+  if (emit_new_objfile_event (&objfile) < 0)
+    gdbpy_print_stack ();
+}
+
+static void
+python_all_objfiles_removed (program_space *pspace)
+{
+  if (!gdb_python_initialized)
+    return;
+
+  gdbpy_enter enter_py (current_inferior ()->arch ());
+
+  if (emit_clear_objfiles_event (pspace) < 0)
+    gdbpy_print_stack ();
 }
 
 /* Emit a Python event when an objfile is about to be removed.  */
@@ -228,26 +212,25 @@ python_free_objfile (struct objfile *objfile)
 gdbpy_ref<inferior_object>
 inferior_to_inferior_object (struct inferior *inferior)
 {
-  inferior_object *inf_obj;
+  inferior_object *result = infpy_inf_data_key.get (inferior);
+  if (result != nullptr)
+    return gdbpy_ref<inferior_object>::new_reference (result);
 
-  inf_obj = infpy_inf_data_key.get (inferior);
-  if (!inf_obj)
-    {
-      inf_obj = PyObject_New (inferior_object, &inferior_object_type);
-      if (!inf_obj)
-	return NULL;
+  gdbpy_ref<inferior_object> inf_obj
+    (PyObject_New (inferior_object, &inferior_object_type));
+  if (inf_obj == nullptr)
+    return nullptr;
 
-      inf_obj->inferior = inferior;
-      inf_obj->threads = new thread_map_t ();
+  inf_obj->inferior = inferior;
+  inf_obj->threads = new thread_map_t ();
+  if (!inf_obj->allocate_dict ())
+    return nullptr;
 
-      /* PyObject_New initializes the new object with a refcount of 1.  This
-	 counts for the reference we are keeping in the inferior data.  */
-      infpy_inf_data_key.set (inferior, inf_obj);
-    }
+  /* PyObject_New initializes the new object with a refcount of 1.  This counts
+     for the reference we are keeping in the inferior data.  */
+  infpy_inf_data_key.set (inferior, inf_obj.get ());
 
-  /* We are returning a new reference.  */
-  gdb_assert (inf_obj != nullptr);
-  return gdbpy_ref<inferior_object>::new_reference (inf_obj);
+  return gdbpy_ref<inferior_object>::new_reference (inf_obj.release ());
 }
 
 /* Called when a new inferior is created.  Notifies any Python event
@@ -361,7 +344,9 @@ add_thread_object (struct thread_info *tp)
 }
 
 static void
-delete_thread_object (struct thread_info *tp, int ignore)
+delete_thread_object (thread_info *tp,
+		      std::optional<ULONGEST> /* exit_code */,
+		      bool /* silent */)
 {
   if (!gdb_python_initialized)
     return;
@@ -392,7 +377,6 @@ infpy_threads (PyObject *self, PyObject *args)
 {
   int i = 0;
   inferior_object *inf_obj = (inferior_object *) self;
-  PyObject *tuple;
 
   INFPY_REQUIRE_VALID (inf_obj);
 
@@ -402,22 +386,21 @@ infpy_threads (PyObject *self, PyObject *args)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  tuple = PyTuple_New (inf_obj->threads->size ());
-  if (!tuple)
-    return NULL;
+  gdbpy_ref<> tuple (PyTuple_New (inf_obj->threads->size ()));
+  if (tuple == nullptr)
+    return nullptr;
 
   for (const thread_map_t::value_type &entry : *inf_obj->threads)
     {
-      PyObject *thr = (PyObject *) entry.second.get ();
-      Py_INCREF (thr);
-      PyTuple_SET_ITEM (tuple, i, thr);
-      i = i + 1;
+      gdbpy_ref<> thr = entry.second;
+      if (PyTuple_SetItem (tuple.get (), i++, thr.release ()) < 0)
+	return nullptr;
     }
 
-  return tuple;
+  return tuple.release ();
 }
 
 static PyObject *
@@ -456,7 +439,7 @@ infpy_get_connection_num (PyObject *self, void *closure)
 
   process_stratum_target *target = inf->inferior->process_target ();
   if (target == nullptr)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   return gdb_py_object_from_longest (target->connection_number).release ();
 }
@@ -478,8 +461,8 @@ infpy_get_was_attached (PyObject *self, void *closure)
 
   INFPY_REQUIRE_VALID (inf);
   if (inf->inferior->attach_flag)
-    Py_RETURN_TRUE;
-  Py_RETURN_FALSE;
+    return py_true ().release ();
+  return py_false ().release ();
 }
 
 /* Getter of gdb.Inferior.progspace.  */
@@ -545,20 +528,30 @@ infpy_read_memory (PyObject *self, PyObject *args, PyObject *kw)
       || get_addr_from_python (length_obj, &length) < 0)
     return NULL;
 
+  if (length == 0)
+    {
+      PyErr_SetString (PyExc_ValueError,
+		       _("Argument 'count' should be greater than zero"));
+      return NULL;
+    }
+
+  void *p = malloc (length);
+  if (p == nullptr)
+    return PyErr_NoMemory ();
+  buffer.reset ((gdb_byte *) p);
+
   try
     {
       /* Use this scoped-restore because we want to be able to read
 	 memory from an unwinder.  */
       scoped_restore_current_inferior_for_memory restore_inferior
-	(inf->inferior, any_thread_of_inferior (inf->inferior)->ptid);
-
-      buffer.reset ((gdb_byte *) xmalloc (length));
+	(inf->inferior);
 
       read_memory (addr, buffer.get (), length);
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
 
@@ -575,7 +568,6 @@ static PyObject *
 infpy_write_memory (PyObject *self, PyObject *args, PyObject *kw)
 {
   inferior_object *inf = (inferior_object *) self;
-  struct gdb_exception except;
   Py_ssize_t buf_len;
   const gdb_byte *buffer;
   CORE_ADDR addr, length;
@@ -608,18 +600,16 @@ infpy_write_memory (PyObject *self, PyObject *args, PyObject *kw)
 	 still used here, just to keep the code similar to other code
 	 in this file.  */
       scoped_restore_current_inferior_for_memory restore_inferior
-	(inf->inferior, any_thread_of_inferior (inf->inferior)->ptid);
+	(inf->inferior);
 
       write_memory_with_notification (addr, buffer, length);
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
-      except = std::move (ex);
+      return gdbpy_handle_gdb_exception (nullptr, ex);
     }
 
-  GDB_PY_HANDLE_EXCEPTION (except);
-
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implementation of
@@ -634,7 +624,6 @@ static PyObject *
 infpy_search_memory (PyObject *self, PyObject *args, PyObject *kw)
 {
   inferior_object *inf = (inferior_object *) self;
-  struct gdb_exception except;
   CORE_ADDR start_addr, length;
   static const char *keywords[] = { "address", "length", "pattern", NULL };
   PyObject *start_addr_obj, *length_obj;
@@ -683,23 +672,21 @@ infpy_search_memory (PyObject *self, PyObject *args, PyObject *kw)
 	 still used here, just to keep the code similar to other code
 	 in this file.  */
       scoped_restore_current_inferior_for_memory restore_inferior
-	(inf->inferior, any_thread_of_inferior (inf->inferior)->ptid);
+	(inf->inferior);
 
       found = target_search_memory (start_addr, length,
 				    buffer, pattern_size,
 				    &found_addr);
     }
-  catch (gdb_exception &ex)
+  catch (const gdb_exception &ex)
     {
-      except = std::move (ex);
+      return gdbpy_handle_gdb_exception (nullptr, ex);
     }
-
-  GDB_PY_HANDLE_EXCEPTION (except);
 
   if (found)
     return gdb_py_object_from_ulongest (found_addr).release ();
   else
-    Py_RETURN_NONE;
+    return py_none ().release ();
 }
 
 /* Implementation of gdb.Inferior.is_valid (self) -> Boolean.
@@ -711,9 +698,9 @@ infpy_is_valid (PyObject *self, PyObject *args)
   inferior_object *inf = (inferior_object *) self;
 
   if (! inf->inferior)
-    Py_RETURN_FALSE;
+    return py_false ().release ();
 
-  Py_RETURN_TRUE;
+  return py_true ().release ();
 }
 
 /* Implementation of gdb.Inferior.thread_from_handle (self, handle)
@@ -769,10 +756,10 @@ infpy_thread_from_thread_handle (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      GDB_PY_HANDLE_EXCEPTION (except);
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implementation of gdb.Inferior.architecture.  */
@@ -784,7 +771,7 @@ infpy_architecture (PyObject *self, PyObject *args)
 
   INFPY_REQUIRE_VALID (inf);
 
-  return gdbarch_to_arch_object (inf->inferior->gdbarch);
+  return gdbarch_to_arch_object (inf->inferior->arch ()).release ();
 }
 
 /* Implement repr() for gdb.Inferior.  */
@@ -796,7 +783,7 @@ infpy_repr (PyObject *obj)
   inferior *inf = self->inferior;
 
   if (inf == nullptr)
-    return PyUnicode_FromString ("<gdb.Inferior (invalid)>");
+    return gdb_py_invalid_object_repr (obj);
 
   return PyUnicode_FromFormat ("<gdb.Inferior num=%d, pid=%d>",
 			       inf->num, inf->pid);
@@ -812,7 +799,7 @@ infpy_clear_env (PyObject *obj)
   INFPY_REQUIRE_VALID (self);
 
   self->inferior->environment.clear ();
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implement set_env.  */
@@ -831,7 +818,7 @@ infpy_set_env (PyObject *obj, PyObject *args, PyObject *kw)
     return nullptr;
 
   self->inferior->environment.set (name, val);
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Implement unset_env.  */
@@ -848,7 +835,7 @@ infpy_unset_env (PyObject *obj, PyObject *args, PyObject *kw)
     return nullptr;
 
   self->inferior->environment.unset (name);
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Getter for "arguments".  */
@@ -862,7 +849,7 @@ infpy_get_args (PyObject *self, void *closure)
 
   const std::string &args = inf->inferior->args ();
   if (args.empty ())
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   return host_string_to_python_string (args.c_str ()).release ();
 }
@@ -902,7 +889,7 @@ infpy_set_args (PyObject *self, PyObject *value, void *closure)
 	return -1;
       for (Py_ssize_t i = 0; i < len; ++i)
 	{
-	  gdbpy_ref<> item (PySequence_ITEM (value, i));
+	  gdbpy_ref<> item (PySequence_GetItem (value, i));
 	  if (item == nullptr)
 	    return -1;
 	  gdb::unique_xmalloc_ptr<char> str
@@ -911,11 +898,8 @@ infpy_set_args (PyObject *self, PyObject *value, void *closure)
 	    return -1;
 	  args.push_back (std::move (str));
 	}
-      std::vector<char *> argvec;
-      for (const auto &arg : args)
-	argvec.push_back (arg.get ());
-      gdb::array_view<char * const> view (argvec.data (), argvec.size ());
-      inf->inferior->set_args (view);
+      gdb::array_view<gdb::unique_xmalloc_ptr<char> const> args_view (args);
+      inf->inferior->set_args (args_view, true);
     }
   else
     {
@@ -944,7 +928,7 @@ infpy_get_main_name (PyObject *self, void *closure)
 	 still used, just to keep the code similar to other code in
 	 this file.  */
       scoped_restore_current_inferior_for_memory restore_inferior
-	(inf->inferior, any_thread_of_inferior (inf->inferior)->ptid);
+	(inf->inferior);
 
       name = main_name ();
     }
@@ -954,9 +938,25 @@ infpy_get_main_name (PyObject *self, void *closure)
     }
 
   if (name == nullptr)
-    Py_RETURN_NONE;
+    return py_none ().release ();
 
   return host_string_to_python_string (name).release ();
+}
+
+/* Implement the Inferior.corefile getter.  Returns a gdb.Corefile
+   object, or None.  */
+
+static PyObject *
+infpy_get_core_file (PyObject *self, void *closure)
+{
+  inferior_object *inf = (inferior_object *) self;
+
+  INFPY_REQUIRE_VALID (inf);
+
+  inferior *inferior = inf->inferior;
+  gdb_assert (inferior != nullptr);
+
+  return gdbpy_core_file_from_inferior (inferior).release ();
 }
 
 static void
@@ -977,6 +977,8 @@ infpy_dealloc (PyObject *obj)
      function is called.  */
   gdb_assert (inf_obj->inferior == nullptr);
 
+  Py_XDECREF (inf_obj->dict);
+
   Py_TYPE (obj)->tp_free (obj);
 }
 
@@ -990,14 +992,62 @@ gdbpy_selected_inferior (PyObject *self, PyObject *args)
 	  inferior_to_inferior_object (current_inferior ()).release ());
 }
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_inferior (void)
-{
-  if (PyType_Ready (&inferior_object_type) < 0)
-    return -1;
+/* Implement the selected_context event handler.  This is called when some
+   aspect of the inferior's context (inferior, thread, or frame) is
+   changed by the user.  If there are event listeners in place then create
+   an event object and notify the listeners.  */
 
-  if (gdb_pymodule_addobject (gdb_module, "Inferior",
-			      (PyObject *) &inferior_object_type) < 0)
+static void
+python_context_changed (user_selected_what selection)
+{
+  if (!gdb_python_initialized)
+    return;
+
+  gdbpy_enter enter_py (current_inferior ()->arch ());
+
+  if (evregpy_no_listeners_p (gdb_py_events.selected_context))
+    return;
+
+  gdbpy_ref<> inf_obj (gdbpy_selected_inferior (nullptr, nullptr));
+  if (inf_obj == nullptr)
+    {
+      gdbpy_print_stack ();
+      return;
+    }
+
+  gdbpy_ref<> thr_obj (gdbpy_selected_thread (nullptr, nullptr));
+  if (thr_obj == nullptr)
+    {
+      gdbpy_print_stack ();
+      return;
+    }
+
+  gdbpy_ref<> frame_obj;
+  if (has_stack_frames ())
+    frame_obj = gdbpy_ref<> (gdbpy_selected_frame (nullptr, nullptr));
+  else
+    frame_obj = py_none ();
+
+  if (frame_obj == nullptr)
+    {
+      gdbpy_print_stack ();
+      return;
+    }
+
+  gdbpy_ref<> event
+    = create_event_object (&selected_context_event_object_type);
+  if (event == nullptr
+      || evpy_add_attribute (event.get (), "inferior", inf_obj.get ()) < 0
+      || evpy_add_attribute (event.get (), "thread", thr_obj.get ()) < 0
+      || evpy_add_attribute (event.get (), "frame", frame_obj.get ()) < 0
+      || evpy_emit_event (event.get (), gdb_py_events.selected_context) < 0)
+    gdbpy_print_stack ();
+}
+
+static int
+gdbpy_initialize_inferior ()
+{
+  if (gdbpy_type_ready (&inferior_object_type) < 0)
     return -1;
 
   gdb::observers::new_thread.attach (add_thread_object, "py-inferior");
@@ -1018,10 +1068,14 @@ gdbpy_initialize_inferior (void)
   gdb::observers::new_objfile.attach
     (python_new_objfile, "py-inferior",
      { &auto_load_new_objfile_observer_token });
+  gdb::observers::all_objfiles_removed.attach (python_all_objfiles_removed,
+					       "py-inferior");
   gdb::observers::free_objfile.attach (python_free_objfile, "py-inferior");
   gdb::observers::inferior_added.attach (python_new_inferior, "py-inferior");
   gdb::observers::inferior_removed.attach (python_inferior_deleted,
 					   "py-inferior");
+  gdb::observers::user_selected_context_changed.attach (python_context_changed,
+							"py-inferior");
 
   return 0;
 }
@@ -1032,6 +1086,7 @@ GDBPY_INITIALIZE_FILE (gdbpy_initialize_inferior);
 
 static gdb_PyGetSetDef inferior_object_getset[] =
 {
+  gdbpy_dict_wrapper_cfg_dict_getter ("inferior"),
   { "arguments", infpy_get_args, infpy_set_args,
     "Arguments to this program.", nullptr },
   { "num", infpy_get_num, NULL, "ID of inferior, as assigned by GDB.", NULL },
@@ -1046,6 +1101,8 @@ static gdb_PyGetSetDef inferior_object_getset[] =
   { "progspace", infpy_get_progspace, NULL, "Program space of this inferior" },
   { "main_name", infpy_get_main_name, nullptr,
     "Name of 'main' function, if known.", nullptr },
+  { "corefile", infpy_get_core_file, nullptr,
+    "The corefile loaded in to this inferior, or None.", nullptr },
   { NULL }
 };
 
@@ -1111,8 +1168,7 @@ PyTypeObject inferior_object_type =
   0,				  /* tp_hash  */
   0,				  /* tp_call */
   0,				  /* tp_str */
-  0,				  /* tp_getattro */
-  0,				  /* tp_setattro */
+  gdbpy_dict_wrapper_getsetattro,
   0,				  /* tp_as_buffer */
   Py_TPFLAGS_DEFAULT,		  /* tp_flags */
   "GDB inferior object",	  /* tp_doc */

@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2026 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GDB.
@@ -16,20 +16,20 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef NAT_AARCH64_LINUX_H
-#define NAT_AARCH64_LINUX_H
+#ifndef GDB_NAT_AARCH64_LINUX_H
+#define GDB_NAT_AARCH64_LINUX_H
 
 #include <signal.h>
 
 /* Defines ps_err_e, struct ps_prochandle.  */
 #include "gdb_proc_service.h"
 
-typedef int compat_int_t;
-typedef unsigned int compat_uptr_t;
+using compat_int_t = int;
+using compat_uptr_t = unsigned int;
 
-typedef int compat_time_t;
-typedef int compat_timer_t;
-typedef int compat_clock_t;
+using compat_time_t = int;
+using compat_timer_t = int;
+using compat_clock_t = int;
 
 struct compat_timeval
 {
@@ -133,4 +133,4 @@ ps_err_e aarch64_ps_get_thread_area (struct ps_prochandle *ph,
    used for aarch64 state.  */
 int aarch64_tls_register_count (int tid);
 
-#endif /* NAT_AARCH64_LINUX_H */
+#endif /* GDB_NAT_AARCH64_LINUX_H */

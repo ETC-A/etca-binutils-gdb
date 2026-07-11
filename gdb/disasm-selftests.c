@@ -1,6 +1,6 @@
 /* Self tests for disassembler for GDB, the GNU debugger.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "disasm.h"
 #include "gdbsupport/selftest.h"
 #include "selftest-arch.h"
 #include "gdbarch.h"
+#include "disasm-selftests.h"
 
 namespace selftests {
 
@@ -30,7 +30,7 @@ namespace selftests {
    of the returned buffer.
 
    If there's no known instruction to disassemble for GDBARCH (because we
-   haven't figured on out, not because no instructions exist) then nullptr
+   haven't figured one out, not because no instructions exist) then nullptr
    is returned, and *LEN is set to 0.  */
 
 static const gdb_byte *
@@ -93,10 +93,9 @@ get_test_insn (struct gdbarch *gdbarch, size_t *len)
       insn = xstormy16_insn;
       *len = sizeof (xstormy16_insn);
       break;
-    case bfd_arch_nios2:
     case bfd_arch_score:
     case bfd_arch_riscv:
-      /* nios2, riscv, and score need to know the current instruction
+      /* riscv and score need to know the current instruction
 	 to select breakpoint instruction.  Give the breakpoint
 	 instruction kind explicitly.  */
       {
@@ -126,7 +125,7 @@ get_test_insn (struct gdbarch *gdbarch, size_t *len)
 	if (info->bits_per_address > sizeof (bfd_vma) * CHAR_BIT)
 	  return insn;
       }
-      /* fall through */
+      [[fallthrough]];
     default:
     generic_case:
       {
@@ -166,7 +165,7 @@ get_test_insn (struct gdbarch *gdbarch, size_t *len)
 		kind = gdbarch_breakpoint_kind_from_pc (gdbarch, &pc);
 		insn = gdbarch_sw_breakpoint_from_kind (gdbarch, kind, &bplen);
 	      }
-	    catch (...)
+	    catch (const gdb_exception_error &)
 	      {
 		continue;
 	      }
@@ -331,11 +330,95 @@ memory_error_test (struct gdbarch *gdbarch)
   SELF_CHECK (saw_memory_error);
 }
 
-} // namespace selftests
+/* Disassemble INSN (a GDBARCH insn), and return the result.  */
 
-void _initialize_disasm_selftests ();
+static std::string
+disassemble_one_insn_to_string (struct gdbarch *gdbarch,
+				gdb::array_view<const gdb_byte> insn)
+{
+  string_file buffer;
+
+  class gdb_disassembler_test : public gdb_disassembler
+  {
+  public:
+
+    explicit gdb_disassembler_test (struct gdbarch *gdbarch,
+				    gdb::array_view<const gdb_byte> insn,
+				    string_file &buffer)
+      : gdb_disassembler (gdbarch,
+			  &buffer,
+			  gdb_disassembler_test::read_memory),
+	m_insn (insn)
+    {
+    }
+
+    int
+    print_insn (CORE_ADDR memaddr)
+    {
+      try
+	{
+	  return gdb_disassembler::print_insn (memaddr);
+	}
+      catch (const gdb_exception_error &)
+	{
+	  return -1;
+	}
+    }
+
+  private:
+    gdb::array_view<const gdb_byte> m_insn;
+
+    static int read_memory (bfd_vma memaddr, gdb_byte *myaddr,
+			    unsigned int len,
+			    struct disassemble_info *info) noexcept
+    {
+      gdb_disassembler_test *self
+	= static_cast<gdb_disassembler_test *>(info->application_data);
+
+      if (len > self->m_insn.size ())
+	return -1;
+
+      for (size_t i = 0; i < len; i++)
+	myaddr[i] = self->m_insn[i];
+
+      return 0;
+    }
+  };
+
+  gdb_disassembler_test di (gdbarch, insn, buffer);
+  if (di.print_insn (0) != insn.size ())
+    return "";
+
+  return buffer.string ();
+}
+
+/* See disasm-selftests.h.  */
+
 void
-_initialize_disasm_selftests ()
+disassemble_insn (gdbarch *gdbarch, gdb::byte_vector &insn,
+		  const std::string &expected)
+{
+  std::string buffer
+    = disassemble_one_insn_to_string (gdbarch, insn);
+
+  bool check_ok = buffer == expected;
+
+  if (run_verbose () || !check_ok)
+    {
+      for (gdb_byte b : insn)
+	debug_printf ("0x%02x ", b);
+      debug_printf ("-> %s\n", buffer.c_str ());
+    }
+
+  if (!check_ok)
+    debug_printf ("expected: %s\n", expected.c_str ());
+
+  SELF_CHECK (check_ok);
+}
+
+} /* namespace selftests */
+
+INIT_GDB_FILE (disasm_selftests)
 {
   selftests::register_test_foreach_arch ("print_one_insn",
 					 selftests::print_one_insn_test);

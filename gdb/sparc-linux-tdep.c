@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux SPARC.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "dwarf2/frame.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "gdbtypes.h"
@@ -33,6 +33,7 @@
 #include "tramp-frame.h"
 #include "xml-syscall.h"
 #include "linux-tdep.h"
+#include "solib-svr4-linux.h"
 
 /* The syscall's XML filename for sparc 32-bit.  */
 #define XML_SYSCALL_FILENAME_SPARC32 "syscalls/sparc-linux.xml"
@@ -42,7 +43,7 @@
 /* Signal trampoline support.  */
 
 static void sparc32_linux_sigframe_init (const struct tramp_frame *self,
-					 frame_info_ptr this_frame,
+					 const frame_info_ptr &this_frame,
 					 struct trad_frame_cache *this_cache,
 					 CORE_ADDR func);
 
@@ -117,7 +118,7 @@ enum
 
 static void
 sparc32_linux_sigframe_init (const struct tramp_frame *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     struct trad_frame_cache *this_cache,
 			     CORE_ADDR func)
 {
@@ -159,7 +160,7 @@ sparc32_linux_sigframe_init (const struct tramp_frame *self,
    address.  */
 
 static CORE_ADDR
-sparc32_linux_step_trap (frame_info_ptr frame, unsigned long insn)
+sparc32_linux_step_trap (const frame_info_ptr &frame, unsigned long insn)
 {
   if (insn == 0x91d02010)
     {
@@ -436,8 +437,7 @@ sparc32_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* GNU/Linux has SVR4-style shared libraries...  */
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, linux_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_linux_ilp32_svr4_solib_ops);
 
   /* ...which means that we need some special handling when doing
      prologue analysis.  */
@@ -466,9 +466,7 @@ sparc32_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				    sparc32_linux_gdb_signal_to_target);
 }
 
-void _initialize_sparc_linux_tdep ();
-void
-_initialize_sparc_linux_tdep ()
+INIT_GDB_FILE (sparc_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_sparc, 0, GDB_OSABI_LINUX,
 			  sparc32_linux_init_abi);

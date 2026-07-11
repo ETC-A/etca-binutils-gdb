@@ -1,6 +1,6 @@
 /* Some commonly-used VEC types.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "gdb_vecs.h"
 #include "host-defs.h"
 
@@ -60,7 +59,7 @@ std::vector<gdb::unique_xmalloc_ptr<char>>
 delim_string_to_char_ptr_vec (const char *str, char delimiter)
 {
   std::vector<gdb::unique_xmalloc_ptr<char>> retval;
-  
+
   delim_string_to_char_ptr_vec_append (&retval, str, delimiter);
 
   return retval;
@@ -81,7 +80,7 @@ std::vector<gdb::unique_xmalloc_ptr<char>>
 dirnames_to_char_ptr_vec (const char *dirnames)
 {
   std::vector<gdb::unique_xmalloc_ptr<char>> retval;
-  
+
   dirnames_to_char_ptr_vec_append (&retval, dirnames);
 
   return retval;

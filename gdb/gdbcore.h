@@ -1,6 +1,6 @@
 /* Machine independent variables that describe the core file under GDB.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,8 +19,8 @@
 
 /* Interface routines for core, executable, etc.  */
 
-#if !defined (GDBCORE_H)
-#define GDBCORE_H 1
+#ifndef GDB_GDBCORE_H
+#define GDB_GDBCORE_H
 
 struct type;
 struct regcache;
@@ -35,7 +35,8 @@ extern int have_core_file_p (void);
 
 /* Report a memory error with error().  */
 
-extern void memory_error (enum target_xfer_status status, CORE_ADDR memaddr);
+[[noreturn]] extern void memory_error (enum target_xfer_status status,
+				       CORE_ADDR memaddr);
 
 /* The string 'memory_error' would use as exception message.  */
 
@@ -114,28 +115,15 @@ extern void write_memory_signed_integer (CORE_ADDR addr, int len,
 					 enum bfd_endian byte_order,
 					 LONGEST value);
 
-/* Hook for `exec_file_command' command to call.  */
-
-extern void (*deprecated_exec_file_display_hook) (const char *filename);
 
 /* Hook for "file_command", which is more useful than above
    (because it is invoked AFTER symbols are read, not before).  */
 
 extern void (*deprecated_file_changed_hook) (const char *filename);
 
-extern void specify_exec_file_hook (void (*hook) (const char *filename));
-
-/* Binary File Diddler for the core file.  */
-
-#define core_bfd (current_program_space->cbfd.get ())
-
 /* Whether to open exec and core files read-only or read-write.  */
 
 extern bool write_files;
-
-/* Open and set up the core file bfd.  */
-
-extern void core_target_open (const char *arg, int from_tty);
 
 extern void core_file_command (const char *filename, int from_tty);
 
@@ -205,4 +193,138 @@ private:
   std::string m_storage;
 };
 
-#endif /* !defined (GDBCORE_H) */
+/* Type returned from core_target_find_mapped_file.  Holds information
+   about a mapped file that was processed when a core file was initially
+   loaded.  */
+struct core_target_mapped_file_info
+{
+  /* Constructor.  BUILD_ID is not nullptr, and is the build-id for the
+     mapped file.  FILENAME is the location of the file that GDB loaded to
+     provide the mapped file.  This might be different from the name of the
+     mapped file mentioned in the core file, e.g. if GDB downloads a file
+     from debuginfod then FILENAME would point into the debuginfod client
+     cache.  The FILENAME can be the empty string if GDB was unable to find
+     a file to provide the mapped file.  */
+
+  core_target_mapped_file_info (const bfd_build_id *build_id,
+				const std::string filename)
+    : m_build_id (build_id),
+      m_filename (filename)
+  {
+    gdb_assert (m_build_id != nullptr);
+  }
+
+  /* The build-id for this mapped file.  */
+
+  const bfd_build_id *
+  build_id () const
+  {
+    return m_build_id;
+  }
+
+  /* The file GDB used to provide this mapped file.  */
+
+  const std::string &
+  filename () const
+  {
+    return m_filename;
+  }
+
+private:
+  const bfd_build_id *m_build_id = nullptr;
+  const std::string m_filename;
+};
+
+/* If the current inferior has a core_target for its process target, then
+   lookup information about a mapped file that was discovered when the
+   core file was loaded.
+
+   The FILENAME is the file we're looking for.  The ADDR, if provided, is a
+   mapped address within the inferior which is known to be part of the file
+   we are looking for.
+
+   As an example, when loading shared libraries this function can be
+   called, in that case FILENAME will be the name of the shared library
+   that GDB is trying to load and ADDR will be an inferior address which is
+   part of the shared library we are looking for.
+
+   This function looks for a mapped file which matches FILENAME and/or
+   which covers ADDR and returns information about that file.
+
+   The returned information includes the name of the mapped file if known
+   and the build-id for the mapped file if known.
+
+   */
+std::optional<core_target_mapped_file_info>
+core_target_find_mapped_file (const char *filename,
+			      std::optional<CORE_ADDR> addr);
+
+/* Type holding information about a single file mapped into the inferior
+   at the point when the core file was created.  Associates a build-id
+   with the list of regions the file is mapped into.  It is acceptable to
+   have a core_mapped_file with an empty filename, so long as we have a
+   build-id for the mapping.  */
+struct core_mapped_file
+{
+  /* Type for a region of a file that was mapped into the inferior when
+     the core file was generated.  */
+  struct region
+  {
+    /* Constructor.   See member variables for argument descriptions.  */
+    region (CORE_ADDR start_, CORE_ADDR end_, CORE_ADDR file_ofs_)
+      : start (start_),
+	end (end_),
+	file_ofs (file_ofs_)
+    { /* Nothing.  */ }
+
+    /* The inferior address for the start of the mapped region.  */
+    CORE_ADDR start;
+
+    /* The inferior address immediately after the mapped region.  */
+    CORE_ADDR end;
+
+    /* The offset within the mapped file for this content.  If the
+       filename of the mapping is empty then this field will be 0, but has
+       no meaning.  */
+    CORE_ADDR file_ofs;
+  };
+
+  /* The filename as recorded in the core file.  This can be empty meaning
+     that GDB was unable to find a filename for this mapping.  If the
+     filename is empty then the build_id field MUST be non-NULL.  If this
+     is empty then the region::file_ofs fields will all be 0, and have no
+     meaning.  */
+  std::string filename;
+
+  /* If not nullptr, then this is the build-id associated with this
+     mapping.  If the filename field is empty, then this MUST be
+     non-NULL.  */
+  const bfd_build_id *build_id = nullptr;
+
+  /* All the mapped regions of this file.  */
+  std::vector<region> regions;
+
+  /* True if this is the main executable.  */
+  bool is_main_exec = false;
+
+  /* Convert the REGIONS to a vector of mem_range objects.  */
+  std::vector<mem_range>
+  mem_ranges () const
+  {
+    std::vector<mem_range> ranges;
+    for (const core_mapped_file::region &region : this->regions)
+      ranges.emplace_back (region.start, region.end - region.start);
+    normalize_mem_ranges (&ranges);
+    return ranges;
+  }
+};
+
+extern std::vector<core_mapped_file> gdb_read_core_file_mappings
+  (struct gdbarch *gdbarch, struct bfd *cbfd);
+
+/* Return the core file bfd for inferior INF, if that inferior has a core
+   file loaded.  Otherwise, return NULL.  */
+
+extern bfd *get_inferior_core_bfd (inferior *inf);
+
+#endif /* GDB_GDBCORE_H */

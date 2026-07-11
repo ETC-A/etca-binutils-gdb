@@ -1,4 +1,4 @@
-# Copyright 2019-2023 Free Software Foundation, Inc.
+# Copyright 2019-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,10 +27,8 @@ if { [prepare_for_testing "failed to prepare" $testfile \
     return -1
 }
 
-if { ![fortran_runto_main] } {
-    perror "Could not run to main."
-    return
-}
+# Don't run to main to avoid increasing the search scope to include
+# debug info of shared libraries like libc, libgcc, libgfortran etc.
 
 set integer4 [fortran_int4]
 set integer8 [fortran_int8]
@@ -44,7 +42,7 @@ GDBInfoSymbols::check_header "All defined types:"
 GDBInfoSymbols::check_optional_entry "${srcfile}" "" "${character1}"
 GDBInfoSymbols::check_entry "${srcfile}" "" "${integer4}"
 GDBInfoSymbols::check_entry "${srcfile}" "" "${logical4}"
-GDBInfoSymbols::check_entry "${srcfile}" "$decimal" "Type m1t1;"
+GDBInfoSymbols::check_entry "${srcfile}" "$decimal" "Type m1t1"
 GDBInfoSymbols::check_entry "${srcfile}" "" "${real4}"
 
 # The emission of the 'Type s1' at global scope is actually not expected.  The

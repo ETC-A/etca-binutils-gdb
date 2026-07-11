@@ -1,5 +1,5 @@
 /* Target operations for the remote server for GDB.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "tracepoint.h"
 #include "gdbsupport/byte-vector.h"
 #include "hostio.h"
@@ -259,7 +258,7 @@ target_pid_to_str (ptid_t ptid)
   else if (ptid.tid () != 0)
     return string_printf("Thread %d.0x%s",
 			 ptid.pid (),
-			 phex_nz (ptid.tid (), sizeof (ULONGEST)));
+			 phex_nz (ptid.tid ()));
   else if (ptid.lwp () != 0)
     return string_printf("LWP %d.%ld",
 			 ptid.pid (), ptid.lwp ());
@@ -410,10 +409,10 @@ process_stratum_target::stopped_by_watchpoint ()
   return false;
 }
 
-CORE_ADDR
-process_stratum_target::stopped_data_address ()
+std::vector<CORE_ADDR>
+process_stratum_target::stopped_data_addresses ()
 {
-  return 0;
+  return {};
 }
 
 bool
@@ -532,6 +531,12 @@ process_stratum_target::supports_vfork_events ()
   return false;
 }
 
+gdb_thread_options
+process_stratum_target::supported_thread_options ()
+{
+  return 0;
+}
+
 bool
 process_stratum_target::supports_exec_events ()
 {
@@ -545,7 +550,7 @@ process_stratum_target::handle_new_gdb_connection ()
 }
 
 int
-process_stratum_target::handle_monitor_command (char *mon)
+process_stratum_target::handle_monitor_command (const char *mon)
 {
   return 0;
 }
@@ -606,6 +611,12 @@ bool
 process_stratum_target::thread_stopped (thread_info *thread)
 {
   gdb_assert_not_reached ("target op thread_stopped not supported");
+}
+
+bool
+process_stratum_target::any_resumed ()
+{
+  return true;
 }
 
 bool
@@ -762,6 +773,13 @@ process_stratum_target::multifs_open (int pid, const char *filename,
 }
 
 int
+process_stratum_target::multifs_lstat (int pid, const char *filename,
+				       struct stat *sb)
+{
+  return lstat (filename, sb);
+}
+
+int
 process_stratum_target::multifs_unlink (int pid, const char *filename)
 {
   return unlink (filename);
@@ -796,6 +814,12 @@ process_stratum_target::thread_name (ptid_t thread)
   return nullptr;
 }
 
+std::string
+process_stratum_target::thread_id_str (thread_info *thread)
+{
+  return "";
+}
+
 bool
 process_stratum_target::thread_handle (ptid_t ptid, gdb_byte **handle,
 				       int *handle_len)
@@ -810,7 +834,8 @@ process_stratum_target::thread_pending_parent (thread_info *thread)
 }
 
 thread_info *
-process_stratum_target::thread_pending_child (thread_info *thread)
+process_stratum_target::thread_pending_child (thread_info *thread,
+					      target_waitkind *kind)
 {
   return nullptr;
 }

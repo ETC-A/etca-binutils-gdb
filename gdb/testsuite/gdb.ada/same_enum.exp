@@ -1,4 +1,4 @@
-# Copyright 2011-2023 Free Software Foundation, Inc.
+# Copyright 2011-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@ require allow_ada_tests
 standard_ada_testfile a
 
 if {[gdb_compile_ada "${srcfile}" "${binfile}" executable [list debug ]] != "" } {
-  return -1
+    return
 }
 
 clean_restart ${testfile}
@@ -32,4 +32,6 @@ clean_restart ${testfile}
 # it's because the two types are strongly related).
 gdb_test "print red" "= red"
 
-
+# Check that both types are in fact present.
+gdb_test "ptype Color " "^type = .*"
+gdb_test "ptype RGB_Color"  "^type = .*"

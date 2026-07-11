@@ -1,6 +1,6 @@
 /* Manages interpreters for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    Written by Jim Ingham <jingham@apple.com> of Apple Computer, Inc.
 
@@ -19,10 +19,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef INTERPS_H
-#define INTERPS_H
+#ifndef GDB_INTERPS_H
+#define GDB_INTERPS_H
 
 #include "gdbsupport/intrusive_list.h"
+#include "gdbsupport/event-loop.h"
 
 struct bpstat;
 struct ui_out;
@@ -31,7 +32,7 @@ struct ui;
 class completion_tracker;
 struct thread_info;
 struct inferior;
-struct so_list;
+struct solib;
 struct trace_state_variable;
 
 typedef struct interp *(*interp_factory_func) (const char *name);
@@ -50,11 +51,20 @@ extern void interp_exec (struct interp *interp, const char *command);
 class interp : public intrusive_list_node<interp>
 {
 public:
-  explicit interp (const char *name);
+  /* Construct a new interpreter with the given name.  If MAKE_OUTPUTS
+     is true, also initialize the standard output streams to the
+     instances of the appropriate ui::passthrough_file type.  */
+  explicit interp (const char *name, bool make_outputs = true);
   virtual ~interp () = 0;
 
-  virtual void init (bool top_level)
-  {}
+  void init (bool top_level)
+  {
+    if (!m_inited)
+      {
+	do_init (top_level);
+	m_inited = true;
+      }
+  }
 
   virtual void resume () = 0;
   virtual void suspend () = 0;
@@ -67,22 +77,27 @@ public:
      formatter.  */
   virtual ui_out *interp_ui_out () = 0;
 
-  /* Provides a hook for interpreters to do any additional
-     setup/cleanup that they might need when logging is enabled or
-     disabled.  */
-  virtual void set_logging (ui_file_up logfile, bool logging_redirect,
-			    bool debug_redirect) = 0;
-
   /* Called before starting an event loop, to give the interpreter a
      chance to e.g., print a prompt.  */
   virtual void pre_command_loop ()
   {}
+
+  /* Service one event.
+     This gives the interpreter a chance to handle its own private
+     events that cannot be fed into the gdb event mechanism.
+     In all cases, this should call gdb_do_one_event at some point.  */
+  virtual int do_one_event (int mstimeout = -1)
+  { return gdb_do_one_event (mstimeout); }
 
   /* Returns true if this interpreter supports using the readline
      library; false if it uses GDB's own simplified readline
      emulation.  */
   virtual bool supports_command_editing ()
   { return false; }
+
+  /* Returns true if this interpreter supports new UIs.  */
+  virtual bool supports_new_ui () const
+  { return true; }
 
   const char *name () const
   { return m_name; }
@@ -122,7 +137,9 @@ public:
   virtual void on_new_thread (thread_info *t) {}
 
   /* Notify the interpreter that thread T has exited.  */
-  virtual void on_thread_exited (thread_info *, int silent) {}
+  virtual void on_thread_exited (thread_info *,
+				 std::optional<ULONGEST> exit_code,
+				 int silent) {}
 
   /* Notify the interpreter that inferior INF was added.  */
   virtual void on_inferior_added (inferior *inf) {}
@@ -145,10 +162,13 @@ public:
   virtual void on_target_resumed (ptid_t ptid) {}
 
   /* Notify the interpreter that solib SO has been loaded.  */
-  virtual void on_solib_loaded (so_list *so) {}
+  virtual void on_solib_loaded (const solib &so) {}
 
-  /* Notify the interpreter that solib SO has been unloaded.  */
-  virtual void on_solib_unloaded (so_list *so) {}
+  /* Notify the interpreter that solib SO has been unloaded.  When
+     STILL_IN_USE is true, the objfile backing SO is still in use,
+     this indicates that SO was loaded multiple times, but only mapped
+     in once (the mapping was reused).  */
+  virtual void on_solib_unloaded (const solib &so, bool still_in_use) {}
 
   /* Notify the interpreter that a command it is executing is about to cause
      the inferior to proceed.  */
@@ -182,13 +202,57 @@ public:
   virtual void on_memory_changed (inferior *inf, CORE_ADDR addr, ssize_t len,
 				  const bfd_byte *data) {}
 
+  /* Accessors that return the various standard output files.  */
+  ui_file *get_stdout ()
+  {
+    return m_stdout.get ();
+  }
+
+  ui_file *get_stderr ()
+  {
+    return m_stderr.get ();
+  }
+
+  ui_file *get_stdlog ()
+  {
+    return m_stdlog.get ();
+  }
+
+  ui_file *get_stdtarg ()
+  {
+    return m_stdtarg.get ();
+  }
+
+protected:
+
+  /* The standard output streams.
+
+     Each interpreter can manage these streams as it likes.  The only
+     general rule is that the final ui_file in each pipeline  should
+     be a ui::ui_*_file of the appropriate type.
+
+     The overall approach here is that output starts with the
+     interpreter -- that is, "globals" like gdb_stdout just route to
+     these fields in the current interpreter.
+
+     After any processing by the interpreter, output is then sent to
+     the UI's channels.  The UI handles paging, logging, etc.  */
+  ui_file_up m_stdout;
+  ui_file_up m_stderr;
+  ui_file_up m_stdlog;
+  ui_file_up m_stdtarg;
+
 private:
+  /* Called to perform any needed initialization.  */
+  virtual void do_init (bool top_level)
+  {
+  }
+
   /* The memory for this is static, it comes from literal strings (e.g. "cli").  */
   const char *m_name;
 
-public:
   /* Has the init method been run?  */
-  bool inited = false;
+  bool m_inited = false;
 };
 
 /* Look up the interpreter for NAME, creating one if none exists yet.
@@ -199,8 +263,10 @@ extern struct interp *interp_lookup (struct ui *ui, const char *name);
 
 /* Set the current UI's top level interpreter to the interpreter named
    NAME.  Throws an error if NAME is not a known interpreter or the
-   interpreter fails to initialize.  */
-extern void set_top_level_interpreter (const char *name);
+   interpreter fails to initialize.  FOR_NEW_UI is true when called
+   from the 'new-ui' command, and causes an extra check to ensure the
+   interpreter is valid for a new UI.  */
+extern void set_top_level_interpreter (const char *name, bool for_new_ui);
 
 /* Temporarily set the current interpreter, and reset it on
    destruction.  */
@@ -213,13 +279,12 @@ public:
   {
   }
 
+  DISABLE_COPY_AND_ASSIGN (scoped_restore_interp);
+
   ~scoped_restore_interp ()
   {
     set_interp (m_interp->name ());
   }
-
-  scoped_restore_interp (const scoped_restore_interp &) = delete;
-  scoped_restore_interp &operator= (const scoped_restore_interp &) = delete;
 
 private:
 
@@ -230,21 +295,6 @@ private:
 
 extern int current_interp_named_p (const char *name);
 
-/* Call this function to give the current interpreter an opportunity
-   to do any special handling of streams when logging is enabled or
-   disabled.  LOGFILE is the stream for the log file when logging is
-   starting and is NULL when logging is ending.  LOGGING_REDIRECT is
-   the value of the "set logging redirect" setting.  If true, the
-   interpreter should configure the output streams to send output only
-   to the logfile.  If false, the interpreter should configure the
-   output streams to send output to both the current output stream
-   (i.e., the terminal) and the log file.  DEBUG_REDIRECT is same as
-   LOGGING_REDIRECT, but for the value of "set logging debugredirect"
-   instead.  */
-extern void current_interp_set_logging (ui_file_up logfile,
-					bool logging_redirect,
-					bool debug_redirect);
-
 /* Returns the top-level interpreter.  */
 extern struct interp *top_level_interpreter (void);
 
@@ -254,14 +304,6 @@ extern struct interp *current_interpreter (void);
 extern struct interp *command_interp (void);
 
 extern void clear_interpreter_hooks (void);
-
-/* Returns true if INTERP supports using the readline library; false
-   if it uses GDB's own simplified form of readline.  */
-extern int interp_supports_command_editing (struct interp *interp);
-
-/* Called before starting an event loop, to give the interpreter a
-   chance to e.g., print a prompt.  */
-extern void interp_pre_command_loop (struct interp *interp);
 
 /* List the possible interpreters which could complete the given
    text.  */
@@ -297,7 +339,9 @@ extern void interps_notify_user_selected_context_changed
 extern void interps_notify_new_thread (thread_info *t);
 
 /* Notify all interpreters that thread T has exited.  */
-extern void interps_notify_thread_exited (thread_info *t, int silent);
+extern void interps_notify_thread_exited (thread_info *t,
+					  std::optional<ULONGEST> exit_code,
+					  int silent);
 
 /* Notify all interpreters that inferior INF was added.  */
 extern void interps_notify_inferior_added (inferior *inf);
@@ -328,10 +372,13 @@ extern void interps_notify_record_changed (inferior *inf, int started,
 extern void interps_notify_target_resumed (ptid_t ptid);
 
 /* Notify all interpreters that solib SO has been loaded.  */
-extern void interps_notify_solib_loaded (so_list *so);
+extern void interps_notify_solib_loaded (const solib &so);
 
-/* Notify all interpreters that solib SO has been unloaded.  */
-extern void interps_notify_solib_unloaded (so_list *so);
+/* Notify all interpreters that solib SO has been unloaded.  When
+   STILL_IN_USE is true, the objfile backing SO is still in use, this
+   indicates that SO was loaded multiple times, but only mapped in
+   once (the mapping was reused).  */
+extern void interps_notify_solib_unloaded (const solib &so, bool still_in_use);
 
 /* Notify all interpreters that the selected traceframe changed.
 
@@ -344,7 +391,7 @@ extern void interps_notify_traceframe_changed (int tfnum, int tpnum);
 extern void interps_notify_tsv_created (const trace_state_variable *tsv);
 
 /* Notify all interpreters that trace state variable TSV was deleted.
-   
+
    If TSV is nullptr, it means that all trace state variables were deleted.  */
 extern void interps_notify_tsv_deleted (const trace_state_variable *tsv);
 
@@ -376,4 +423,4 @@ extern void interps_notify_memory_changed (inferior *inf, CORE_ADDR addr,
 #define INTERP_TUI		"tui"
 #define INTERP_INSIGHT		"insight"
 
-#endif
+#endif /* GDB_INTERPS_H */

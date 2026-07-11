@@ -1,6 +1,6 @@
 /* Target-dependent code for the Fujitsu FR-V, for GDB, the GNU Debugger.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "inferior.h"
 #include "gdbcore.h"
 #include "arch-utils.h"
@@ -25,11 +25,11 @@
 #include "frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
+#include "solib-frv.h"
 #include "trad-frame.h"
 #include "dis-asm.h"
 #include "sim-regno.h"
 #include "sim/sim-frv.h"
-#include "opcodes/frv-desc.h"	/* for the H_SPR_... enums */
 #include "symtab.h"
 #include "elf-bfd.h"
 #include "elf/frv.h"
@@ -39,6 +39,11 @@
 #include "frv-tdep.h"
 #include "objfiles.h"
 #include "gdbarch.h"
+
+/* Make cgen names unique to prevent ODR conflicts with other targets.  */
+#define GDB_CGEN_REMAP_PREFIX frv
+#include "cgen-remap.h"
+#include "opcodes/frv-desc.h"
 
 struct frv_unwind_cache		/* was struct frame_extra_info */
   {
@@ -110,7 +115,7 @@ frv_fdpic_loadmap_addresses (struct gdbarch *gdbarch, CORE_ADDR *interp_addr,
     return -1;
   else
     {
-      struct regcache *regcache = get_current_regcache ();
+      regcache *regcache = get_thread_regcache (inferior_thread ());
 
       if (interp_addr != NULL)
 	{
@@ -147,7 +152,7 @@ new_variant ()
 
   /* By default, don't supply any general-purpose or floating-point
      register names.  */
-  var->register_names 
+  var->register_names
     = (const char **) xmalloc ((frv_num_regs + frv_num_pseudo_regs)
 			       * sizeof (const char *));
   for (r = 0; r < frv_num_regs + frv_num_pseudo_regs; r++)
@@ -159,7 +164,7 @@ new_variant ()
   var->register_names[pc_regnum] = "pc";
   var->register_names[lr_regnum] = "lr";
   var->register_names[lcr_regnum] = "lcr";
-     
+
   var->register_names[psr_regnum] = "psr";
   var->register_names[ccr_regnum] = "ccr";
   var->register_names[cccr_regnum] = "cccr";
@@ -417,7 +422,7 @@ frv_register_sim_regno (struct gdbarch *gdbarch, int reg)
 
 constexpr gdb_byte frv_break_insn[] = {0xc0, 0x70, 0x00, 0x01};
 
-typedef BP_MANIPULATION (frv_break_insn) frv_breakpoint;
+using frv_breakpoint = BP_MANIPULATION (frv_break_insn);
 
 /* Define the maximum number of instructions which may be packed into a
    bundle (VLIW instruction).  */
@@ -506,7 +511,7 @@ is_argument_reg (int reg)
    prologue analysis.  */
 static CORE_ADDR
 frv_analyze_prologue (struct gdbarch *gdbarch, CORE_ADDR pc,
-		      frame_info_ptr this_frame,
+		      const frame_info_ptr &this_frame,
 		      struct frv_unwind_cache *info)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -789,7 +794,7 @@ frv_analyze_prologue (struct gdbarch *gdbarch, CORE_ADDR pc,
 	     sthi GRk, @(fp, s)
 	 P KKKKKK 1010001 000010 SSSSSSSSSSSS = 0x01442000
 	 0 000000 1111111 111111 000000000000 = 0x01fff000
-	     .    .   .    .   .    .   .   . 
+	     .    .   .    .   .    .   .   .
 	 And for 8-bit values, we use STB instructions.
 	     stbi GRk, @(fp, s)
 	 P KKKKKK 1010000 000010 SSSSSSSSSSSS = 0x01402000
@@ -981,7 +986,7 @@ frv_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
     {
       struct symtab_and_line sal;
 
-      sal = find_pc_line (func_addr, 0);
+      sal = find_sal_for_pc (func_addr, 0);
 
       if (sal.line != 0 && sal.end < func_end)
 	{
@@ -1017,7 +1022,7 @@ frv_skip_main_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
   /* In PIC code, GR15 may be loaded from some offset off of FP prior
      to the call instruction.
-     
+
      Skip over this instruction if present.  It won't be present in
      non-PIC code, and even in PIC code, it might not be present.
      (This is due to the fact that GR15, the FDPIC register, already
@@ -1058,18 +1063,17 @@ frv_skip_main_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
     {
       LONGEST displ;
       CORE_ADDR call_dest;
-      struct bound_minimal_symbol s;
 
       displ = ((op & 0xfe000000) >> 7) | (op & 0x0003ffff);
       if ((displ & 0x00800000) != 0)
 	displ |= ~((LONGEST) 0x00ffffff);
 
       call_dest = pc + 4 * displ;
-      s = lookup_minimal_symbol_by_pc (call_dest);
+      bound_minimal_symbol s = lookup_minimal_symbol_by_pc (call_dest);
 
-      if (s.minsym != NULL
-	  && s.minsym->linkage_name () != NULL
-	  && strcmp (s.minsym->linkage_name (), "__main") == 0)
+      if (s.minsym != nullptr
+	  && s.minsym->linkage_name () != nullptr
+	  && streq (s.minsym->linkage_name (), "__main"))
 	{
 	  pc += 4;
 	  return pc;
@@ -1080,16 +1084,15 @@ frv_skip_main_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
 
 static struct frv_unwind_cache *
-frv_frame_unwind_cache (frame_info_ptr this_frame,
+frv_frame_unwind_cache (const frame_info_ptr &this_frame,
 			 void **this_prologue_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  struct frv_unwind_cache *info;
 
   if ((*this_prologue_cache))
     return (struct frv_unwind_cache *) (*this_prologue_cache);
 
-  info = FRAME_OBSTACK_ZALLOC (struct frv_unwind_cache);
+  auto *info = frame_obstack_zalloc<frv_unwind_cache> ();
   (*this_prologue_cache) = info;
   info->saved_regs = trad_frame_alloc_saved_regs (this_frame);
 
@@ -1363,21 +1366,21 @@ frv_return_value (struct gdbarch *gdbarch, struct value *function,
    frame.  This will be used to create a new GDB frame struct.  */
 
 static void
-frv_frame_this_id (frame_info_ptr this_frame,
+frv_frame_this_id (const frame_info_ptr &this_frame,
 		    void **this_prologue_cache, struct frame_id *this_id)
 {
   struct frv_unwind_cache *info
     = frv_frame_unwind_cache (this_frame, this_prologue_cache);
   CORE_ADDR base;
   CORE_ADDR func;
-  struct bound_minimal_symbol msym_stack;
   struct frame_id id;
 
   /* The FUNC is easy.  */
   func = get_frame_func (this_frame);
 
   /* Check if the stack is empty.  */
-  msym_stack = lookup_minimal_symbol ("_stack", NULL, NULL);
+  bound_minimal_symbol msym_stack
+    = lookup_minimal_symbol (current_program_space, "_stack");
   if (msym_stack.minsym && info->base == msym_stack.value_address ())
     return;
 
@@ -1393,7 +1396,7 @@ frv_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-frv_frame_prev_register (frame_info_ptr this_frame,
+frv_frame_prev_register (const frame_info_ptr &this_frame,
 			 void **this_prologue_cache, int regnum)
 {
   struct frv_unwind_cache *info
@@ -1401,18 +1404,19 @@ frv_frame_prev_register (frame_info_ptr this_frame,
   return trad_frame_get_prev_register (this_frame, info->saved_regs, regnum);
 }
 
-static const struct frame_unwind frv_frame_unwind = {
+static const struct frame_unwind_legacy frv_frame_unwind (
   "frv prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   frv_frame_this_id,
   frv_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 static CORE_ADDR
-frv_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+frv_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct frv_unwind_cache *info
     = frv_frame_unwind_cache (this_frame, this_cache);
@@ -1495,7 +1499,8 @@ frv_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_register_sim_regno (gdbarch, frv_register_sim_regno);
 
   set_gdbarch_pseudo_register_read (gdbarch, frv_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (gdbarch, frv_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (gdbarch,
+						frv_pseudo_register_write);
 
   set_gdbarch_skip_prologue (gdbarch, frv_skip_prologue);
   set_gdbarch_skip_main_prologue (gdbarch, frv_skip_main_prologue);
@@ -1549,7 +1554,7 @@ frv_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     set_gdbarch_convert_from_func_ptr_addr (gdbarch,
 					    frv_convert_from_func_ptr_addr);
 
-  set_gdbarch_so_ops (gdbarch, &frv_so_ops);
+  set_gdbarch_make_solib_ops (gdbarch, make_frv_solib_ops);
 
   /* Hook in ABI-specific overrides, if they have been registered.  */
   gdbarch_init_osabi (info, gdbarch);
@@ -1564,9 +1569,7 @@ frv_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_frv_tdep ();
-void
-_initialize_frv_tdep ()
+INIT_GDB_FILE (frv_tdep)
 {
   gdbarch_register (bfd_arch_frv, frv_gdbarch_init);
 }

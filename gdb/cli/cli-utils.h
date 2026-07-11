@@ -1,6 +1,6 @@
 /* CLI utilities.
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef CLI_CLI_UTILS_H
-#define CLI_CLI_UTILS_H
+#ifndef GDB_CLI_CLI_UTILS_H
+#define GDB_CLI_CLI_UTILS_H
 
 #include "completer.h"
 
@@ -50,8 +50,8 @@ extern ULONGEST get_ulongest (const char **pp, int trailer = '\0');
 /* Throws an error telling the user that ARGS starts with an option
    unrecognized by COMMAND.  */
 
-extern void report_unrecognized_option_error (const char *command,
-					      const char *args);
+[[noreturn]] extern void report_unrecognized_option_error (const char *command,
+							   const char *args);
 
 
 /* Builds the help string for a command documented by PREFIX,
@@ -82,7 +82,7 @@ public:
   /* STRING is the string to be parsed.  */
   void init (const char *string);
 
-  /* While processing a range, this fuction is called iteratively; At
+  /* While processing a range, this function is called iteratively; At
      each call it will return the next value in the range.
 
      At the beginning of parsing a range, the char pointer
@@ -145,12 +145,12 @@ private:
   bool m_in_range;
 };
 
-/* Accept a number and a string-form list of numbers such as is 
+/* Accept a number and a string-form list of numbers such as is
    accepted by get_number_or_range.  Return TRUE if the number is
    in the list.
 
-   By definition, an empty list includes all numbers.  This is to 
-   be interpreted as typing a command such as "delete break" with 
+   By definition, an empty list includes all numbers.  This is to
+   be interpreted as typing a command such as "delete break" with
    no arguments.  */
 
 extern int number_is_in_list (const char *list, int number);
@@ -225,4 +225,4 @@ struct qcs_flags
    message.  */
 extern void validate_flags_qcs (const char *which_command, qcs_flags *flags);
 
-#endif /* CLI_CLI_UTILS_H */
+#endif /* GDB_CLI_CLI_UTILS_H */

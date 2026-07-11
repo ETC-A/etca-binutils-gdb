@@ -1,5 +1,5 @@
 /* gdb_file_up, an RAII wrapper around FILE.
-   Copyright (C) 2021-2023 Free Software Foundation, Inc.
+   Copyright (C) 2021-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef GDBSUPPORT_GDB_FILE
-#define GDBSUPPORT_GDB_FILE
+#ifndef GDBSUPPORT_GDB_FILE_H
+#define GDBSUPPORT_GDB_FILE_H
 
 #include <memory>
 #include <stdio.h>
@@ -32,6 +32,6 @@ struct gdb_file_deleter
 
 /* A unique pointer to a FILE.  */
 
-typedef std::unique_ptr<FILE, gdb_file_deleter> gdb_file_up;
+using gdb_file_up = std::unique_ptr<FILE, gdb_file_deleter>;
 
-#endif
+#endif /* GDBSUPPORT_GDB_FILE_H */

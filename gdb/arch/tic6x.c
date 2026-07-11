@@ -1,4 +1,4 @@
-/* Copyright (C) 2017-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "gdbsupport/tdesc.h"
+#include "gdbsupport/osabi.h"
 #include "tic6x.h"
-#include "gdbsupport/common-defs.h"
 
 #include "../features/tic6x-core.c"
 #include "../features/tic6x-gp.c"
@@ -25,13 +25,13 @@
 
 /* Create tic6x target descriptions according to FEATURE.  */
 
-target_desc *
+target_desc_up
 tic6x_create_target_description (enum c6x_feature feature)
 {
   target_desc_up tdesc = allocate_target_description ();
 
   set_tdesc_architecture (tdesc.get (), "tic6x");
-  set_tdesc_osabi (tdesc.get (), "GNU/Linux");
+  set_tdesc_osabi (tdesc.get (), GDB_OSABI_LINUX);
 
   long regnum = 0;
 
@@ -43,5 +43,5 @@ tic6x_create_target_description (enum c6x_feature feature)
   if (feature == C6X_C6XP)
     regnum = create_feature_tic6x_c6xp (tdesc.get (), regnum);
 
-  return tdesc.release ();
+  return tdesc;
 }

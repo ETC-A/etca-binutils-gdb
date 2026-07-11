@@ -1,5 +1,5 @@
 /* Main simulator entry points specific to the IQ2000.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
 
 This file is part of the GNU simulators.
@@ -59,7 +59,6 @@ SIM_DESC
 sim_open (SIM_OPEN_KIND kind, host_callback *callback, struct bfd *abfd,
 	  char * const *argv)
 {
-  char c;
   int i;
   SIM_DESC sd = sim_state_alloc (kind, callback);
 

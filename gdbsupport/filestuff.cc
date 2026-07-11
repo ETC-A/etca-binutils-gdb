@@ -1,5 +1,5 @@
 /* Low-level file-handling.
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,9 +16,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "filestuff.h"
-#include "gdb_vecs.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -335,14 +333,10 @@ gdb_fopen_cloexec (const char *filename, const char *opentype)
 
   if (!fopen_e_ever_failed_einval)
     {
-      char *copy;
-
-      copy = (char *) alloca (strlen (opentype) + 2);
-      strcpy (copy, opentype);
       /* This is a glibc extension but we try it unconditionally on
 	 this path.  */
-      strcat (copy, "e");
-      result = fopen (filename, copy);
+      auto opentype_e = std::string (opentype) + 'e';
+      result = fopen (filename, opentype_e.c_str ());
 
       if (result == NULL && errno == EINVAL)
 	{
@@ -467,6 +461,13 @@ mkdir_recursive (const char *dir)
   char *component_start = start;
   char *component_end = start;
 
+#ifdef WIN32
+  /* If we're making an absolute path on windows, need to skip the drive
+     letter, which is the form 'C:/'.  */
+  if (dir[0] != '\0' && dir[1] == ':' && dir[2] == '/')
+    component_start += 3;
+#endif
+
   while (1)
     {
       /* Find the beginning of the next component.  */
@@ -504,13 +505,9 @@ mkdir_recursive (const char *dir)
 
 /* See gdbsupport/filestuff.h.  */
 
-gdb::optional<std::string>
-read_text_file_to_string (const char *path)
+std::string
+read_remainder_of_file (FILE *file)
 {
-  gdb_file_up file = gdb_fopen_cloexec (path, "r");
-  if (file == nullptr)
-    return {};
-
   std::string res;
   for (;;)
     {
@@ -520,7 +517,7 @@ read_text_file_to_string (const char *path)
       /* Resize to accommodate CHUNK_SIZE bytes.  */
       res.resize (start_size + chunk_size);
 
-      int n = fread (&res[start_size], 1, chunk_size, file.get ());
+      int n = fread (&res[start_size], 1, chunk_size, file);
       if (n == chunk_size)
 	continue;
 
@@ -528,7 +525,7 @@ read_text_file_to_string (const char *path)
 
       /* Less than CHUNK means EOF or error.  If it's an error, return
 	 no value.  */
-      if (ferror (file.get ()))
+      if (ferror (file))
 	return {};
 
       /* Resize the string according to the data we read.  */
@@ -537,4 +534,16 @@ read_text_file_to_string (const char *path)
     }
 
   return res;
+}
+
+/* See gdbsupport/filestuff.h.  */
+
+std::optional<std::string>
+read_text_file_to_string (const char *path)
+{
+  gdb_file_up file = gdb_fopen_cloexec (path, "r");
+  if (file == nullptr)
+    return {};
+
+  return read_remainder_of_file (file.get ());
 }

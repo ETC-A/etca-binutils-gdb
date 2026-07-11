@@ -1,6 +1,6 @@
 /* Base/prototype target for default child (native) targets.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef INF_CHILD_H
-#define INF_CHILD_H
+#ifndef GDB_INF_CHILD_H
+#define GDB_INF_CHILD_H
 
 #include "target.h"
 #include "process-stratum-target.h"
@@ -74,18 +74,20 @@ public:
   const char *pid_to_exec_file (int pid) override;
 
   int fileio_open (struct inferior *inf, const char *filename,
-		   int flags, int mode, int warn_if_slow,
-		   fileio_error *target_errno) override;
+		   fileio_open_flags flags, fileio_mode_flags mode,
+		   bool warn_if_slow, fileio_error *target_errno) override;
   int fileio_pwrite (int fd, const gdb_byte *write_buf, int len,
 		     ULONGEST offset, fileio_error *target_errno) override;
   int fileio_pread (int fd, gdb_byte *read_buf, int len,
 		    ULONGEST offset, fileio_error *target_errno) override;
   int fileio_fstat (int fd, struct stat *sb, fileio_error *target_errno) override;
+  int fileio_lstat (struct inferior *inf, const char *filename,
+		    struct stat *sb, fileio_error *target_errno) override;
   int fileio_close (int fd, fileio_error *target_errno) override;
   int fileio_unlink (struct inferior *inf,
 		     const char *filename,
 		     fileio_error *target_errno) override;
-  gdb::optional<std::string> fileio_readlink (struct inferior *inf,
+  std::optional<std::string> fileio_readlink (struct inferior *inf,
 					      const char *filename,
 					      fileio_error *target_errno) override;
   bool use_agent (bool use) override;
@@ -115,4 +117,4 @@ extern void add_inf_child_target (inf_child_target *target);
    targets use add_inf_child_target instead.  */
 extern void inf_child_open_target (const char *arg, int from_tty);
 
-#endif
+#endif /* GDB_INF_CHILD_H */

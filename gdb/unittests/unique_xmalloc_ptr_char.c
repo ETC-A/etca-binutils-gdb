@@ -1,6 +1,6 @@
 /* Self tests for gdb::unique_xmalloc_ptr<char>.
 
-   Copyright (C) 2022-2023 Free Software Foundation, Inc.
+   Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/selftest.h"
 #include "selftest-arch.h"
 #include "gdbsupport/gdb_unique_ptr.h"
@@ -31,8 +30,8 @@ unique_xmalloc_ptr_char ()
   gdb::unique_xmalloc_ptr<char> a = make_unique_xstrdup ("abc");
   gdb::unique_xmalloc_ptr<char> b = make_unique_xstrndup ("defghi", 3);
 
-  SELF_CHECK (strcmp (a.get (), "abc") == 0);
-  SELF_CHECK (strcmp (b.get (), "def") == 0);
+  SELF_CHECK (streq (a.get (), "abc"));
+  SELF_CHECK (streq (b.get (), "def"));
 
   std::string str = "xxx";
 
@@ -48,9 +47,7 @@ unique_xmalloc_ptr_char ()
 }
 }
 
-void _initialize_unique_xmalloc_ptr_char ();
-void
-_initialize_unique_xmalloc_ptr_char ()
+INIT_GDB_FILE (unique_xmalloc_ptr_char)
 {
   selftests::register_test ("unique_xmalloc_ptr_char",
 			    selftests::unpack::unique_xmalloc_ptr_char);

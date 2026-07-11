@@ -1,5 +1,5 @@
 /* Basic host-specific definitions for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,20 +16,20 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_HOST_DEFS_H
-#define COMMON_HOST_DEFS_H
+#ifndef GDBSUPPORT_HOST_DEFS_H
+#define GDBSUPPORT_HOST_DEFS_H
 
 #include <limits.h>
 
 /* Static host-system-dependent parameters for GDB.  */
 
-/* * Number of bits in a char or unsigned char for the target machine.
+/* Number of bits in a char or unsigned char for the target machine.
    Just like CHAR_BIT in <limits.h> but describes the target machine.  */
 #if !defined (TARGET_CHAR_BIT)
 #define TARGET_CHAR_BIT 8
 #endif
 
-/* * If we picked up a copy of CHAR_BIT from a configuration file
+/* If we picked up a copy of CHAR_BIT from a configuration file
    (which may get it by including <limits.h>) then use it to set
    the number of bits in a host char.  If not, use the same size
    as the target.  */
@@ -58,4 +58,4 @@
 #define SLASH_STRING "/"
 #endif
 
-#endif /* COMMON_HOST_DEFS_H */
+#endif /* GDBSUPPORT_HOST_DEFS_H */

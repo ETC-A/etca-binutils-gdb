@@ -1,5 +1,5 @@
 /* Main code for remote server for GDB.
-   Copyright (C) 1989-2023 Free Software Foundation, Inc.
+   Copyright (C) 1989-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,14 +16,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "gdbthread.h"
 #include "gdbsupport/agent.h"
 #include "notif.h"
 #include "tdesc.h"
 #include "gdbsupport/rsp-low.h"
 #include "gdbsupport/signals-state-save-restore.h"
-#include <ctype.h>
 #include <unistd.h>
 #if HAVE_SIGNAL_H
 #include <signal.h>
@@ -36,6 +34,7 @@
 #include "dll.h"
 #include "hostio.h"
 #include <vector>
+#include "gdbsupport/unordered_map.h"
 #include "gdbsupport/common-inferior.h"
 #include "gdbsupport/job-control.h"
 #include "gdbsupport/environ.h"
@@ -50,11 +49,14 @@
 #include "gdbsupport/gdb_select.h"
 #include "gdbsupport/scoped_restore.h"
 #include "gdbsupport/search.h"
+#include "gdbsupport/remote-args.h"
+
+#include <getopt.h>
 
 /* PBUFSIZ must also be at least as big as IPA_CMD_BUF_SIZE, because
    the client state data is passed directly to some agent
    functions.  */
-gdb_static_assert (PBUFSIZ >= IPA_CMD_BUF_SIZE);
+static_assert (PBUFSIZ >= IPA_CMD_BUF_SIZE);
 
 #define require_running_or_return(BUF)		\
   if (!target_running ())			\
@@ -109,7 +111,7 @@ static struct {
 	   its name with CURRENT_DIRECTORY.  Otherwise, we leave the
 	   name as-is because we'll try searching for it in $PATH.  */
 	if (is_regular_file (m_path.c_str (), &reg_file_errno))
-	  m_path = gdb_abspath (m_path.c_str ());
+	  m_path = gdb_abspath (m_path);
       }
   }
 
@@ -121,7 +123,11 @@ private:
   /* The program name, adjusted if needed.  */
   std::string m_path;
 } program_path;
-static std::vector<char *> program_args;
+
+/* All program arguments are merged into a single string.  */
+
+static std::string program_args;
+
 static std::string wrapper_argv;
 
 /* The PID of the originally created or attached inferior.  Used to
@@ -135,6 +141,7 @@ unsigned long signal_pid;
    in gdbserver, for the sake of testing GDB against stubs that don't
    support them.  */
 bool disable_packet_vCont;
+bool disable_packet_vCont_step;
 bool disable_packet_Tthread;
 bool disable_packet_qC;
 bool disable_packet_qfThreadInfo;
@@ -241,7 +248,8 @@ in_queued_stop_replies_ptid (struct notif_event *event, ptid_t filter_ptid)
 
   /* Don't resume fork children that GDB does not know about yet.  */
   if ((vstop_event->status.kind () == TARGET_WAITKIND_FORKED
-       || vstop_event->status.kind () == TARGET_WAITKIND_VFORKED)
+       || vstop_event->status.kind () == TARGET_WAITKIND_VFORKED
+       || vstop_event->status.kind () == TARGET_WAITKIND_THREAD_CLONED)
       && vstop_event->status.child_ptid ().matches (filter_ptid))
     return true;
 
@@ -281,17 +289,6 @@ get_exec_wrapper ()
   return !wrapper_argv.empty () ? wrapper_argv.c_str () : NULL;
 }
 
-/* See gdbsupport/common-inferior.h.  */
-
-const char *
-get_exec_file (int err)
-{
-  if (err && program_path.get () == NULL)
-    error (_("No executable file specified."));
-
-  return program_path.get ();
-}
-
 /* See server.h.  */
 
 gdb_environ *
@@ -308,7 +305,7 @@ attach_inferior (int pid)
      0 if it succeeded, and call error() otherwise.  */
 
   if (find_process_pid (pid) != nullptr)
-    error ("Already attached to process %d\n", pid);
+    error (_("Already attached to process %d\n"), pid);
 
   if (myattach (pid) != 0)
     return -1;
@@ -404,7 +401,7 @@ write_qxfer_response (char *buf, const gdb_byte *data, int len, int is_more)
 /* Handle btrace enabling in BTS format.  */
 
 static void
-handle_btrace_enable_bts (struct thread_info *thread)
+handle_btrace_enable_bts (thread_info *thread)
 {
   if (thread->btrace != NULL)
     error (_("Btrace already enabled."));
@@ -416,7 +413,7 @@ handle_btrace_enable_bts (struct thread_info *thread)
 /* Handle btrace enabling in Intel Processor Trace format.  */
 
 static void
-handle_btrace_enable_pt (struct thread_info *thread)
+handle_btrace_enable_pt (thread_info *thread)
 {
   if (thread->btrace != NULL)
     error (_("Btrace already enabled."));
@@ -428,7 +425,7 @@ handle_btrace_enable_pt (struct thread_info *thread)
 /* Handle btrace disabling.  */
 
 static void
-handle_btrace_disable (struct thread_info *thread)
+handle_btrace_disable (thread_info *thread)
 {
 
   if (thread->btrace == NULL)
@@ -446,7 +443,7 @@ static int
 handle_btrace_general_set (char *own_buf)
 {
   client_state &cs = get_client_state ();
-  struct thread_info *thread;
+  thread_info *thread;
   char *op;
 
   if (!startswith (own_buf, "Qbtrace:"))
@@ -470,11 +467,11 @@ handle_btrace_general_set (char *own_buf)
 
   try
     {
-      if (strcmp (op, "bts") == 0)
+      if (streq (op, "bts"))
 	handle_btrace_enable_bts (thread);
-      else if (strcmp (op, "pt") == 0)
+      else if (streq (op, "pt"))
 	handle_btrace_enable_pt (thread);
-      else if (strcmp (op, "off") == 0)
+      else if (streq (op, "off"))
 	handle_btrace_disable (thread);
       else
 	error (_("Bad Qbtrace operation.  Use bts, pt, or off."));
@@ -495,7 +492,7 @@ static int
 handle_btrace_conf_general_set (char *own_buf)
 {
   client_state &cs = get_client_state ();
-  struct thread_info *thread;
+  thread_info *thread;
   char *op;
 
   if (!startswith (own_buf, "Qbtrace-conf:"))
@@ -546,6 +543,32 @@ handle_btrace_conf_general_set (char *own_buf)
 	}
 
       current_btrace_conf.pt.size = (unsigned int) size;
+    }
+  else if (strncmp (op, "pt:ptwrite=", strlen ("pt:ptwrite=")) == 0)
+    {
+      op += strlen ("pt:ptwrite=");
+      if (strncmp (op, "\"yes\"", strlen ("\"yes\"")) == 0)
+	current_btrace_conf.pt.ptwrite = true;
+      else if (strncmp (op, "\"no\"", strlen ("\"no\"")) == 0)
+	current_btrace_conf.pt.ptwrite = false;
+      else
+	{
+	  strcpy (own_buf, "E.Bad ptwrite value.");
+	  return -1;
+	}
+    }
+  else if (strncmp (op, "pt:event-tracing=", strlen ("pt:event-tracing=")) == 0)
+    {
+      op += strlen ("pt:event-tracing=");
+      if (strncmp (op, "\"yes\"", strlen ("\"yes\"")) == 0)
+	current_btrace_conf.pt.event_tracing = true;
+      else if (strncmp (op, "\"no\"", strlen ("\"no\"")) == 0)
+	current_btrace_conf.pt.event_tracing = false;
+      else
+	{
+	  strcpy (own_buf, "E.Bad event-tracing value.");
+	  return -1;
+	}
     }
   else
     {
@@ -613,6 +636,17 @@ parse_store_memtags_request (char *request, CORE_ADDR *addr, size_t *len,
   tags = hex2bin (p);
 
   return true;
+}
+
+/* Parse thread options starting at *P and return them.  On exit,
+   advance *P past the options.  */
+
+static gdb_thread_options
+parse_gdb_thread_options (const char **p)
+{
+  ULONGEST options = 0;
+  *p = unpack_varlen_hex (*p, &options);
+  return (gdb_thread_option) options;
 }
 
 /* Handle all of the extended 'Q' packets.  */
@@ -686,7 +720,7 @@ handle_general_set (char *own_buf)
 	  return;
 	}
 
-      if (strcmp (p, "0") == 0)
+      if (streq (p, "0"))
 	enabled = 0;
       else if (p[0] == '1' && (p[1] == ';' || p[1] == '\0'))
 	enabled = 1;
@@ -721,7 +755,7 @@ handle_general_set (char *own_buf)
       return;
     }
 
-  if (strcmp (own_buf, "QEnvironmentReset") == 0)
+  if (streq (own_buf, "QEnvironmentReset"))
     {
       our_environ = gdb_environ::from_host_environ ();
 
@@ -774,7 +808,7 @@ handle_general_set (char *own_buf)
       return;
     }
 
-  if (strcmp (own_buf, "QStartNoAckMode") == 0)
+  if (streq (own_buf, "QStartNoAckMode"))
     {
       remote_debug_printf ("[noack mode enabled]");
 
@@ -789,9 +823,9 @@ handle_general_set (char *own_buf)
       int req = -1;
       const char *req_str;
 
-      if (strcmp (mode, "0") == 0)
+      if (streq (mode, "0"))
 	req = 0;
-      else if (strcmp (mode, "1") == 0)
+      else if (streq (mode, "1"))
 	req = 1;
       else
 	{
@@ -844,9 +878,9 @@ handle_general_set (char *own_buf)
       char *mode = own_buf + strlen ("QAgent:");
       int req = 0;
 
-      if (strcmp (mode, "0") == 0)
+      if (streq (mode, "0"))
 	req = 0;
-      else if (strcmp (mode, "1") == 0)
+      else if (streq (mode, "1"))
 	req = 1;
       else
 	{
@@ -873,9 +907,9 @@ handle_general_set (char *own_buf)
       char *mode = own_buf + strlen ("QThreadEvents:");
       enum tribool req = TRIBOOL_UNKNOWN;
 
-      if (strcmp (mode, "0") == 0)
+      if (streq (mode, "0"))
 	req = TRIBOOL_FALSE;
-      else if (strcmp (mode, "1") == 0)
+      else if (streq (mode, "1"))
 	req = TRIBOOL_TRUE;
       else
 	{
@@ -896,13 +930,116 @@ handle_general_set (char *own_buf)
       return;
     }
 
+  if (startswith (own_buf, "QThreadOptions;"))
+    {
+      const char *p = own_buf + strlen ("QThreadOptions");
+
+      gdb_thread_options supported_options = target_supported_thread_options ();
+      if (supported_options == 0)
+	{
+	  /* Something went wrong -- we don't support any option, but
+	     GDB sent the packet anyway.  */
+	  write_enn (own_buf);
+	  return;
+	}
+
+      /* We could store the options directly in thread->thread_options
+	 without this map, but that would mean that a QThreadOptions
+	 packet with a wildcard like "QThreadOptions;0;3:TID" would
+	 result in the debug logs showing:
+
+	   [options for TID are now 0x0]
+	   [options for TID are now 0x3]
+
+	 It's nicer if we only print the final options for each TID,
+	 and if we only print about it if the options changed compared
+	 to the options that were previously set on the thread.  */
+      gdb::unordered_map<thread_info *, gdb_thread_options> set_options;
+
+      while (*p != '\0')
+	{
+	  if (p[0] != ';')
+	    {
+	      write_enn (own_buf);
+	      return;
+	    }
+	  p++;
+
+	  /* Read the options.  */
+
+	  gdb_thread_options options = parse_gdb_thread_options (&p);
+
+	  if ((options & ~supported_options) != 0)
+	    {
+	      /* GDB asked for an unknown or unsupported option, so
+		 error out.  */
+	      std::string err
+		= string_printf ("E.Unknown thread options requested: %s\n",
+				 to_string (options).c_str ());
+	      strcpy (own_buf, err.c_str ());
+	      return;
+	    }
+
+	  ptid_t ptid;
+
+	  if (p[0] == ';' || p[0] == '\0')
+	    ptid = minus_one_ptid;
+	  else if (p[0] == ':')
+	    {
+	      const char *q;
+
+	      ptid = read_ptid (p + 1, &q);
+
+	      if (p == q)
+		{
+		  write_enn (own_buf);
+		  return;
+		}
+	      p = q;
+	      if (p[0] != ';' && p[0] != '\0')
+		{
+		  write_enn (own_buf);
+		  return;
+		}
+	    }
+	  else
+	    {
+	      write_enn (own_buf);
+	      return;
+	    }
+
+	  /* Convert PID.-1 => PID.0 for ptid.matches.  */
+	  if (ptid.lwp () == -1)
+	    ptid = ptid_t (ptid.pid ());
+
+	  for_each_thread ([&] (thread_info *thread)
+	    {
+	      if (thread->id.matches (ptid))
+		set_options[thread] = options;
+	    });
+	}
+
+      for (const auto &[thread, options] : set_options)
+	if (thread->thread_options != options)
+	  {
+	    threads_debug_printf ("[options for %s are now %s]\n",
+				  target_pid_to_str (thread->id).c_str (),
+				  to_string (options).c_str ());
+
+	    thread->thread_options = options;
+	  }
+
+      write_ok (own_buf);
+      return;
+    }
+
   if (startswith (own_buf, "QStartupWithShell:"))
     {
       const char *value = own_buf + strlen ("QStartupWithShell:");
 
-      if (strcmp (value, "1") == 0)
+      if (streq (value, "1"))
 	startup_with_shell = true;
-      else if (strcmp (value, "0") == 0)
+      else if (streq (value, "0"))
 	startup_with_shell = false;
       else
 	{
@@ -991,7 +1128,7 @@ get_features_xml (const char *annex)
      This variable is set up from the auto-generated
      init_registers_... routine for the current target.  */
 
-  if (strcmp (annex, "target.xml") == 0)
+  if (streq (annex, "target.xml"))
     {
       const char *ret = tdesc_get_features_xml (desc);
 
@@ -1007,7 +1144,7 @@ get_features_xml (const char *annex)
 
     /* Look for the annex.  */
     for (i = 0; xml_builtin[i][0] != NULL; i++)
-      if (strcmp (annex, xml_builtin[i][0]) == 0)
+      if (streq (annex, xml_builtin[i][0]))
 	break;
 
     if (xml_builtin[i][0] != NULL)
@@ -1022,19 +1159,18 @@ static void
 monitor_show_help (void)
 {
   monitor_output ("The following monitor commands are supported:\n");
-  monitor_output ("  set debug <0|1>\n");
+  monitor_output ("  set debug on\n");
   monitor_output ("    Enable general debugging messages\n");
+  monitor_output ("  set debug off\n");
+  monitor_output ("    Disable all debugging messages\n");
+  monitor_output ("  set debug COMPONENT <off|on>\n");
+  monitor_output ("    Enable debugging messages for COMPONENT, which is\n");
+  monitor_output ("    one of: all, threads, remote, event-loop.\n");
   monitor_output ("  set debug-hw-points <0|1>\n");
   monitor_output ("    Enable h/w breakpoint/watchpoint debugging messages\n");
-  monitor_output ("  set remote-debug <0|1>\n");
-  monitor_output ("    Enable remote protocol debugging messages\n");
-  monitor_output ("  set event-loop-debug <0|1>\n");
-  monitor_output ("    Enable event loop debugging messages\n");
   monitor_output ("  set debug-format option1[,option2,...]\n");
   monitor_output ("    Add additional information to debugging messages\n");
-  monitor_output ("    Options: all, none");
-  monitor_output (", timestamp");
-  monitor_output ("\n");
+  monitor_output ("    Options: all, none, timestamp\n");
   monitor_output ("  exit\n");
   monitor_output ("    Quit GDBserver\n");
 }
@@ -1116,7 +1252,7 @@ handle_search_memory (char *own_buf, int packet_len)
 
   pattern = (gdb_byte *) malloc (packet_len);
   if (pattern == NULL)
-    error ("Unable to allocate memory to perform the search");
+    error (_("Unable to allocate memory to perform the search"));
 
   if (decode_search_memory_packet (own_buf + cmd_name_len,
 				   packet_len - cmd_name_len,
@@ -1124,7 +1260,7 @@ handle_search_memory (char *own_buf, int packet_len)
 				   pattern, &pattern_len) < 0)
     {
       free (pattern);
-      error ("Error in parsing qSearch:memory packet");
+      error (_("Error in parsing qSearch:memory packet"));
     }
 
   auto read_memory = [] (CORE_ADDR addr, gdb_byte *result, size_t len)
@@ -1162,11 +1298,7 @@ handle_detach (char *own_buf)
       process = find_process_pid (pid);
     }
   else
-    {
-      process = (current_thread != nullptr
-		 ? get_thread_process (current_thread)
-		 : nullptr);
-    }
+    process = current_process ();
 
   if (process == NULL)
     {
@@ -1221,26 +1353,21 @@ handle_detach (char *own_buf)
      another process might delete the next thread in the iteration, which is
      the one saved by the safe iterator.  We will never delete the currently
      iterated on thread, so standard iteration should be safe.  */
-  for (thread_info *thread : all_threads)
+  for (thread_info &thread : process->thread_list ())
     {
-      /* Only threads that are of the process we are detaching.  */
-      if (thread->id.pid () != pid)
-	continue;
-
       /* Only threads that have a pending fork event.  */
-      thread_info *child = target_thread_pending_child (thread);
-      if (child == nullptr)
+      target_waitkind kind;
+      thread_info *child = target_thread_pending_child (&thread, &kind);
+      if (child == nullptr || kind == TARGET_WAITKIND_THREAD_CLONED)
 	continue;
 
-      process_info *fork_child_process = get_thread_process (child);
-      gdb_assert (fork_child_process != nullptr);
-
+      process_info *fork_child_process = child->process ();
       int fork_child_pid = fork_child_process->pid;
 
       if (detach_inferior (fork_child_process) != 0)
 	warning (_("Failed to detach fork child %s, child of %s"),
 		 target_pid_to_str (ptid_t (fork_child_pid)).c_str (),
-		 target_pid_to_str (thread->id).c_str ());
+		 target_pid_to_str (thread.id).c_str ());
     }
 
   if (detach_inferior (process) != 0)
@@ -1298,7 +1425,7 @@ parse_debug_format_options (const char *arg, int is_monitor)
   debug_timestamp = 0;
 
   /* First remove leading spaces, for "monitor set debug-format".  */
-  while (isspace (*arg))
+  while (c_isspace (*arg))
     ++arg;
 
   std::vector<gdb::unique_xmalloc_ptr<char>> options
@@ -1306,19 +1433,19 @@ parse_debug_format_options (const char *arg, int is_monitor)
 
   for (const gdb::unique_xmalloc_ptr<char> &option : options)
     {
-      if (strcmp (option.get (), "all") == 0)
+      if (streq (option.get (), "all"))
 	{
 	  debug_timestamp = 1;
 	  if (is_monitor)
 	    monitor_output ("All extra debug format options enabled.\n");
 	}
-      else if (strcmp (option.get (), "none") == 0)
+      else if (streq (option.get (), "none"))
 	{
 	  debug_timestamp = 0;
 	  if (is_monitor)
 	    monitor_output ("All extra debug format options disabled.\n");
 	}
-      else if (strcmp (option.get (), "timestamp") == 0)
+      else if (streq (option.get (), "timestamp"))
 	{
 	  debug_timestamp = 1;
 	  if (is_monitor)
@@ -1337,50 +1464,278 @@ parse_debug_format_options (const char *arg, int is_monitor)
   return std::string ();
 }
 
+/* A wrapper to enable, or disable a debug flag.  These are debug flags
+   that control the debug output from gdbserver, that developers might
+   want, this is not something most end users will need.  */
+
+struct debug_opt
+{
+  /* NAME is the name of this debug option, this should be a simple string
+     containing no whitespace, starting with a letter from c_isalpha(), and
+     contain only c_isalnum() characters and '_' underscore and '-' hyphen.
+
+     SETTER is a callback function used to set the debug variable.  This
+     callback will be passed true to enable the debug setting, or false to
+     disable the debug setting.  */
+  debug_opt (const char *name, std::function<void (bool)> setter)
+    : m_name (name),
+      m_setter (setter)
+  {
+    gdb_assert (c_isalpha (*name));
+  }
+
+  /* Called to enable or disable the debug setting.  */
+  void set (bool enable) const
+  {
+    m_setter (enable);
+  }
+
+  /* Return the name of this debug option.  */
+  const char *name () const
+  { return m_name; }
+
+private:
+  /* The name of this debug option.  */
+  const char *m_name;
+
+  /* The callback to update the debug setting.  */
+  std::function<void (bool)> m_setter;
+};
+
+/* The set of all debug options that gdbserver supports.  These are the
+   options that can be passed to the command line '--debug=...' flag, or to
+   the monitor command 'monitor set debug ...'.  */
+
+static std::vector<debug_opt> all_debug_opt {
+  {"threads", [] (bool enable)
+  {
+    debug_threads = enable;
+  }},
+  {"remote", [] (bool enable)
+  {
+    remote_debug = enable;
+  }},
+  {"event-loop", [] (bool enable)
+  {
+    debug_event_loop = (enable ? debug_event_loop_kind::ALL
+			: debug_event_loop_kind::OFF);
+  }}
+};
+
+/* Parse the options to --debug=...
+
+   OPTIONS is the string of debug components which should be enabled (or
+   disabled), and must not be nullptr.  An empty OPTIONS string is valid,
+   in which case a default set of debug components will be enabled.
+
+   An unknown, or otherwise invalid debug component will result in an
+   exception being thrown.
+
+   OPTIONS can consist of multiple debug component names separated by a
+   comma.  Debugging for each component will be turned on.  The special
+   component 'all' can be used to enable debugging for all components.
+
+   A component can also be prefixed with '-' to disable debugging of that
+   component, so a user might use: '--debug=all,-remote', to enable all
+   debugging, except for the remote (protocol) component.  Components are
+   processed left to write in the OPTIONS list.  */
+
+static void
+parse_debug_options (const char *options)
+{
+  gdb_assert (options != nullptr);
+
+  /* Empty options means the "default" set.  This exists mostly for
+     backwards compatibility with gdbserver's legacy behavior.  */
+  if (*options == '\0')
+    options = "+threads";
+
+  while (*options != '\0')
+    {
+      const char *end = strchrnul (options, ',');
+
+      bool enable = *options != '-';
+      if (*options == '-' || *options == '+')
+	++options;
+
+      std::string opt (options, end - options);
+
+      if (opt.size () == 0)
+	error (_("invalid empty debug option"));
+
+      bool is_opt_all = opt == "all";
+
+      bool found = false;
+      for (const auto &debug_opt : all_debug_opt)
+	if (is_opt_all || opt == debug_opt.name ())
+	  {
+	    debug_opt.set (enable);
+	    found = true;
+	    if (!is_opt_all)
+	      break;
+	  }
+
+      if (!found)
+	error (_("unknown debug option '%s'"), opt.c_str ());
+
+      options = (*end == ',') ? end + 1 : end;
+    }
+}
+
+/* Called from the 'monitor' command handler, to handle general 'set debug'
+   monitor commands with one of the formats:
+
+     set debug COMPONENT VALUE
+     set debug VALUE
+
+   In both of these command formats VALUE can be 'on', 'off', '1', or '0'
+   with 1/0 being equivalent to on/off respectively.
+
+   In the no-COMPONENT version of the command, if VALUE is 'on' (or '1')
+   then the component 'threads' is assumed, this is for backward
+   compatibility, but maybe in the future we might find a better "default"
+   set of debug flags to enable.
+
+   In the no-COMPONENT version of the command, if VALUE is 'off' (or '0')
+   then all debugging is turned off.
+
+   Otherwise, COMPONENT must be one of the known debug components, and that
+   component is either enabled or disabled as appropriate.
+
+   The string MON contains either 'COMPONENT VALUE' or just the 'VALUE' for
+   the second command format, the 'set debug ' has been stripped off
+   already.
+
+   Return a string containing an error message if something goes wrong,
+   this error can be returned as part of the monitor command output.  If
+   everything goes correctly then the debug global will have been updated,
+   and an empty string is returned.  */
+
+static std::string
+handle_general_monitor_debug (const char *mon)
+{
+  mon = skip_spaces (mon);
+
+  if (*mon == '\0')
+    return "No debug component name found.\n";
+
+  /* Find the first word within MON.  This is either the component name,
+     or the value if no component has been given.  */
+  const char *end = skip_to_space (mon);
+  std::string component (mon, end - mon);
+  if (component.find (',') != component.npos || component[0] == '-'
+      || component[0] == '+')
+    return "Invalid character found in debug component name.\n";
+
+  /* In ACTION_STR we create a string that will be passed to the
+     parse_debug_options string.  This will be either '+COMPONENT' or
+     '-COMPONENT' depending on whether we want to enable or disable
+     COMPONENT.  */
+  std::string action_str;
+
+  /* If parse_debug_options succeeds, then MSG will be returned to the user
+     as the output of the monitor command.  */
+  std::string msg;
+
+  /* Check for 'set debug off', this disables all debug output.  */
+  if (component == "0" || component == "off")
+    {
+      if (*skip_spaces (end) != '\0')
+	return string_printf
+	  ("Junk '%s' found at end of 'set debug %s' command.\n",
+	   skip_spaces (end), std::string (mon, end - mon).c_str ());
+
+      action_str = "-all";
+      msg = "All debug output disabled.\n";
+    }
+  /* Check for 'set debug on', this disables a general set of debug.  */
+  else if (component == "1" || component == "on")
+    {
+      if (*skip_spaces (end) != '\0')
+	return string_printf
+	  ("Junk '%s' found at end of 'set debug %s' command.\n",
+	   skip_spaces (end), std::string (mon, end - mon).c_str ());
+
+      action_str = "+threads";
+      msg = "General debug output enabled.\n";
+    }
+  /* Otherwise we should have 'set debug COMPONENT VALUE'.  Extract the two
+     parts and validate.  */
+  else
+    {
+      /* Figure out the value the user passed.  */
+      const char *value_start = skip_spaces (end);
+      if (*value_start == '\0')
+	return string_printf ("Missing value for 'set debug %s' command.\n",
+			      mon);
+
+      const char *after_value = skip_to_space (value_start);
+      if (*skip_spaces (after_value) != '\0')
+	return string_printf
+	  ("Junk '%s' found at end of 'set debug %s' command.\n",
+	   skip_spaces (after_value),
+	   std::string (mon, after_value - mon).c_str ());
+
+      std::string value (value_start, after_value - value_start);
+
+      /* Check VALUE to see if we are enabling, or disabling.  */
+      bool enable;
+      if (value == "0" || value == "off")
+	enable = false;
+      else if (value == "1" || value == "on")
+	enable = true;
+      else
+	return string_printf ("Invalid value '%s' for 'set debug %s'.\n",
+			      value.c_str (),
+			      std::string (mon, end - mon).c_str ());
+
+      action_str = std::string (enable ? "+" : "-") + component;
+      msg = string_printf ("Debug output for '%s' %s.\n", component.c_str (),
+			   enable ? "enabled" : "disabled");
+    }
+
+  gdb_assert (!msg.empty ());
+  gdb_assert (!action_str.empty ());
+
+  try
+    {
+      parse_debug_options (action_str.c_str ());
+      monitor_output (msg.c_str ());
+    }
+  catch (const gdb_exception_error &exception)
+    {
+      return string_printf ("Error: %s\n", exception.what ());
+    }
+
+  return {};
+}
+
 /* Handle monitor commands not handled by target-specific handlers.  */
 
 static void
-handle_monitor_command (char *mon, char *own_buf)
+handle_monitor_command (const char *mon, char *own_buf)
 {
-  if (strcmp (mon, "set debug 1") == 0)
+  if (startswith (mon, "set debug "))
     {
-      debug_threads = true;
-      monitor_output ("Debug output enabled.\n");
+      std::string error_msg
+	= handle_general_monitor_debug (mon + sizeof ("set debug ") - 1);
+
+      if (!error_msg.empty ())
+	{
+	  monitor_output (error_msg.c_str ());
+	  monitor_show_help ();
+	  write_enn (own_buf);
+	}
     }
-  else if (strcmp (mon, "set debug 0") == 0)
-    {
-      debug_threads = false;
-      monitor_output ("Debug output disabled.\n");
-    }
-  else if (strcmp (mon, "set debug-hw-points 1") == 0)
+  else if (streq (mon, "set debug-hw-points 1"))
     {
       show_debug_regs = 1;
       monitor_output ("H/W point debugging output enabled.\n");
     }
-  else if (strcmp (mon, "set debug-hw-points 0") == 0)
+  else if (streq (mon, "set debug-hw-points 0"))
     {
       show_debug_regs = 0;
       monitor_output ("H/W point debugging output disabled.\n");
-    }
-  else if (strcmp (mon, "set remote-debug 1") == 0)
-    {
-      remote_debug = true;
-      monitor_output ("Protocol debug output enabled.\n");
-    }
-  else if (strcmp (mon, "set remote-debug 0") == 0)
-    {
-      remote_debug = false;
-      monitor_output ("Protocol debug output disabled.\n");
-    }
-  else if (strcmp (mon, "set event-loop-debug 1") == 0)
-    {
-      debug_event_loop = debug_event_loop_kind::ALL;
-      monitor_output ("Event loop debug output enabled.\n");
-    }
-  else if (strcmp (mon, "set event-loop-debug 0") == 0)
-    {
-      debug_event_loop = debug_event_loop_kind::OFF;
-      monitor_output ("Event loop debug output disabled.\n");
     }
   else if (startswith (mon, "set debug-format "))
     {
@@ -1395,13 +1750,13 @@ handle_monitor_command (char *mon, char *own_buf)
 	  write_enn (own_buf);
 	}
     }
-  else if (strcmp (mon, "set debug-file") == 0)
+  else if (streq (mon, "set debug-file"))
     debug_set_output (nullptr);
   else if (startswith (mon, "set debug-file "))
     debug_set_output (mon + sizeof ("set debug-file ") - 1);
-  else if (strcmp (mon, "help") == 0)
+  else if (streq (mon, "help"))
     monitor_show_help ();
-  else if (strcmp (mon, "exit") == 0)
+  else if (streq (mon, "exit"))
     exit_requested = true;
   else
     {
@@ -1423,7 +1778,7 @@ struct qxfer
      the starting point.  The ANNEX can be used to provide additional
      data-specific information to the target.
 
-     Return the number of bytes actually transfered, zero when no
+     Return the number of bytes actually transferred, zero when no
      further transfer is possible, -1 on error, -2 when the transfer
      is not supported, and -3 on a verbose error message that should
      be preserved.  Return of a positive value smaller than LEN does
@@ -1470,7 +1825,7 @@ handle_qxfer_exec_file (const char *annex,
       if (current_thread == NULL)
 	return -1;
 
-      pid = pid_of (current_thread);
+      pid = current_thread->id.pid ();
     }
   else
     {
@@ -1612,47 +1967,26 @@ handle_qxfer_siginfo (const char *annex,
   return the_target->qxfer_siginfo (annex, readbuf, writebuf, offset, len);
 }
 
-/* Handle qXfer:statictrace:read.  */
-
-static int
-handle_qxfer_statictrace (const char *annex,
-			  gdb_byte *readbuf, const gdb_byte *writebuf,
-			  ULONGEST offset, LONGEST len)
-{
-  client_state &cs = get_client_state ();
-  ULONGEST nbytes;
-
-  if (writebuf != NULL)
-    return -2;
-
-  if (annex[0] != '\0' || current_thread == NULL 
-      || cs.current_traceframe == -1)
-    return -1;
-
-  if (traceframe_read_sdata (cs.current_traceframe, offset,
-			     readbuf, len, &nbytes))
-    return -1;
-  return nbytes;
-}
-
 /* Helper for handle_qxfer_threads_proper.
    Emit the XML to describe the thread of INF.  */
 
 static void
 handle_qxfer_threads_worker (thread_info *thread, std::string *buffer)
 {
-  ptid_t ptid = ptid_of (thread);
+  ptid_t ptid = thread->id;
   char ptid_s[100];
   int core = target_core_of_thread (ptid);
   char core_s[21];
   const char *name = target_thread_name (ptid);
+  std::string id_str = target_thread_id_str (thread);
   int handle_len;
   gdb_byte *handle;
   bool handle_status = target_thread_handle (ptid, &handle, &handle_len);
 
-  /* If this is a fork or vfork child (has a fork parent), GDB does not yet
-     know about this process, and must not know about it until it gets the
-     corresponding (v)fork event.  Exclude this thread from the list.  */
+  /* If this is a (v)fork/clone child (has a (v)fork/clone parent),
+     GDB does not yet know about this thread, and must not know about
+     it until it gets the corresponding (v)fork/clone event.  Exclude
+     this thread from the list.  */
   if (target_thread_pending_parent (thread) != nullptr)
     return;
 
@@ -1668,6 +2002,9 @@ handle_qxfer_threads_worker (thread_info *thread, std::string *buffer)
 
   if (name != NULL)
     string_xml_appendf (*buffer, " name=\"%s\"", name);
+
+  if (!id_str.empty ())
+    string_xml_appendf (*buffer, " id_str=\"%s\"", id_str.c_str ());
 
   if (handle_status)
     {
@@ -1815,7 +2152,7 @@ handle_qxfer_btrace (const char *annex,
 {
   client_state &cs = get_client_state ();
   static std::string cache;
-  struct thread_info *thread;
+  thread_info *thread;
   enum btrace_read_type type;
   int result;
 
@@ -1842,11 +2179,11 @@ handle_qxfer_btrace (const char *annex,
       return -3;
     }
 
-  if (strcmp (annex, "all") == 0)
+  if (streq (annex, "all"))
     type = BTRACE_READ_ALL;
-  else if (strcmp (annex, "new") == 0)
+  else if (streq (annex, "new"))
     type = BTRACE_READ_NEW;
-  else if (strcmp (annex, "delta") == 0)
+  else if (streq (annex, "delta"))
     type = BTRACE_READ_DELTA;
   else
     {
@@ -1896,7 +2233,7 @@ handle_qxfer_btrace_conf (const char *annex,
 {
   client_state &cs = get_client_state ();
   static std::string cache;
-  struct thread_info *thread;
+  thread_info *thread;
   int result;
 
   if (writebuf != NULL)
@@ -1970,7 +2307,6 @@ static const struct qxfer qxfer_packets[] =
     { "libraries-svr4", handle_qxfer_libraries_svr4 },
     { "osdata", handle_qxfer_osdata },
     { "siginfo", handle_qxfer_siginfo },
-    { "statictrace", handle_qxfer_statictrace },
     { "threads", handle_qxfer_threads },
     { "traceframe-info", handle_qxfer_traceframe_info },
   };
@@ -2000,9 +2336,9 @@ handle_qxfer (char *own_buf, int packet_len, int *new_packet_len_p)
     {
       const struct qxfer *q = &qxfer_packets[i];
 
-      if (strcmp (object, q->object) == 0)
+      if (streq (object, q->object))
 	{
-	  if (strcmp (rw, "read") == 0)
+	  if (streq (rw, "read"))
 	    {
 	      unsigned char *data;
 	      int n;
@@ -2046,7 +2382,7 @@ handle_qxfer (char *own_buf, int packet_len, int *new_packet_len_p)
 	      free (data);
 	      return 1;
 	    }
-	  else if (strcmp (rw, "write") == 0)
+	  else if (streq (rw, "write"))
 	    {
 	      int n;
 	      unsigned int len;
@@ -2146,6 +2482,8 @@ supported_btrace_packets (char *buf)
   strcat (buf, ";Qbtrace-conf:bts:size+");
   strcat (buf, ";Qbtrace:pt+");
   strcat (buf, ";Qbtrace-conf:pt:size+");
+  strcat (buf, ";Qbtrace-conf:pt:ptwrite+");
+  strcat (buf, ";Qbtrace-conf:pt:event-tracing+");
   strcat (buf, ";Qbtrace:off+");
   strcat (buf, ";qXfer:btrace:read+");
   strcat (buf, ";qXfer:btrace-conf:read+");
@@ -2157,10 +2495,50 @@ static void
 handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 {
   client_state &cs = get_client_state ();
-  static std::list<thread_info *>::const_iterator thread_iter;
+  static owning_intrusive_list<process_info>::iterator process_iter;
+  static owning_intrusive_list<thread_info>::iterator thread_iter;
+
+  auto init_thread_iter = [&] ()
+    {
+      process_iter = all_processes.begin ();
+      owning_intrusive_list<thread_info> *thread_list;
+
+      for (; process_iter != all_processes.end (); ++process_iter)
+	{
+	  thread_list = &process_iter->thread_list ();
+	  thread_iter = thread_list->begin ();
+	  if (thread_iter != thread_list->end ())
+	    break;
+	}
+      /* Make sure that there is at least one thread to iterate.  */
+      gdb_assert (process_iter != all_processes.end ());
+      gdb_assert (thread_iter != thread_list->end ());
+    };
+
+  auto advance_thread_iter = [&] ()
+    {
+      /* The loop below is written in the natural way as-if we'd always
+	 start at the beginning of the inferior list.  This fast forwards
+	 the algorithm to the actual current position.  */
+      owning_intrusive_list<thread_info> *thread_list
+	= &process_iter->thread_list ();
+      goto start;
+
+      for (; process_iter != all_processes.end (); ++process_iter)
+	{
+	  thread_list = &process_iter->thread_list ();
+	  thread_iter = thread_list->begin ();
+	  while (thread_iter != thread_list->end ())
+	    {
+	      return;
+	    start:
+	      ++thread_iter;
+	    }
+	}
+    };
 
   /* Reply the current thread id.  */
-  if (strcmp ("qC", own_buf) == 0 && !disable_packet_qC)
+  if (streq ("qC", own_buf) && !disable_packet_qC)
     {
       ptid_t ptid;
       require_running_or_return (own_buf);
@@ -2169,8 +2547,8 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	ptid = cs.general_thread;
       else
 	{
-	  thread_iter = all_threads.begin ();
-	  ptid = (*thread_iter)->id;
+	  init_thread_iter ();
+	  ptid = thread_iter->id;
 	}
 
       sprintf (own_buf, "QC");
@@ -2179,7 +2557,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
-  if (strcmp ("qSymbol::", own_buf) == 0)
+  if (streq ("qSymbol::", own_buf))
     {
       scoped_restore_current_thread restore_thread;
 
@@ -2227,27 +2605,29 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
   if (!disable_packet_qfThreadInfo)
     {
-      if (strcmp ("qfThreadInfo", own_buf) == 0)
+      if (streq ("qfThreadInfo", own_buf))
 	{
 	  require_running_or_return (own_buf);
-	  thread_iter = all_threads.begin ();
+	  init_thread_iter ();
 
 	  *own_buf++ = 'm';
-	  ptid_t ptid = (*thread_iter)->id;
+	  ptid_t ptid = thread_iter->id;
 	  write_ptid (own_buf, ptid);
-	  thread_iter++;
+	  advance_thread_iter ();
 	  return;
 	}
 
-      if (strcmp ("qsThreadInfo", own_buf) == 0)
+      if (streq ("qsThreadInfo", own_buf))
 	{
 	  require_running_or_return (own_buf);
-	  if (thread_iter != all_threads.end ())
+	  /* We're done if the process iterator hits the end of the
+	     process list.  */
+	  if (process_iter != all_processes.end ())
 	    {
 	      *own_buf++ = 'm';
-	      ptid_t ptid = (*thread_iter)->id;
+	      ptid_t ptid = thread_iter->id;
 	      write_ptid (own_buf, ptid);
-	      thread_iter++;
+	      advance_thread_iter ();
 	      return;
 	    }
 	  else
@@ -2258,8 +2638,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	}
     }
 
-  if (the_target->supports_read_offsets ()
-      && strcmp ("qOffsets", own_buf) == 0)
+  if (the_target->supports_read_offsets () && streq ("qOffsets", own_buf))
     {
       CORE_ADDR text, data;
 
@@ -2347,6 +2726,8 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 		cs.vCont_supported = 1;
 	      else if (feature == "QThreadEvents+")
 		;
+	      else if (feature == "QThreadOptions+")
+		;
 	      else if (feature == "no-resumed+")
 		{
 		  /* GDB supports and wants TARGET_WAITKIND_NO_RESUMED
@@ -2359,6 +2740,12 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 		  if (target_supports_memory_tagging ())
 		    cs.memory_tagging_feature = true;
 		}
+	      else if (feature == "error-message+")
+		cs.error_message_supported = true;
+	      else if (feature == "single-inf-arg+")
+		cs.single_inferior_argument = true;
+	      else if (feature == "multi-wp-addr+")
+		cs.multiple_wp_addr_feature = true;
 	      else
 		{
 		  /* Move the unknown features all together.  */
@@ -2375,7 +2762,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	       "PacketSize=%x;QPassSignals+;QProgramSignals+;"
 	       "QStartupWithShell+;QEnvironmentHexEncoded+;"
 	       "QEnvironmentReset+;QEnvironmentUnset+;"
-	       "QSetWorkingDir+",
+	       "QSetWorkingDir+;binary-upload+",
 	       PBUFSIZ - 1);
 
       if (target_supports_catch_syscall ())
@@ -2440,9 +2827,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	  strcat (own_buf, ";DisconnectedTracing+");
 	  if (gdb_supports_qRelocInsn && target_supports_fast_tracepoints ())
 	    strcat (own_buf, ";FastTracepoints+");
-	  strcat (own_buf, ";StaticTracepoints+");
 	  strcat (own_buf, ";InstallInTrace+");
-	  strcat (own_buf, ";qXfer:statictrace:read+");
 	  strcat (own_buf, ";qXfer:traceframe-info:read+");
 	  strcat (own_buf, ";EnableDisableTracepoints+");
 	  strcat (own_buf, ";QTBuffer:size+");
@@ -2473,12 +2858,23 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
       strcat (own_buf, ";vContSupported+");
 
+      gdb_thread_options supported_options = target_supported_thread_options ();
+      if (supported_options != 0)
+	{
+	  char *end_buf = own_buf + strlen (own_buf);
+	  sprintf (end_buf, ";QThreadOptions=%s",
+		   phex_nz (supported_options));
+	}
+
       strcat (own_buf, ";QThreadEvents+");
 
       strcat (own_buf, ";no-resumed+");
 
       if (target_supports_memory_tagging ())
 	strcat (own_buf, ";memory-tagging+");
+
+      if (cs.single_inferior_argument)
+	strcat (own_buf, ";single-inf-arg+");
 
       /* Reinitialize components as needed for the new connection.  */
       hostio_handle_new_gdb_connection ();
@@ -2529,7 +2925,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	err = 1;
       else
 	{
-	  struct thread_info *thread = find_thread_ptid (ptid);
+	  thread_info *thread = find_thread_ptid (ptid);
 
 	  if (thread == NULL)
 	    err = 2;
@@ -2613,8 +3009,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
-  if (strcmp (own_buf, "qAttached") == 0
-      || startswith (own_buf, "qAttached:"))
+  if (streq (own_buf, "qAttached") || startswith (own_buf, "qAttached:"))
     {
       struct process_info *process;
 
@@ -2697,6 +3092,34 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
+  if (streq ("qExecAndArgs", own_buf))
+    {
+      if (program_path.get () == nullptr)
+	sprintf (own_buf, "U");
+      else
+	{
+	  std::string packet ("S;");
+
+	  packet += bin2hex ((const gdb_byte *) program_path.get (),
+			     strlen (program_path.get ()));
+	  packet += ";";
+
+	  packet += bin2hex ((const gdb_byte *) program_args.c_str (),
+			     program_args.length ());
+	  packet += ";";
+
+	  if (packet.size () > PBUFSIZ)
+	    {
+	      sprintf (own_buf, "E.Program name and arguments too long.");
+	      return;
+	    }
+
+	  strcpy (own_buf, packet.c_str ());
+	  *new_packet_len_p = packet.size ();
+	}
+      return;
+    }
+
   /* Otherwise we didn't know what packet it was.  Say we didn't
      understand it.  */
   own_buf[0] = 0;
@@ -2707,7 +3130,7 @@ static void resume (struct thread_resume *actions, size_t n);
 
 /* The callback that is passed to visit_actioned_threads.  */
 typedef int (visit_actioned_threads_callback_ftype)
-  (const struct thread_resume *, struct thread_info *);
+  (const struct thread_resume *, thread_info *);
 
 /* Call CALLBACK for any thread to which ACTIONS applies to.  Returns
    true if CALLBACK returns true.  Returns false if no matching thread
@@ -2743,7 +3166,7 @@ visit_actioned_threads (thread_info *thread,
 
 static int
 handle_pending_status (const struct thread_resume *resumption,
-		       struct thread_info *thread)
+		       thread_info *thread)
 {
   client_state &cs = get_client_state ();
   if (thread->status_pending_p)
@@ -2912,6 +3335,7 @@ resume (struct thread_resume *actions, size_t num_actions)
 
       if (cs.last_status.kind () != TARGET_WAITKIND_EXITED
 	  && cs.last_status.kind () != TARGET_WAITKIND_SIGNALLED
+	  && cs.last_status.kind () != TARGET_WAITKIND_THREAD_EXITED
 	  && cs.last_status.kind () != TARGET_WAITKIND_NO_RESUMED)
 	current_thread->last_status = cs.last_status;
 
@@ -2934,29 +3358,79 @@ static void
 handle_v_attach (char *own_buf)
 {
   client_state &cs = get_client_state ();
-  int pid;
 
-  pid = strtol (own_buf + 8, NULL, 16);
-  if (pid != 0 && attach_inferior (pid) == 0)
+  int pid = strtol (own_buf + 8, NULL, 16);
+
+  try
     {
-      /* Don't report shared library events after attaching, even if
-	 some libraries are preloaded.  GDB will always poll the
-	 library list.  Avoids the "stopped by shared library event"
-	 notice on the GDB side.  */
-      current_process ()->dlls_changed = false;
-
-      if (non_stop)
+      if (attach_inferior (pid) == 0)
 	{
-	  /* In non-stop, we don't send a resume reply.  Stop events
-	     will follow up using the normal notification
-	     mechanism.  */
-	  write_ok (own_buf);
+	  /* Don't report shared library events after attaching, even if
+	     some libraries are preloaded.  GDB will always poll the
+	     library list.  Avoids the "stopped by shared library event"
+	     notice on the GDB side.  */
+	  current_process ()->dlls_changed = false;
+
+	  if (non_stop)
+	    {
+	      /* In non-stop, we don't send a resume reply.  Stop events
+		 will follow up using the normal notification
+		 mechanism.  */
+	      write_ok (own_buf);
+	    }
+	  else
+	    prepare_resume_reply (own_buf, cs.last_ptid, cs.last_status);
 	}
       else
-	prepare_resume_reply (own_buf, cs.last_ptid, cs.last_status);
+	{
+	  /* Not supported.  */
+	  own_buf[0] = 0;
+	}
     }
-  else
-    write_enn (own_buf);
+  catch (const gdb_exception_error &exception)
+    {
+      sprintf (own_buf, "E.%s", exception.what ());
+    }
+}
+
+/* Decode an argument from the vRun packet buffer.  PTR points to the
+   first hex-encoded character in the buffer, and LEN is the number of
+   characters to read from the packet buffer.
+
+   If the argument decoding is successful, return a buffer containing the
+   decoded argument, including a null terminator at the end.
+
+   If the argument decoding fails for any reason, return nullptr.  */
+
+static gdb::unique_xmalloc_ptr<char>
+decode_v_run_arg (const char *ptr, size_t len)
+{
+  /* Two hex characters are required for each decoded byte.  */
+  if (len % 2 != 0)
+    return nullptr;
+
+  /* The length in bytes needed for the decoded argument.  */
+  len /= 2;
+
+  /* Buffer to decode the argument into.  The '+ 1' is for the null
+     terminator we will add.  */
+  char *arg = (char *) xmalloc (len + 1);
+
+  /* Decode the argument from the packet and add a null terminator.  We do
+     this within a try block as invalid characters within the PTR buffer
+     will cause hex2bin to throw an exception.  Our caller relies on us
+     returning nullptr in order to clean up some memory allocations.  */
+  try
+    {
+      hex2bin (ptr, (gdb_byte *) arg, len);
+      arg[len] = '\0';
+    }
+  catch (const gdb_exception_error &exception)
+    {
+      return nullptr;
+    }
+
+  return gdb::unique_xmalloc_ptr<char> (arg);
 }
 
 /* Run a new program.  */
@@ -2965,11 +3439,13 @@ handle_v_run (char *own_buf)
 {
   client_state &cs = get_client_state ();
   char *p, *next_p;
-  std::vector<char *> new_argv;
-  char *new_program_name = NULL;
+  std::vector<gdb::unique_xmalloc_ptr<char>> new_argv;
+  gdb::unique_xmalloc_ptr<char> new_program_name;
   int i;
 
-  for (i = 0, p = own_buf + strlen ("vRun;"); *p; p = next_p, ++i)
+  for (i = 0, p = own_buf + strlen ("vRun;");
+       /* Exit condition is at the end of the loop.  */;
+       p = next_p + 1, ++i)
     {
       next_p = strchr (p, ';');
       if (next_p == NULL)
@@ -2978,89 +3454,71 @@ handle_v_run (char *own_buf)
       if (i == 0 && p == next_p)
 	{
 	  /* No program specified.  */
-	  new_program_name = NULL;
+	  gdb_assert (new_program_name == nullptr);
 	}
       else if (p == next_p)
 	{
 	  /* Empty argument.  */
-	  new_argv.push_back (xstrdup (""));
+	  new_argv.push_back (make_unique_xstrdup (""));
 	}
       else
 	{
-	  size_t len = (next_p - p) / 2;
-	  /* ARG is the unquoted argument received via the RSP.  */
-	  char *arg = (char *) xmalloc (len + 1);
-	  /* FULL_ARGS will contain the quoted version of ARG.  */
-	  char *full_arg = (char *) xmalloc ((len + 1) * 2);
-	  /* These are pointers used to navigate the strings above.  */
-	  char *tmp_arg = arg;
-	  char *tmp_full_arg = full_arg;
-	  int need_quote = 0;
+	  /* The length of the argument string in the packet.  */
+	  size_t len = next_p - p;
 
-	  hex2bin (p, (gdb_byte *) arg, len);
-	  arg[len] = '\0';
-
-	  while (*tmp_arg != '\0')
+	  gdb::unique_xmalloc_ptr<char> arg = decode_v_run_arg (p, len);
+	  if (arg == nullptr)
 	    {
-	      switch (*tmp_arg)
-		{
-		case '\n':
-		  /* Quote \n.  */
-		  *tmp_full_arg = '\'';
-		  ++tmp_full_arg;
-		  need_quote = 1;
-		  break;
-
-		case '\'':
-		  /* Quote single quote.  */
-		  *tmp_full_arg = '\\';
-		  ++tmp_full_arg;
-		  break;
-
-		default:
-		  break;
-		}
-
-	      *tmp_full_arg = *tmp_arg;
-	      ++tmp_full_arg;
-	      ++tmp_arg;
+	      write_enn (own_buf);
+	      return;
 	    }
 
-	  if (need_quote)
-	    *tmp_full_arg++ = '\'';
-
-	  /* Finish FULL_ARG and push it into the vector containing
-	     the argv.  */
-	  *tmp_full_arg = '\0';
 	  if (i == 0)
-	    new_program_name = full_arg;
+	    new_program_name = std::move (arg);
 	  else
-	    new_argv.push_back (full_arg);
-	  xfree (arg);
+	    new_argv.push_back (std::move (arg));
 	}
-      if (*next_p)
-	next_p++;
+      if (*next_p == '\0')
+	break;
     }
 
-  if (new_program_name == NULL)
+  if (new_program_name == nullptr)
     {
       /* GDB didn't specify a program to run.  Use the program from the
 	 last run with the new argument list.  */
-      if (program_path.get () == NULL)
+      if (program_path.get () == nullptr)
 	{
 	  write_enn (own_buf);
-	  free_vector_argv (new_argv);
 	  return;
 	}
     }
   else
-    program_path.set (new_program_name);
+    program_path.set (new_program_name.get ());
 
-  /* Free the old argv and install the new one.  */
-  free_vector_argv (program_args);
-  program_args = new_argv;
+  if (cs.single_inferior_argument)
+    {
+      if (new_argv.size () > 1)
+	{
+	  write_enn (own_buf);
+	  return;
+	}
+      else if (new_argv.size () == 1)
+	program_args = std::string (new_argv[0].get ());
+      else
+	program_args.clear ();
+    }
+  else
+    program_args = gdb::remote_args::join (new_argv);
 
-  target_create_inferior (program_path.get (), program_args);
+  try
+    {
+      target_create_inferior (program_path.get (), program_args);
+    }
+  catch (const gdb_exception_error &exception)
+    {
+      sprintf (own_buf, "E.%s", exception.what ());
+      return;
+    }
 
   if (cs.last_status.kind () == TARGET_WAITKIND_STOPPED)
     {
@@ -3108,7 +3566,7 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
   client_state &cs = get_client_state ();
   if (!disable_packet_vCont)
     {
-      if (strcmp (own_buf, "vCtrlC") == 0)
+      if (streq (own_buf, "vCtrlC"))
 	{
 	  the_target->request_interrupt ();
 	  write_ok (own_buf);
@@ -3125,9 +3583,10 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 	{
 	  strcpy (own_buf, "vCont;c;C;t");
 
-	  if (target_supports_hardware_single_step ()
-	      || target_supports_software_single_step ()
-	      || !cs.vCont_supported)
+	  if (!disable_packet_vCont_step
+	      && (target_supports_hardware_single_step ()
+		  || target_supports_software_single_step ()
+		  || !cs.vCont_supported))
 	    {
 	      /* If target supports single step either by hardware or by
 		 software, add actions s and S to the list of supported
@@ -3212,7 +3671,7 @@ myresume (char *own_buf, int step, int sig)
 
   if (step || sig || valid_cont_thread)
     {
-      resume_info[0].thread = current_ptid;
+      resume_info[0].thread = current_thread->id;
       if (step)
 	resume_info[0].kind = resume_step;
       else
@@ -3331,7 +3790,7 @@ handle_status (char *own_buf)
     {
       for_each_thread (queue_stop_reply_callback);
 
-      /* The first is sent immediatly.  OK is sent if there is no
+      /* The first is sent immediately.  OK is sent if there is no
 	 stopped thread, which is the same handling of the vStopped
 	 packet (by design).  */
       notif_write_event (&notif_stop, cs.own_buf);
@@ -3374,7 +3833,7 @@ handle_status (char *own_buf)
 
       if (thread != NULL)
 	{
-	  struct thread_info *tp = (struct thread_info *) thread;
+	  thread_info *tp = (thread_info *) thread;
 
 	  /* We're reporting this event, so it's no longer
 	     pending.  */
@@ -3397,7 +3856,7 @@ static void
 gdbserver_version (void)
 {
   printf ("GNU gdbserver %s%s\n"
-	  "Copyright (C) 2023 Free Software Foundation, Inc.\n"
+	  "Copyright (C) 2026 Free Software Foundation, Inc.\n"
 	  "gdbserver is free software, covered by the "
 	  "GNU General Public License.\n"
 	  "This gdbserver was configured as \"%s\"\n",
@@ -3437,26 +3896,40 @@ gdbserver_usage (FILE *stream)
 	   "  --startup-with-shell\n"
 	   "                        Start PROG using a shell.  I.e., execs a shell that\n"
 	   "                        then execs PROG.  (default)\n"
+	   "                        To make use of globbing and variable substitution for\n"
+	   "                        arguments passed directly on gdbserver invocation,\n"
+	   "                        see the --no-escape-args command line option in\n"
+	   "                        addition\n"
 	   "  --no-startup-with-shell\n"
 	   "                        Exec PROG directly instead of using a shell.\n"
-	   "                        Disables argument globbing and variable substitution\n"
-	   "                        on UNIX-like systems.\n"
+	   "  --no-escape-args\n"
+	   "                        If PROG is started using a shell (see the\n"
+	   "                        --[no-]startup-with-shell option),\n"
+	   "                        ARGS passed directly on gdbserver invocation are\n"
+	   "                        escaped, so no globbing or variable substitution\n"
+	   "                        happens for those. This option disables escaping, so\n"
+	   "                        globbing and variable substitution in the shell\n"
+	   "                        are done for ARGS on UNIX-like systems.\n"
 	   "\n"
 	   "Debug options:\n"
 	   "\n"
-	   "  --debug               Enable general debugging output.\n"
+	   "  --debug[=OPT1,OPT2,...]\n"
+	   "                        Enable debugging output.\n"
+	   "                          Options:\n"
+	   "                            all, threads, event-loop, remote\n"
+	   "                          With no options, 'threads' is assumed.\n"
+	   "                          Prefix an option with '-' to disable\n"
+	   "                          debugging of that component.\n"
 	   "  --debug-format=OPT1[,OPT2,...]\n"
 	   "                        Specify extra content in debugging output.\n"
 	   "                          Options:\n"
 	   "                            all\n"
 	   "                            none\n"
 	   "                            timestamp\n"
-	   "  --remote-debug        Enable remote protocol debugging output.\n"
-	   "  --event-loop-debug    Enable event loop debugging output.\n"
 	   "  --disable-packet=OPT1[,OPT2,...]\n"
 	   "                        Disable support for RSP packets or features.\n"
 	   "                          Options:\n"
-	   "                            vCont, T, Tthread, qC, qfThreadInfo and \n"
+	   "                            vCont, vConts, T, Tthread, qC, qfThreadInfo and\n"
 	   "                            threads (disable all threading packets).\n"
 	   "\n"
 	   "For more information, consult the GDB manual (available as on-line \n"
@@ -3624,7 +4097,7 @@ test_memory_tagging_functions (void)
 
   expected = "m0001020304";
   SELF_CHECK (create_fetch_memtags_reply (packet.data (), bv) == true);
-  SELF_CHECK (strcmp (packet.data (), expected.c_str ()) == 0);
+  SELF_CHECK (streq (packet.data (), expected.c_str ()));
 
   /* Test parsing a QMemTags request.  */
 
@@ -3652,29 +4125,54 @@ test_memory_tagging_functions (void)
 	      && tags.size () == 5);
 }
 
-} // namespace selftests
+/* Exercise the behavior of doing a 0-length comparison for a register in a
+   register buffer, which should return true.  */
+
+static void test_registers_raw_compare_zero_length ()
+{
+  /* Start off with a dummy target description.  */
+  target_desc dummy_tdesc;
+
+  /* Make it 8 bytes long.  */
+  dummy_tdesc.registers_size = 8;
+
+  /* Add a couple dummy 32-bit registers.  */
+  dummy_tdesc.reg_defs.emplace_back ("r0", 0, 32);
+  dummy_tdesc.reg_defs.emplace_back ("r1", 32, 32);
+
+  /* Create our dummy register cache so we can invoke the raw_compare method
+     we want to validate.  */
+  regcache dummy_regcache (&dummy_tdesc);
+
+  /* Create a dummy byte buffer we can pass to the raw_compare method.  */
+  gdb_byte dummy_buffer[8];
+
+  /* Validate the 0-length comparison (due to the comparison offset being
+     equal to the length of the register) returns true.  */
+  SELF_CHECK (dummy_regcache.raw_compare (0, dummy_buffer, 4));
+}
+
+} /* namespace selftests */
 #endif /* GDB_SELF_TEST */
 
 /* Main function.  This is called by the real "main" function,
    wrapped in a TRY_CATCH that handles any uncaught exceptions.  */
 
-static void ATTRIBUTE_NORETURN
+[[noreturn]] static void
 captured_main (int argc, char *argv[])
 {
-  int bad_attach;
   int pid;
-  char *arg_end;
-  const char *port = NULL;
-  char **next_arg = &argv[1];
-  volatile int multi_mode = 0;
-  volatile int attach = 0;
-  int was_running;
+  volatile bool multi_mode = false;
+  volatile bool attach = false;
   bool selftest = false;
+  bool escape_args = true;
 #if GDB_SELF_TEST
   std::vector<const char *> selftest_filters;
 
   selftests::register_test ("remote_memory_tagging",
 			    selftests::test_memory_tagging_functions);
+  selftests::register_test ("test_registers_raw_compare_zero_length",
+			    selftests::test_registers_raw_compare_zero_length);
 #endif
 
   current_directory = getcwd (NULL, 0);
@@ -3686,160 +4184,322 @@ captured_main (int argc, char *argv[])
 	     safe_strerror (errno));
     }
 
-  while (*next_arg != NULL && **next_arg == '-')
+  enum opts { OPT_VERSION = 1, OPT_HELP, OPT_ATTACH, OPT_MULTI, OPT_WRAPPER,
+    OPT_DEBUG, OPT_DEBUG_FILE, OPT_DEBUG_FORMAT, OPT_DISABLE_PACKET,
+    OPT_DISABLE_RANDOMIZATION, OPT_NO_DISABLE_RANDOMIZATION,
+    OPT_STARTUP_WITH_SHELL, OPT_NO_STARTUP_WITH_SHELL, OPT_ONCE,
+    OPT_SELFTEST, OPT_NO_ESCAPE
+  };
+
+  static struct option longopts[] =
     {
-      if (strcmp (*next_arg, "--version") == 0)
+      {"version", no_argument, nullptr, OPT_VERSION},
+      {"help", no_argument, nullptr, OPT_HELP},
+      {"attach", no_argument, nullptr, OPT_ATTACH},
+      {"multi", no_argument, nullptr, OPT_MULTI},
+      {"wrapper", no_argument, nullptr, OPT_WRAPPER},
+      {"debug", optional_argument, nullptr, OPT_DEBUG},
+      {"debug-file", required_argument, nullptr, OPT_DEBUG_FILE},
+      {"debug-format", required_argument, nullptr, OPT_DEBUG_FORMAT},
+      /* --disable-packet is optional_argument only so that we can print a
+	 better help list when the argument is missing.  */
+      {"disable-packet", optional_argument, nullptr, OPT_DISABLE_PACKET},
+      {"disable-randomization", no_argument, nullptr,
+       OPT_DISABLE_RANDOMIZATION},
+      {"no-disable-randomization", no_argument, nullptr,
+       OPT_NO_DISABLE_RANDOMIZATION},
+      {"startup-with-shell", no_argument, nullptr, OPT_STARTUP_WITH_SHELL},
+      {"no-startup-with-shell", no_argument, nullptr,
+       OPT_NO_STARTUP_WITH_SHELL},
+      {"once", no_argument, nullptr, OPT_ONCE},
+      {"selftest", optional_argument, nullptr, OPT_SELFTEST},
+      {"no-escape-args", no_argument, nullptr, OPT_NO_ESCAPE},
+      {nullptr, no_argument, nullptr, 0}
+    };
+
+  /* Ask getopt_long not to print error messages, we'll do that ourselves.
+     Look for handling of '?' from getopt_long.  */
+  opterr = 0;
+
+  int optc, longindex;
+
+  /* The '+' passed to getopt_long here stops ARGV being reordered.  In a
+     command line like: 'gdbserver PORT program --arg1 --arg2', the
+     '--arg1' and '--arg2' are arguments to 'program', not to gdbserver.
+     If getopt_long is free to reorder ARGV then it will try to steal those
+     arguments for itself.  */
+  while ((longindex = -1,
+	  optc = getopt_long (argc, argv, "+:", longopts, &longindex)) != -1)
+    {
+      /* As a GNU extension, getopt_long supports '--arg value' form,
+	 without an '=' symbol between the 'arg' and the 'value'.  This
+	 block aids in supporting this form.
+
+	 If we found a matching entry in LONGOPTS, the entry has an
+	 optional argument, and OPTARG is NULL, then this indicates that we
+	 saw the '--arg value' form. Look at the next ARGV entry to see if
+	 it exists, and doesn't look like a port number, or the start of
+	 another argument.  If this is the case, then make the next ARGV
+	 entry the argument value.  Otherwise, continue with no
+	 argument.
+
+	 If we found a matching entry in LONGOPTS, the entry has a required
+	 argument, then OPTARG will not be NULL.  In this case, if the
+	 start of OPTARG is the start of the previous ARGV entry, then this
+	 indicates we saw the '--arg value' form.  If OPTARG looks like a
+	 port number, or the start of another argument, then assume the
+	 user didn't in fact pass a value, but forgot.  Pretend we are
+	 missing the argument value.  */
+      if (longindex != -1
+	  && ((longopts[longindex].has_arg == optional_argument
+	       &&optarg == nullptr)
+	      || (longopts[longindex].has_arg == required_argument
+		  && optarg == argv[optind - 1])))
 	{
+	  if (longopts[longindex].has_arg == optional_argument)
+	    {
+	      /* Claim the next entry from ARGV as the argument value.  */
+	      optarg = argv[optind];
+	      optind++;
+	    }
+	  else
+	    gdb_assert (optarg != nullptr);
+
+	  if (optarg == nullptr
+	      || streq (optarg, "-")
+	      || streq (optarg, STDIO_CONNECTION_NAME)
+	      || startswith (optarg, "--")
+	      || strchr (optarg, ':') != nullptr)
+	    {
+	      /* OPTARG is NULL, looks like a port number, or could be the
+		 start of another argument.  Clear OPTARG as we don't have
+		 an argument, and decrement OPTIND so the next call to
+		 getopt will process this as an argument.  */
+	      optarg = nullptr;
+	      optind--;
+
+	      /* For required arguments, if we don't have an argument, then
+		 this is an error, set OPTC to reflect this.  */
+	      if (longopts[longindex].has_arg == required_argument)
+		optc = ':';
+	    }
+	}
+
+      switch (optc)
+	{
+	case OPT_VERSION:
 	  gdbserver_version ();
 	  exit (0);
-	}
-      else if (strcmp (*next_arg, "--help") == 0)
-	{
+
+	case OPT_HELP:
 	  gdbserver_usage (stdout);
 	  exit (0);
-	}
-      else if (strcmp (*next_arg, "--attach") == 0)
-	attach = 1;
-      else if (strcmp (*next_arg, "--multi") == 0)
-	multi_mode = 1;
-      else if (strcmp (*next_arg, "--wrapper") == 0)
-	{
-	  char **tmp;
 
-	  next_arg++;
-
-	  tmp = next_arg;
-	  while (*next_arg != NULL && strcmp (*next_arg, "--") != 0)
-	    {
-	      wrapper_argv += *next_arg;
-	      wrapper_argv += ' ';
-	      next_arg++;
-	    }
-
-	  if (!wrapper_argv.empty ())
-	    {
-	      /* Erase the last whitespace.  */
-	      wrapper_argv.erase (wrapper_argv.end () - 1);
-	    }
-
-	  if (next_arg == tmp || *next_arg == NULL)
-	    {
-	      gdbserver_usage (stderr);
-	      exit (1);
-	    }
-
-	  /* Consume the "--".  */
-	  *next_arg = NULL;
-	}
-      else if (strcmp (*next_arg, "--debug") == 0)
-	debug_threads = true;
-      else if (startswith (*next_arg, "--debug-format="))
-	{
-	  std::string error_msg
-	    = parse_debug_format_options ((*next_arg)
-					  + sizeof ("--debug-format=") - 1, 0);
-
-	  if (!error_msg.empty ())
-	    {
-	      fprintf (stderr, "%s", error_msg.c_str ());
-	      exit (1);
-	    }
-	}
-      else if (strcmp (*next_arg, "--remote-debug") == 0)
-	remote_debug = true;
-      else if (strcmp (*next_arg, "--event-loop-debug") == 0)
-	debug_event_loop = debug_event_loop_kind::ALL;
-      else if (startswith (*next_arg, "--debug-file="))
-	debug_set_output ((*next_arg) + sizeof ("--debug-file=") -1);
-      else if (strcmp (*next_arg, "--disable-packet") == 0)
-	{
-	  gdbserver_show_disableable (stdout);
-	  exit (0);
-	}
-      else if (startswith (*next_arg, "--disable-packet="))
-	{
-	  char *packets = *next_arg += sizeof ("--disable-packet=") - 1;
-	  char *saveptr;
-	  for (char *tok = strtok_r (packets, ",", &saveptr);
-	       tok != NULL;
-	       tok = strtok_r (NULL, ",", &saveptr))
-	    {
-	      if (strcmp ("vCont", tok) == 0)
-		disable_packet_vCont = true;
-	      else if (strcmp ("Tthread", tok) == 0)
-		disable_packet_Tthread = true;
-	      else if (strcmp ("qC", tok) == 0)
-		disable_packet_qC = true;
-	      else if (strcmp ("qfThreadInfo", tok) == 0)
-		disable_packet_qfThreadInfo = true;
-	      else if (strcmp ("T", tok) == 0)
-		disable_packet_T = true;
-	      else if (strcmp ("threads", tok) == 0)
-		{
-		  disable_packet_vCont = true;
-		  disable_packet_Tthread = true;
-		  disable_packet_qC = true;
-		  disable_packet_qfThreadInfo = true;
-		}
-	      else
-		{
-		  fprintf (stderr, "Don't know how to disable \"%s\".\n\n",
-			   tok);
-		  gdbserver_show_disableable (stderr);
-		  exit (1);
-		}
-	    }
-	}
-      else if (strcmp (*next_arg, "-") == 0)
-	{
-	  /* "-" specifies a stdio connection and is a form of port
-	     specification.  */
-	  port = STDIO_CONNECTION_NAME;
-	  next_arg++;
+	case OPT_ATTACH:
+	  attach = true;
 	  break;
-	}
-      else if (strcmp (*next_arg, "--disable-randomization") == 0)
-	cs.disable_randomization = 1;
-      else if (strcmp (*next_arg, "--no-disable-randomization") == 0)
-	cs.disable_randomization = 0;
-      else if (strcmp (*next_arg, "--startup-with-shell") == 0)
-	startup_with_shell = true;
-      else if (strcmp (*next_arg, "--no-startup-with-shell") == 0)
-	startup_with_shell = false;
-      else if (strcmp (*next_arg, "--once") == 0)
-	run_once = true;
-      else if (strcmp (*next_arg, "--selftest") == 0)
-	selftest = true;
-      else if (startswith (*next_arg, "--selftest="))
-	{
-	  selftest = true;
 
+	case OPT_MULTI:
+	  multi_mode = true;
+	  break;
+
+	case OPT_WRAPPER:
+	  {
+	    int original_optind = optind;
+
+	    while (argv[optind] != nullptr && !streq (argv[optind], "--"))
+	      {
+		wrapper_argv += argv[optind];
+		wrapper_argv += ' ';
+		++optind;
+	      }
+
+	    if (!wrapper_argv.empty ())
+	      {
+		/* Erase the last whitespace.  */
+		wrapper_argv.erase (wrapper_argv.end () - 1);
+	      }
+
+	    if (original_optind == optind || argv[optind] == nullptr)
+	      {
+		gdbserver_usage (stderr);
+		exit (1);
+	      }
+
+	    /* Consume the "--".  */
+	    ++optind;
+	  }
+	  break;
+
+	case OPT_DEBUG:
+	  {
+	    const char *debug_opt = (optarg == nullptr) ? "" : optarg;
+	    try
+	      {
+		parse_debug_options (debug_opt);
+	      }
+	    catch (const gdb_exception_error &exception)
+	      {
+		fflush (stdout);
+		fprintf (stderr, "gdbserver: %s\n", exception.what ());
+		exit (1);
+	      }
+	  }
+	  break;
+
+	case OPT_DEBUG_FILE:
+	  {
+	    gdb_assert (optarg != nullptr);
+	    debug_set_output (optarg);
+	  }
+	  break;
+
+	case OPT_DEBUG_FORMAT:
+	  {
+	    gdb_assert (optarg != nullptr);
+	    std::string error_msg
+	      = parse_debug_format_options (optarg, 0);
+
+	    if (!error_msg.empty ())
+	      {
+		fprintf (stderr, "%s", error_msg.c_str ());
+		exit (1);
+	      }
+	  }
+	  break;
+
+	case OPT_DISABLE_PACKET:
+	  {
+	    char *packets = optarg;
+	    if (packets == nullptr)
+	      {
+		gdbserver_show_disableable (stdout);
+		exit (1);
+	      }
+	    char *saveptr;
+	    for (char *tok = strtok_r (packets, ",", &saveptr);
+		 tok != nullptr;
+		 tok = strtok_r (nullptr, ",", &saveptr))
+	      {
+		if (streq ("vCont", tok))
+		  disable_packet_vCont = true;
+		else if (streq ("vConts", tok))
+		  disable_packet_vCont_step = true;
+		else if (streq ("Tthread", tok))
+		  disable_packet_Tthread = true;
+		else if (streq ("qC", tok))
+		  disable_packet_qC = true;
+		else if (streq ("qfThreadInfo", tok))
+		  disable_packet_qfThreadInfo = true;
+		else if (streq ("T", tok))
+		  disable_packet_T = true;
+		else if (streq ("threads", tok))
+		  {
+		    disable_packet_vCont = true;
+		    disable_packet_Tthread = true;
+		    disable_packet_qC = true;
+		    disable_packet_qfThreadInfo = true;
+		  }
+		else
+		  {
+		    fprintf (stderr, "Don't know how to disable \"%s\".\n\n",
+			     tok);
+		    gdbserver_show_disableable (stderr);
+		    exit (1);
+		  }
+	      }
+	  }
+	  break;
+
+	case OPT_DISABLE_RANDOMIZATION:
+	  cs.disable_randomization = 1;
+	  break;
+
+	case OPT_NO_DISABLE_RANDOMIZATION:
+	  cs.disable_randomization = 0;
+	  break;
+
+	case OPT_STARTUP_WITH_SHELL:
+	  startup_with_shell = true;
+	  break;
+
+	case OPT_NO_STARTUP_WITH_SHELL:
+	  startup_with_shell = false;
+	  break;
+
+	case OPT_ONCE:
+	  run_once = true;
+	  break;
+
+	case OPT_SELFTEST:
+	  {
+	    selftest = true;
+	    if (optarg != nullptr)
+	      {
 #if GDB_SELF_TEST
-	  const char *filter = *next_arg + strlen ("--selftest=");
-	  if (*filter == '\0')
-	    {
-	      fprintf (stderr, _("Error: selftest filter is empty.\n"));
-	      exit (1);
-	    }
+		if (*optarg == '\0')
+		  {
+		    fprintf (stderr, _("Error: selftest filter is empty.\n"));
+		    exit (1);
+		  }
 
-	  selftest_filters.push_back (filter);
+		selftest_filters.push_back (optarg);
 #endif
-	}
-      else
-	{
-	  fprintf (stderr, "Unknown argument: %s\n", *next_arg);
+	      }
+	  }
+	  break;
+
+	case OPT_NO_ESCAPE:
+	  escape_args = false;
+	  break;
+
+	case ':':
+	case '?':
+	  /* Figuring out which element of ARGV contained the invalid
+	     argument is not simple.  There are a couple of cases we need
+	     to consider.
+
+	     (1) Something like '-x'.  gdbserver doesn't support single
+		 character options, so a '-' followed by a character is
+		 always invalid.  In this case global OPTOPT will be set to
+		 'x', and global OPTIND will point to the next ARGV entry.
+
+	     (2) Something like '-xyz'.  gdbserver doesn't support single
+		 dash arguments for its command line options.  The
+		 getopt_long call treats this like '-x -y -z', in which
+		 case global OPTOPT is set to 'x' and global OPTIND will
+		 point to this ARGV entry.
+
+	     (3) Something like '--unknown'.  This is just an unknown
+		 double dash argument.  Global OPTOPT is set to '\0', and
+		 global OPTIND points to the next ARGV entry.  */
+	  std::string bad_arg;
+	  if (optopt == '\0' || argv[optind] == nullptr
+	      || argv[optind][0] != '-' || argv[optind][1] != optopt)
+	    bad_arg = argv[optind - 1];
+	  else
+	    bad_arg = argv[optind];
+
+	  if (optc == '?')
+	    fprintf (stderr, _("Unknown argument: %s\n"), bad_arg.c_str ());
+	  else
+	    fprintf (stderr, _("Missing argument value for: %s\n"),
+		     bad_arg.c_str ());
 	  exit (1);
 	}
-
-      next_arg++;
-      continue;
     }
 
-  if (port == NULL)
+  const char *port = argv[optind];
+  ++optind;
+  if (port != nullptr && streq (port, "-"))
     {
-      port = *next_arg;
-      next_arg++;
+      port = STDIO_CONNECTION_NAME;
+
+      /* Implying --once here prevents a hang after stdin has been closed.  */
+      run_once = true;
     }
+
+  char **next_arg = &argv[optind];
   if ((port == NULL || (!attach && !multi_mode && *next_arg == NULL))
        && !selftest)
     {
@@ -3860,24 +4520,25 @@ captured_main (int argc, char *argv[])
   if (port != NULL)
     remote_prepare (port);
 
-  bad_attach = 0;
+  bool bad_attach = false;
   pid = 0;
 
   /* --attach used to come after PORT, so allow it there for
        compatibility.  */
-  if (*next_arg != NULL && strcmp (*next_arg, "--attach") == 0)
+  if (*next_arg != NULL && streq (*next_arg, "--attach"))
     {
-      attach = 1;
+      attach = true;
       next_arg++;
     }
 
+  char *arg_end;
   if (attach
       && (*next_arg == NULL
 	  || (*next_arg)[0] == '\0'
 	  || (pid = strtoul (*next_arg, &arg_end, 0)) == 0
 	  || *arg_end != '\0'
 	  || next_arg[1] != NULL))
-    bad_attach = 1;
+    bad_attach = true;
 
   if (bad_attach)
     {
@@ -3908,12 +4569,14 @@ captured_main (int argc, char *argv[])
 
   if (pid == 0 && *next_arg != NULL)
     {
-      int i, n;
-
-      n = argc - (next_arg - argv);
       program_path.set (next_arg[0]);
-      for (i = 1; i < n; i++)
-	program_args.push_back (xstrdup (next_arg[i]));
+
+      if (program_path.get () == nullptr)
+	error (_("No program to debug"));
+
+      int n = argc - (next_arg - argv);
+      gdb::array_view<char * const> args_view (&next_arg[1], &next_arg[n]);
+      program_args = construct_inferior_arguments (args_view, escape_args);
 
       /* Wait till we are at first instruction in program.  */
       target_create_inferior (program_path.get (), program_args);
@@ -3925,7 +4588,7 @@ captured_main (int argc, char *argv[])
   else if (pid != 0)
     {
       if (attach_inferior (pid) == -1)
-	error ("Attaching not supported on this target");
+	error (_("Attaching not supported on this target"));
 
       /* Otherwise succeeded.  */
     }
@@ -3943,14 +4606,15 @@ captured_main (int argc, char *argv[])
   if (current_thread != nullptr)
     current_process ()->dlls_changed = false;
 
+  bool was_running;
   if (cs.last_status.kind () == TARGET_WAITKIND_EXITED
       || cs.last_status.kind () == TARGET_WAITKIND_SIGNALLED)
-    was_running = 0;
+    was_running = false;
   else
-    was_running = 1;
+    was_running = true;
 
   if (!was_running && !multi_mode)
-    error ("No program to debug");
+    error (_("No program to debug"));
 
   while (1)
     {
@@ -3966,6 +4630,8 @@ captured_main (int argc, char *argv[])
       cs.hwbreak_feature = 0;
       cs.vCont_supported = 0;
       cs.memory_tagging_feature = false;
+      cs.error_message_supported = false;
+      cs.multiple_wp_addr_feature = false;
 
       remote_open (port);
 
@@ -4056,6 +4722,7 @@ captured_main (int argc, char *argv[])
 int
 main (int argc, char *argv[])
 {
+  setlocale (LC_CTYPE, "");
 
   try
     {
@@ -4237,15 +4904,13 @@ process_serial_event (void)
       require_running_or_break (cs.own_buf);
       if (cs.current_traceframe >= 0)
 	{
-	  struct regcache *regcache
-	    = new_register_cache (current_target_desc ());
+	  regcache a_regcache (current_target_desc ());
 
 	  if (fetch_traceframe_registers (cs.current_traceframe,
-					  regcache, -1) == 0)
-	    registers_to_string (regcache, cs.own_buf);
+					  &a_regcache, -1) == 0)
+	    registers_to_string (&a_regcache, cs.own_buf);
 	  else
 	    write_enn (cs.own_buf);
-	  free_register_cache (regcache);
 	}
       else
 	{
@@ -4255,7 +4920,7 @@ process_serial_event (void)
 	    write_enn (cs.own_buf);
 	  else
 	    {
-	      regcache = get_thread_regcache (current_thread, 1);
+	      regcache = get_thread_regcache (current_thread);
 	      registers_to_string (regcache, cs.own_buf);
 	    }
 	}
@@ -4272,7 +4937,7 @@ process_serial_event (void)
 	    write_enn (cs.own_buf);
 	  else
 	    {
-	      regcache = get_thread_regcache (current_thread, 1);
+	      regcache = get_thread_regcache (current_thread);
 	      registers_from_string (regcache, &cs.own_buf[1]);
 	      write_ok (cs.own_buf);
 	    }
@@ -4296,6 +4961,35 @@ process_serial_event (void)
 	write_ok (cs.own_buf);
       else
 	write_enn (cs.own_buf);
+      break;
+    case 'x':
+      {
+	require_running_or_break (cs.own_buf);
+	decode_x_packet (&cs.own_buf[1], &mem_addr, &len);
+	int res = gdb_read_memory (mem_addr, mem_buf, len);
+	if (res < 0)
+	  write_enn (cs.own_buf);
+	else
+	  {
+	    gdb_byte *buffer = (gdb_byte *) cs.own_buf;
+	    *buffer++ = 'b';
+
+	    int out_len_units;
+	    new_packet_len = remote_escape_output (mem_buf, res, 1,
+						   buffer,
+						   &out_len_units,
+						   PBUFSIZ);
+	    new_packet_len++; /* For the 'b' marker.  */
+
+	    if (out_len_units != res)
+	      {
+		write_enn (cs.own_buf);
+		new_packet_len = -1;
+	      }
+	    else
+	      suppress_next_putpkt_log ();
+	  }
+      }
       break;
     case 'X':
       require_running_or_break (cs.own_buf);
@@ -4338,6 +5032,7 @@ process_serial_event (void)
       /* Fallthrough.  */
     case 'z':  /* remove_ ... */
       {
+	require_running_or_break (cs.own_buf);
 	char *dataptr;
 	ULONGEST addr;
 	int kind;
@@ -4590,7 +5285,17 @@ handle_target_event (int err, gdb_client_data client_data)
 	    }
 	}
       else
-	push_stop_notification (cs.last_ptid, cs.last_status);
+	{
+	  push_stop_notification (cs.last_ptid, cs.last_status);
+
+	  if (cs.last_status.kind () == TARGET_WAITKIND_THREAD_EXITED
+	      && !target_any_resumed ())
+	    {
+	      target_waitstatus ws;
+	      ws.set_no_resumed ();
+	      push_stop_notification (null_ptid, ws);
+	    }
+	}
     }
 
   /* Be sure to not change the selected thread behind GDB's back.
@@ -4640,5 +5345,5 @@ void
 reset ()
 {}
 
-} // namespace selftests
+} /* namespace selftests */
 #endif /* GDB_SELF_TEST */

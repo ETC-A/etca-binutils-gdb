@@ -1,5 +1,5 @@
 /* Interface for common GDB/MI data
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "mi-common.h"
 
 static const char * const async_reason_string_lookup[] =
@@ -43,7 +42,7 @@ static const char * const async_reason_string_lookup[] =
   NULL
 };
 
-gdb_static_assert (ARRAY_SIZE (async_reason_string_lookup)
+static_assert (ARRAY_SIZE (async_reason_string_lookup)
 		   == EXEC_ASYNC_LAST + 1);
 
 const char *

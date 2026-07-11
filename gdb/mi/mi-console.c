@@ -1,6 +1,6 @@
 /* MI Console code.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -24,7 +24,6 @@
    for instance, error output is normally identified by a leading
    "&".  */
 
-#include "defs.h"
 #include "mi-console.h"
 
 /* Create a console that wraps the given output stream RAW with the
@@ -93,14 +92,4 @@ mi_console_file::flush ()
     }
 
   m_buffer.clear ();
-}
-
-/* Change the underlying stream of the console directly; this is
-   useful as a minimum-impact way to reflect external changes like
-   logging enable/disable.  */
-
-void
-mi_console_file::set_raw (ui_file *raw)
-{
-  m_raw = raw;
 }

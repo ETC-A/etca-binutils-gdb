@@ -1,5 +1,5 @@
 /* MI Command Set - target commands.
-   Copyright (C) 2007-2023 Free Software Foundation, Inc.
+   Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "mi-cmds.h"
 #include "mi-getopt.h"
 #include "remote.h"
@@ -92,4 +91,3 @@ mi_cmd_target_file_delete (const char *command, const char *const *argv,
 
   remote_file_delete (remote_file, 0);
 }
-

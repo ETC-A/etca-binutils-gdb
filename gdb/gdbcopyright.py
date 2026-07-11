@@ -1,6 +1,6 @@
 # Copyright constant for Python code to use.
 #
-# Copyright (C) 2022-2023 Free Software Foundation, Inc.
+# Copyright (C) 2022-2026 Free Software Foundation, Inc.
 #
 # This file is part of GDB.
 #
@@ -49,5 +49,4 @@ def copyright(tool: str, description: str):
 
 /* To regenerate this file, run:
    ./{tool}
-*/
-"""
+*/"""

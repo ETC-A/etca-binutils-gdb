@@ -1,5 +1,5 @@
 /* FLEX lexer for Ada expressions, for GDB. -*- c++ -*-
-   Copyright (C) 1994-2023 Free Software Foundation, Inc.
+   Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -48,20 +48,16 @@ NOT_COMPLETE [^\001]
 
 #include "diagnostics.h"
 
-/* Some old versions of flex generate code that uses the "register" keyword,
-   which clang warns about.  This was observed for example with flex 2.5.35,
-   as shipped with macOS 10.12.  The same happens with flex 2.5.37 and g++ 11
-   which defaults to ISO C++17, that does not allow register storage class
-   specifiers.  */
+/* Some old versions of flex (2.5.x) generate code that uses the "register"
+   keyword, which compilers warn about, because it is not allowed in ISO
+   C++17.  */
 DIAGNOSTIC_PUSH
-DIAGNOSTIC_IGNORE_DEPRECATED_REGISTER
+DIAGNOSTIC_IGNORE_REGISTER
 
 #define NUMERAL_WIDTH 256
 #define LONGEST_SIGN ((ULONGEST) 1 << (sizeof(LONGEST) * HOST_CHAR_BIT - 1))
 
-/* Temporary staging for numeric literals.  */
-static char numbuf[NUMERAL_WIDTH];
- static void canonicalizeNumeral (char *s1, const char *);
+static void canonicalizeNumeral (char *s1, const char *);
 static struct stoken processString (const char*, int);
 static int processInt (struct parser_state *, const char *, const char *,
 		       const char *);
@@ -78,13 +74,6 @@ static void rewind_to_char (int);
    Defining YY_NO_INPUT comments it out.  */
 #define YY_NO_INPUT
 
-/* When completing, we'll return a special character at the end of the
-   input, to signal the completion position to the lexer.  This is
-   done because flex does not have a generally useful way to detect
-   EOF in a pattern.  This variable records whether the special
-   character has been emitted.  */
-static bool returned_complete = false;
-
 /* The character we use to represent the completion point.  */
 #define COMPLETE_CHAR '\001'
 
@@ -92,9 +81,9 @@ static bool returned_complete = false;
 #define YY_INPUT(BUF, RESULT, MAX_SIZE)					\
   if ( *pstate->lexptr == '\000' )					\
     {									\
-      if (pstate->parse_completion && !returned_complete)		\
+      if (pstate->parse_completion && !ada_parser->returned_complete)	\
 	{								\
-	  returned_complete = true;					\
+	  ada_parser->returned_complete = true;				\
 	  *(BUF) = COMPLETE_CHAR;					\
 	  (RESULT) = 1;							\
 	}								\
@@ -107,9 +96,6 @@ static bool returned_complete = false;
       (RESULT) = 1;							\
       pstate->lexptr += 1;						\
     }
-
-/* Depth of parentheses.  */
-static int paren_depth;
 
 %}
 
@@ -124,6 +110,7 @@ static int paren_depth;
 "--".*		 { yyterminate(); }
 
 {NUM10}{POSEXP}  {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   char *e_ptr = strrchr (numbuf, 'e');
 		   *e_ptr = '\0';
@@ -131,11 +118,13 @@ static int paren_depth;
 		 }
 
 {NUM10}          {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   return processInt (pstate, NULL, numbuf, NULL);
 		 }
 
 {NUM10}"#"{HEXDIG}({HEXDIG}|_)*"#"{POSEXP} {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   char *e_ptr = strrchr (numbuf, 'e');
 		   *e_ptr = '\0';
@@ -149,33 +138,37 @@ static int paren_depth;
 	   floating-point number is formed by reinterpreting the
 	   bytes, allowing direct control over the bits.  */
 {NUM10}(l{0,2}f)?"#"{HEXDIG}({HEXDIG}|_)*"#" {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   return processInt (pstate, numbuf, strchr (numbuf, '#') + 1,
 				      NULL);
 		 }
 
 "0x"{HEXDIG}+	{
+		  char numbuf[NUMERAL_WIDTH];
 		  canonicalizeNumeral (numbuf, yytext+2);
 		  return processInt (pstate, "16#", numbuf, NULL);
 		}
 
 
 {NUM10}"."{NUM10}{EXP} {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   return processReal (pstate, numbuf);
 		}
 
 {NUM10}"."{NUM10} {
+		   char numbuf[NUMERAL_WIDTH];
 		   canonicalizeNumeral (numbuf, yytext);
 		   return processReal (pstate, numbuf);
 		}
 
 {NUM10}"#"{NUM16}"."{NUM16}"#"{EXP} {
-                   error (_("Based real literals not implemented yet."));
+		   error (_("Based real literals not implemented yet."));
 		}
 
 {NUM10}"#"{NUM16}"."{NUM16}"#" {
-                   error (_("Based real literals not implemented yet."));
+		   error (_("Based real literals not implemented yet."));
 		}
 
 <INITIAL>"'"({GRAPHIC}|\")"'" {
@@ -185,9 +178,9 @@ static int paren_depth;
 		}
 
 <INITIAL>"'[\""{HEXDIG}{2,}"\"]'"   {
-                   ULONGEST v = strtoulst (yytext+3, nullptr, 16);
+		   ULONGEST v = strtoulst (yytext+3, nullptr, 16);
 		   yylval.typed_char.val = v;
-                   yylval.typed_char.type = type_for_char (pstate, v);
+		   yylval.typed_char.type = type_for_char (pstate, v);
 		   return CHARLIT;
 		}
 
@@ -195,29 +188,29 @@ static int paren_depth;
 	   digits here.  Currently there's no support for wide or
 	   wide-wide strings.  */
 \"({GRAPHIC}|"[\""({HEXDIG}{2,}|\")"\"]")*\"   {
-	           yylval.sval = processString (yytext+1, yyleng-2);
+		   yylval.sval = processString (yytext+1, yyleng-2);
 		   return STRING;
 		}
 
 \"              {
-                   error (_("ill-formed or non-terminated string literal"));
+		   error (_("ill-formed or non-terminated string literal"));
 		}
 
 
 if		{
-                  rewind_to_char ('i');
+		  rewind_to_char ('i');
 		  return 0;
 		}
 
 task            {
-                  rewind_to_char ('t');
+		  rewind_to_char ('t');
 		  return 0;
 		}
 
 thread{WHITE}+{DIG} {
-                  /* This keyword signals the end of the expression and
-                     will be processed separately.  */
-                  rewind_to_char ('t');
+		  /* This keyword signals the end of the expression and
+		     will be processed separately.  */
+		  rewind_to_char ('t');
 		  return 0;
 		}
 
@@ -225,7 +218,9 @@ thread{WHITE}+{DIG} {
 
 abs		{ return ABS; }
 and		{ return _AND_; }
+delta		{ return DELTA; }
 else		{ return ELSE; }
+for		{ return FOR; }
 in		{ return IN; }
 mod		{ return MOD; }
 new		{ return NEW; }
@@ -235,6 +230,7 @@ or		{ return OR; }
 others          { return OTHERS; }
 rem		{ return REM; }
 then		{ return THEN; }
+with		{ return WITH; }
 xor		{ return XOR; }
 
 	/* BOOLEAN "KEYWORDS" */
@@ -247,7 +243,7 @@ xor		{ return XOR; }
 true		{ return TRUEKEYWORD; }
 false		{ return FALSEKEYWORD; }
 
-        /* ATTRIBUTES */
+	/* ATTRIBUTES */
 
 {TICK}([a-z][a-z_]*)?{COMPLETE}? { BEGIN INITIAL; return processAttribute (yytext); }
 
@@ -265,7 +261,7 @@ false		{ return FALSEKEYWORD; }
 
 [-&*+{}@/:<>=|;\[\]] { return yytext[0]; }
 
-","		{ if (paren_depth == 0 && pstate->comma_terminates)
+","		{ if (ada_parser->paren_depth == 0 && pstate->comma_terminates)
 		    {
 		      rewind_to_char (',');
 		      return 0;
@@ -274,24 +270,24 @@ false		{ return FALSEKEYWORD; }
 		    return ',';
 		}
 
-"("		{ paren_depth += 1; return '('; }
-")"		{ if (paren_depth == 0)
+"("		{ ada_parser->paren_depth += 1; return '('; }
+")"		{ if (ada_parser->paren_depth == 0)
 		    {
 		      rewind_to_char (')');
 		      return 0;
 		    }
 		  else
- 		    {
-		      paren_depth -= 1;
+		    {
+		      ada_parser->paren_depth -= 1;
 		      return ')';
 		    }
 		}
 
 "."{WHITE}*{ID}{COMPLETE}? {
-	 	  yylval.sval = processId (yytext+1, yyleng-1);
+		  yylval.sval = processId (yytext+1, yyleng-1);
 		  if (yytext[yyleng - 1] == COMPLETE_CHAR)
 		    return DOT_COMPLETE;
-	          return DOT_ID;
+		  return DOT_ID;
 		}
 
 "."{WHITE}*{COMPLETE} {
@@ -301,25 +297,25 @@ false		{ return FALSEKEYWORD; }
 		}
 
 {ID}({WHITE}*"."{WHITE}*({ID}|\"{OPER}\"))*(" "*"'"|{COMPLETE})?  {
-                  int all_posn = find_dot_all (yytext);
+		  int all_posn = find_dot_all (yytext);
 
-                  if (all_posn == -1 && yytext[yyleng-1] == '\'')
+		  if (all_posn == -1 && yytext[yyleng-1] == '\'')
 		    {
 		      BEGIN BEFORE_QUAL_QUOTE;
 		      yyless (yyleng-1);
 		    }
-                  else if (all_posn >= 0)
+		  else if (all_posn >= 0)
 		    yyless (all_posn);
 		  bool is_completion = yytext[yyleng - 1] == COMPLETE_CHAR;
-                  yylval.sval = processId (yytext, yyleng);
-                  return is_completion ? NAME_COMPLETE : NAME;
-               }
+		  yylval.sval = processId (yytext, yyleng);
+		  return is_completion ? NAME_COMPLETE : NAME;
+	       }
 
 
 	/* GDB EXPRESSION CONSTRUCTS  */
 
 "'"[^']+"'"{WHITE}*:: {
-                  yyless (yyleng - 2);
+		  yyless (yyleng - 2);
 		  yylval.sval = processId (yytext, yyleng);
 		  return NAME;
 		}
@@ -339,15 +335,12 @@ false		{ return FALSEKEYWORD; }
 .		{ error (_("Invalid character '%s' in expression."), yytext); }
 %%
 
-#include <ctype.h>
 /* Initialize the lexer for processing new expression. */
 
 static void
 lexer_init (FILE *inp)
 {
   BEGIN INITIAL;
-  paren_depth = 0;
-  returned_complete = false;
   yyrestart (inp);
 }
 
@@ -361,7 +354,7 @@ canonicalizeNumeral (char *s1, const char *s2)
     {
       if (*s2 != '_')
 	{
-	  *s1 = tolower(*s2);
+	  *s1 = c_tolower(*s2);
 	  s1 += 1;
 	}
     }
@@ -382,7 +375,7 @@ processInt (struct parser_state *par_state, const char *base0,
   long exp;
   int base;
   /* For the based literal with an "f" prefix, we'll return a
-     floating-point number.  This counts the the number of "l"s seen,
+     floating-point number.  This counts the number of "l"s seen,
      to decide the width of the floating-point number to return.  -1
      means no "f".  */
   int floating_point_l_count = -1;
@@ -417,7 +410,7 @@ processInt (struct parser_state *par_state, const char *base0,
     exp = strtol(exp0, (char **) NULL, 10);
 
   gdb_mpz result;
-  while (isxdigit (*num0))
+  while (c_isxdigit (*num0))
     {
       int dig = fromhex (*num0);
       if (dig >= base)
@@ -462,8 +455,7 @@ processInt (struct parser_state *par_state, const char *base0,
       return FLOAT;
     }
 
-  int_storage.emplace_back (new gdb_mpz (std::move (result)));
-  const gdb_mpz *value = int_storage.back ().get ();
+  const gdb_mpz *value = ada_parser->push_integer (std::move (result));
 
   int int_bits = gdbarch_int_bit (par_state->gdbarch ());
   int long_bits = gdbarch_long_bit (par_state->gdbarch ());
@@ -517,7 +509,7 @@ processReal (struct parser_state *par_state, const char *num0)
    encoded and the resulting name is equal to it.  Similarly, if the name
    starts with '<', it is copied verbatim.  Otherwise, it differs
    from NAME0 in that:
-    + Characters between '...' are transfered verbatim to yylval.ssym.
+    + Characters between '...' are transferred verbatim to yylval.ssym.
     + Trailing "'" characters in quoted sequences are removed (a leading quote is
       preserved to indicate that the name is not to be GNAT-encoded).
     + Unquoted whitespace is removed.
@@ -529,12 +521,12 @@ processReal (struct parser_state *par_state, const char *num0)
 static struct stoken
 processId (const char *name0, int len)
 {
-  char *name = (char *) obstack_alloc (&temp_parse_space, len + 11);
+  char *name = (char *) obstack_alloc (&ada_parser->temp_space, len + 11);
   int i0, i;
   struct stoken result;
 
   result.ptr = name;
-  while (len > 0 && isspace (name0[len-1]))
+  while (len > 0 && c_isspace (name0[len-1]))
     len -= 1;
 
   if (name0[0] == '<' || strstr (name0, "___") != NULL)
@@ -556,12 +548,12 @@ processId (const char *name0, int len)
 	}
       else if (in_quotes)
 	name[i++] = name0[i0++];
-      else if (isalnum (name0[i0]))
+      else if (c_isalnum (name0[i0]))
 	{
-	  name[i] = tolower (name0[i0]);
+	  name[i] = c_tolower (name0[i0]);
 	  i += 1; i0 += 1;
 	}
-      else if (isspace (name0[i0]))
+      else if (c_isspace (name0[i0]))
 	i0 += 1;
       else if (name0[i0] == '\'')
 	{
@@ -580,7 +572,7 @@ processId (const char *name0, int len)
 }
 
 /* Return TEXT[0..LEN-1], a string literal without surrounding quotes,
-   with special hex character notations replaced with characters. 
+   with special hex character notations replaced with characters.
    Result valid until the next call to ada_parse.  */
 
 static struct stoken
@@ -591,19 +583,19 @@ processString (const char *text, int len)
   const char *lim = text + len;
   struct stoken result;
 
-  q = (char *) obstack_alloc (&temp_parse_space, len);
+  q = (char *) obstack_alloc (&ada_parser->temp_space, len);
   result.ptr = q;
   p = text;
   while (p < lim)
     {
       if (p[0] == '[' && p[1] == '"' && p+2 < lim)
-         {
-           if (p[2] == '"')  /* "...["""]... */
-             {
-               *q = '"';
+	 {
+	   if (p[2] == '"')  /* "...["""]... */
+	     {
+	       *q = '"';
 	       p += 4;
 	     }
-           else
+	   else
 	     {
 	       const char *end;
 	       ULONGEST chr = strtoulst (p + 2, &end, 16);
@@ -612,9 +604,9 @@ processString (const char *text, int len)
 	       *q = (char) chr;
 	       p = end + 1;
 	     }
-         }
+	 }
        else
-         *q = *p;
+	 *q = *p;
        q += 1;
        p += 1;
      }
@@ -641,10 +633,10 @@ find_dot_all (const char *str)
 
 	do
 	  i += 1;
-	while (isspace (str[i]));
+	while (c_isspace (str[i]));
 
 	if (strncasecmp (str + i, "all", 3) == 0
-	    && !isalnum (str[i + 3]) && str[i + 3] != '_')
+	    && !c_isalnum (str[i + 3]) && str[i + 3] != '_')
 	  return i0;
       }
   return -1;
@@ -660,14 +652,14 @@ subseqMatch (const char *subseq, const char *str)
     return 1;
   else if (str[0] == '\0')
     return 0;
-  else if (tolower (subseq[0]) == tolower (str[0]))
+  else if (c_tolower (subseq[0]) == c_tolower (str[0]))
     return subseqMatch (subseq+1, str+1) || subseqMatch (subseq, str+1);
   else
     return subseqMatch (subseq, str+1);
 }
 
 
-static struct { const char *name; int code; }
+static const struct { const char *name; int code; }
 attributes[] = {
   { "address", TICK_ADDRESS },
   { "unchecked_access", TICK_ACCESS },
@@ -679,6 +671,7 @@ attributes[] = {
   { "max", TICK_MAX },
   { "min", TICK_MIN },
   { "modulus", TICK_MODULUS },
+  { "object_size", TICK_OBJECT_SIZE },
   { "pos", TICK_POS },
   { "range", TICK_RANGE },
   { "size", TICK_SIZE },
@@ -696,7 +689,7 @@ processAttribute (const char *str)
 {
   gdb_assert (*str == '\'');
   ++str;
-  while (isspace (*str))
+  while (c_isspace (*str))
     ++str;
 
   int len = strlen (str);
@@ -704,7 +697,8 @@ processAttribute (const char *str)
     {
       /* This is enforced by YY_INPUT.  */
       gdb_assert (pstate->parse_completion);
-      yylval.sval.ptr = obstack_strndup (&temp_parse_space, str, len - 1);
+      yylval.sval.ptr = obstack_strndup (&ada_parser->temp_space,
+					 str, len - 1);
       yylval.sval.length = len - 1;
       return TICK_COMPLETE;
     }
@@ -713,7 +707,7 @@ processAttribute (const char *str)
     if (strcasecmp (str, item.name) == 0)
       return item.code;
 
-  gdb::optional<int> found;
+  std::optional<int> found;
   for (const auto &item : attributes)
     if (subseqMatch (str, item.name))
       {
@@ -754,15 +748,15 @@ static void
 rewind_to_char (int ch)
 {
   pstate->lexptr -= yyleng;
-  while (toupper (*pstate->lexptr) != toupper (ch))
+  while (c_toupper (*pstate->lexptr) != c_toupper (ch))
     pstate->lexptr -= 1;
   yyrestart (NULL);
 }
 
 /* Dummy definition to suppress warnings about unused static definitions. */
 typedef void (*dummy_function) ();
-dummy_function ada_flex_use[] = 
-{ 
+dummy_function ada_flex_use[] =
+{
   (dummy_function) yyunput
 };
 

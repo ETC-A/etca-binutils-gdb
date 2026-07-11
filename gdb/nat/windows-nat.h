@@ -1,5 +1,5 @@
 /* Internal interfaces for the Windows code
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,28 +16,56 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef NAT_WINDOWS_NAT_H
-#define NAT_WINDOWS_NAT_H
+#ifndef GDB_NAT_WINDOWS_NAT_H
+#define GDB_NAT_WINDOWS_NAT_H
 
 #include <windows.h>
 #include <psapi.h>
 #include <vector>
 
-#include "gdbsupport/gdb_optional.h"
+#include <optional>
 #include "target/waitstatus.h"
 
 #define STATUS_WX86_BREAKPOINT 0x4000001F
 #define STATUS_WX86_SINGLE_STEP 0x4000001E
 
+#ifndef CONTEXT_EXTENDED_REGISTERS
+/* This macro is only defined on ia32.  It only makes sense on this target,
+   so define it as zero if not already defined.  */
+#define CONTEXT_EXTENDED_REGISTERS 0
+#endif
+
 namespace windows_nat
 {
+
+struct windows_process_info;
+
+/* The reason for explicitly stopping a thread.  Note the enumerators
+   are ordered such that when comparing two stopping_kind's numerical
+   value, the highest should prevail.  */
+enum stopping_kind
+  {
+    /* Not really stopping the thread.  */
+    SK_NOT_STOPPING = 0,
+
+    /* We're stopping the thread for internal reasons, the stop should
+       not be reported as an event to the core.  */
+    SK_INTERNAL = 1,
+
+    /* We're stopping the thread for external reasons, meaning, the
+       core/user asked us to stop the thread, so we must report a stop
+       event to the core.  */
+    SK_EXTERNAL = 2,
+  };
 
 /* Thread information structure used to track extra information about
    each thread.  */
 struct windows_thread_info
 {
-  windows_thread_info (DWORD tid_, HANDLE h_, CORE_ADDR tlb)
-    : tid (tid_),
+  windows_thread_info (windows_process_info *proc_,
+		       DWORD tid_, HANDLE h_, CORE_ADDR tlb)
+    : proc (proc_),
+      tid (tid_),
       h (h_),
       thread_local_base (tlb)
   {
@@ -56,6 +84,18 @@ struct windows_thread_info
      the next call.  */
   const char *thread_name ();
 
+  /* Read LEN bytes of the thread's $_siginfo into READBUF, starting
+     at OFFSET.  Store the number of actually-read bytes in
+     XFERED_LEN.  Returns true on success, false on failure.  Passing
+     READBUF as NULL indicates that the caller is trying to write to
+     $_siginfo, which is a failure case.  */
+  bool xfer_siginfo (gdb_byte *readbuf,
+		     ULONGEST offset, ULONGEST len,
+		     ULONGEST *xfered_len);
+
+  /* The process this thread belongs to.  */
+  windows_process_info *const proc;
+
   /* The Win32 thread identifier.  */
   DWORD tid;
 
@@ -65,11 +105,80 @@ struct windows_thread_info
   /* Thread Information Block address.  */
   CORE_ADDR thread_local_base;
 
+#ifdef __CYGWIN__
+  /* These two fields are used to handle Cygwin signals.  When a
+     thread is signaled, the "sig" thread inside the Cygwin runtime
+     reports the fact to us via a special OutputDebugString message.
+     In order to make stepping into a signal handler work, we can only
+     resume the "sig" thread when we also resume the target signaled
+     thread.  When we intercept a Cygwin signal, we set up a cross
+     link between the two threads using the two fields below, so we
+     can always identify one from the other.  See the "Cygwin signals"
+     description in gdb/windows-nat.c for more.  */
+
+  /* If this thread received a signal, then 'cygwin_sig_thread' points
+     to the "sig" thread within the Cygwin runtime.  */
+  windows_thread_info *cygwin_sig_thread = nullptr;
+
+  /* If this thread is the Cygwin runtime's "sig" thread, then
+     'signaled_thread' points at the thread that received a
+     signal.  */
+  windows_thread_info *signaled_thread = nullptr;
+#endif
+
+  /* If the thread had its event postponed with DBG_REPLY_LATER, when
+     we later ResumeThread this thread, WaitForDebugEvent will
+     re-report the postponed event.  This field holds the continue
+     status value to be automatically passed to ContinueDebugEvent
+     when we encounter this re-reported event.  0 if the thread has
+     not had its event postponed with DBG_REPLY_LATER. */
+  DWORD reply_later = 0;
+
   /* This keeps track of whether SuspendThread was called on this
      thread.  -1 means there was a failure or that the thread was
      explicitly not suspended, 1 means it was called, and 0 means it
      was not.  */
   int suspended = 0;
+
+  /* This flag indicates whether we are explicitly stopping this
+     thread in response to a target_stop request or for
+     backend-internal reasons.  This allows distinguishing between
+     threads that are explicitly stopped by the debugger and threads
+     that are stopped due to other reasons.
+
+     Typically, when we want to stop a thread, we suspend it, enqueue
+     a pending GDB_SIGNAL_0 stop status on the thread, and then set
+     this flag to true.  However, if the thread has had its event
+     previously postponed with DBG_REPLY_LATER, it means that it
+     already has an event to report.  In such case, we simply set the
+     'stopping' flag without suspending the thread or enqueueing a
+     pending stop.  See stop_one_thread.  */
+  stopping_kind stopping = SK_NOT_STOPPING;
+
+/* Info about a potential pending stop.
+
+   Sometimes, Windows will report a stop on a thread that has been
+   ostensibly suspended.  We believe what happens here is that two
+   threads hit a breakpoint simultaneously, and the Windows kernel
+   queues the stop events.  However, this can result in the strange
+   effect of trying to single step thread A -- leaving all other
+   threads suspended -- and then seeing a stop in thread B.  To handle
+   this scenario, we queue the "pending" stop here, and then
+   process it once the step has completed.  See PR gdb/22992.
+   If we do have a pending event, its Windows event info is in
+   LAST_EVENT.
+
+   TARGET_WAITKIND_IGNORE if the thread does not have a pending
+   stop.  */
+  target_waitstatus pending_status;
+
+  /* The last Windows event returned by WaitForDebugEvent for this
+     thread.  */
+  DEBUG_EVENT last_event {};
+
+  /* The last signal reported for this thread, extracted out of
+     last_event.  */
+  enum gdb_signal last_sig = GDB_SIGNAL_0;
 
   /* The context of the thread, including any manipulations.  */
   union
@@ -84,10 +193,6 @@ struct windows_thread_info
      the thread.  */
   bool debug_registers_changed = false;
 
-  /* Nonzero if CONTEXT is invalidated and must be re-read from the
-     inferior thread.  */
-  bool reload_context = false;
-
   /* True if this thread is currently stopped at a software
      breakpoint.  This is used to offset the PC when needed.  */
   bool stopped_at_software_breakpoint = false;
@@ -99,34 +204,6 @@ struct windows_thread_info
 
   /* The name of the thread.  */
   gdb::unique_xmalloc_ptr<char> name;
-};
-
-
-/* Possible values to pass to 'thread_rec'.  */
-enum thread_disposition_type
-{
-  /* Do not invalidate the thread's context, and do not suspend the
-     thread.  */
-  DONT_INVALIDATE_CONTEXT,
-  /* Invalidate the context, but do not suspend the thread.  */
-  DONT_SUSPEND,
-  /* Invalidate the context and suspend the thread.  */
-  INVALIDATE_CONTEXT
-};
-
-/* A single pending stop.  See "pending_stops" for more
-   information.  */
-struct pending_stop
-{
-  /* The thread id.  */
-  DWORD thread_id;
-
-  /* The target waitstatus we computed.  */
-  target_waitstatus status;
-
-  /* The event.  A few fields of this can be referenced after a stop,
-     and it seemed simplest to store the entire event.  */
-  DEBUG_EVENT event;
 };
 
 enum handle_exception_result
@@ -144,31 +221,25 @@ struct windows_process_info
 {
   /* The process handle */
   HANDLE handle = 0;
+  DWORD process_id = 0;
   DWORD main_thread_id = 0;
-  enum gdb_signal last_sig = GDB_SIGNAL_0;
 
-  /* The current debug event from WaitForDebugEvent or from a pending
-     stop.  */
-  DEBUG_EVENT current_event {};
+#ifdef __CYGWIN__
+  /* True if the inferior was created through Cygwin's spawn path
+     (i.e., its Cygwin pinfo has PID_CYGPARENT set).  We need this at
+     exit time, but we cache it early when we start debugging the
+     inferior, because by exit time the inferior's Cygwin pinfo may
+     have been torn down (CW_GETPINFO returns NULL).  */
+  bool started_by_cygwin = false;
 
-  /* The ID of the thread for which we anticipate a stop event.
-     Normally this is -1, meaning we'll accept an event in any
-     thread.  */
-  DWORD desired_stop_thread_id = -1;
+  /* True if cygwin1.dll is loaded into the inferior.  */
+  bool cygwin1_dll_loaded = false;
 
-  /* A vector of pending stops.  Sometimes, Windows will report a stop
-     on a thread that has been ostensibly suspended.  We believe what
-     happens here is that two threads hit a breakpoint simultaneously,
-     and the Windows kernel queues the stop events.  However, this can
-     result in the strange effect of trying to single step thread A --
-     leaving all other threads suspended -- and then seeing a stop in
-     thread B.  To handle this scenario, we queue all such "pending"
-     stops here, and then process them once the step has completed.  See
-     PR gdb/22992.  */
-  std::vector<pending_stop> pending_stops;
-
-  /* Contents of $_siginfo */
-  EXCEPTION_RECORD siginfo_er {};
+  /* If DLL_PATH is cygwin1.dll, set cygwin1_dll_loaded to true.  */
+  void maybe_note_cygwin1_dll (const char *dll_path);
+#else
+  void maybe_note_cygwin1_dll (const char *) {}
+#endif
 
 #ifdef __x86_64__
   /* The target is a WOW64 process */
@@ -177,24 +248,27 @@ struct windows_process_info
   bool ignore_first_breakpoint = false;
 #endif
 
-
-  /* Find a thread record given a thread id.  THREAD_DISPOSITION
-     controls whether the thread is suspended, and whether the context
-     is invalidated.
+  /* Find a thread record given a thread id.
 
      This function must be supplied by the embedding application.  */
-  virtual windows_thread_info *thread_rec (ptid_t ptid,
-					   thread_disposition_type disposition) = 0;
+  virtual windows_thread_info *find_thread (ptid_t ptid) = 0;
+
+  /* Fill in the thread's CONTEXT/WOW64_CONTEXT, if it wasn't filled
+     in yet.
+
+     This function must be supplied by the embedding application.  */
+  virtual void fill_thread_context (windows_thread_info *th) = 0;
 
   /* Handle OUTPUT_DEBUG_STRING_EVENT from child process.  Updates
-     OURSTATUS and returns the thread id if this represents a thread
-     change (this is specific to Cygwin), otherwise 0.
+     OURSTATUS and returns true if this represents a Cygwin signal,
+     otherwise false.
 
      Cygwin prepends its messages with a "cygwin:".  Interpret this as
      a Cygwin signal.  Otherwise just print the string as a warning.
 
      This function must be supplied by the embedding application.  */
-  virtual int handle_output_debug_string (struct target_waitstatus *ourstatus) = 0;
+  virtual bool handle_output_debug_string (const DEBUG_EVENT &current_event,
+					   struct target_waitstatus *ourstatus) = 0;
 
   /* Handle a DLL load event.
 
@@ -215,7 +289,7 @@ struct windows_process_info
 
      This function must be supplied by the embedding application.  */
 
-  virtual void handle_unload_dll () = 0;
+  virtual void handle_unload_dll (const DEBUG_EVENT &current_event) = 0;
 
   /* When EXCEPTION_ACCESS_VIOLATION is processed, we give the embedding
      application a chance to change it to be considered "unhandled".
@@ -225,30 +299,44 @@ struct windows_process_info
   virtual bool handle_access_violation (const EXCEPTION_RECORD *rec) = 0;
 
   handle_exception_result handle_exception
-       (struct target_waitstatus *ourstatus, bool debug_exceptions);
+      (DEBUG_EVENT &current_event,
+       struct target_waitstatus *ourstatus, bool debug_exceptions);
 
   /* Call to indicate that a DLL was loaded.  */
 
-  void dll_loaded_event ();
+  void dll_loaded_event (const DEBUG_EVENT &current_event);
 
   /* Iterate over all DLLs currently mapped by our inferior, and
      add them to our list of solibs.  */
 
   void add_all_dlls ();
 
-  /* Return true if there is a pending stop matching
-     desired_stop_thread_id.  If DEBUG_EVENTS is true, logging will be
-     enabled.  */
-
-  bool matching_pending_stop (bool debug_events);
-
-  /* See if a pending stop matches DESIRED_STOP_THREAD_ID.  If so,
-     remove it from the list of pending stops, set 'current_event', and
-     return it.  Otherwise, return an empty optional.  */
-
-  gdb::optional<pending_stop> fetch_pending_stop (bool debug_events);
-
   const char *pid_to_exec_file (int);
+
+  template<typename Function>
+  auto with_context (windows_thread_info *th, Function function)
+  {
+#ifdef __x86_64__
+    if (wow64_process)
+      return function (th != nullptr ? &th->wow64_context : nullptr);
+    else
+#endif
+      return function (th != nullptr ? &th->context : nullptr);
+  }
+
+  DWORD *context_flags_ptr (windows_thread_info *th)
+  {
+    return with_context (th, [] (auto *context)
+      {
+	return &context->ContextFlags;
+      });
+  }
+
+  /* Convert an EXIT_PROCESS_DEBUG_EVENT payload to a target wait
+     status.  */
+
+  target_waitstatus exit_process_to_target_status
+    (const EXIT_PROCESS_DEBUG_INFO &info);
 
 private:
 
@@ -258,7 +346,7 @@ private:
 
      Return true if the exception was handled; return false otherwise.  */
 
-  bool handle_ms_vc_exception (const EXCEPTION_RECORD *rec);
+  bool handle_ms_vc_exception (const DEBUG_EVENT &current_event);
 
   /* Iterate over all DLLs currently mapped by our inferior, looking for
      a DLL which is loaded at LOAD_ADDR.  If found, add the DLL to our
@@ -282,12 +370,33 @@ private:
   int get_exec_module_filename (char *exe_name_ret, size_t exe_name_max_len);
 };
 
+#ifdef __CYGWIN__
+/* Return true if the process with native Windows pid WINPID was
+   started by a Cygwin parent -- that is, its Cygwin pinfo exists and
+   has PID_CYGPARENT set.  Returns false if the process is not a
+   Cygwin process at all, or if its parent is not a Cygwin process.
+
+   ATTACHING indicates whether GDB is attaching to an already-running
+   inferior (true) or has just launched it via CreateProcess
+   (false).  */
+extern bool inferior_started_by_cygwin (DWORD winpid, bool attaching);
+#endif
+
+/* Return a string version of EVENT_CODE.  */
+
+extern std::string event_code_to_string (DWORD event_code);
+
 /* A simple wrapper for ContinueDebugEvent that continues the last
    waited-for event.  If DEBUG_EVENTS is true, logging will be
    enabled.  */
 
 extern BOOL continue_last_debug_event (DWORD continue_status,
 				       bool debug_events);
+
+/* Return the ptid_t of the thread that the last waited-for event was
+   for.  */
+
+extern ptid_t get_last_debug_event_ptid ();
 
 /* A simple wrapper for WaitForDebugEvent that also sets the internal
    'last_wait_event' on success.  */
@@ -411,7 +520,7 @@ extern GenerateConsoleCtrlEvent_ftype *GenerateConsoleCtrlEvent;
 
 /* We use a local typedef for this type to avoid depending on
    Windows 8.  */
-typedef void *gdb_lpproc_thread_attribute_list;
+using gdb_lpproc_thread_attribute_list = void *;
 
 typedef BOOL WINAPI (InitializeProcThreadAttributeList_ftype)
      (gdb_lpproc_thread_attribute_list lpAttributeList,
@@ -433,6 +542,109 @@ extern DeleteProcThreadAttributeList_ftype *DeleteProcThreadAttributeList;
 
 extern bool disable_randomization_available ();
 
+/* Helper classes to get the correct ContextFlags values based on the
+   used type (CONTEXT or WOW64_CONTEXT).  */
+
+template<typename Context>
+struct WindowsContext;
+
+template<>
+struct WindowsContext<CONTEXT *>
+{
+  static constexpr DWORD control  = CONTEXT_CONTROL;
+  static constexpr DWORD floating = CONTEXT_FLOATING_POINT;
+  static constexpr DWORD debug    = CONTEXT_DEBUG_REGISTERS;
+  static constexpr DWORD extended = CONTEXT_EXTENDED_REGISTERS;
+  static constexpr DWORD full	  = CONTEXT_FULL;
+  static constexpr DWORD all	  = (CONTEXT_FULL
+				     | CONTEXT_FLOATING_POINT
+#ifdef CONTEXT_SEGMENTS
+				     | CONTEXT_SEGMENTS
+#endif
+				     | CONTEXT_DEBUG_REGISTERS
+				     | CONTEXT_EXTENDED_REGISTERS);
+};
+
+#ifdef __x86_64__
+template<>
+struct WindowsContext<WOW64_CONTEXT *>
+{
+  static constexpr DWORD control  = WOW64_CONTEXT_CONTROL;
+  static constexpr DWORD floating = WOW64_CONTEXT_FLOATING_POINT;
+  static constexpr DWORD debug	  = WOW64_CONTEXT_DEBUG_REGISTERS;
+  static constexpr DWORD extended = WOW64_CONTEXT_EXTENDED_REGISTERS;
+  static constexpr DWORD full	  = WOW64_CONTEXT_FULL;
+  static constexpr DWORD all	  = WOW64_CONTEXT_ALL;
+};
+#endif
+
+/* Overloaded helper functions to call the correct function based on the used
+   type (CONTEXT or WOW64_CONTEXT).  */
+
+static inline BOOL
+get_thread_context (HANDLE h, CONTEXT *context)
+{
+  return GetThreadContext (h, context);
+}
+
+static inline BOOL
+set_thread_context (HANDLE h, CONTEXT *context)
+{
+  return SetThreadContext (h, context);
+}
+
+static inline BOOL
+get_thread_selector_entry (CONTEXT *, HANDLE thread, DWORD sel,
+			   LDT_ENTRY *info)
+{
+  return GetThreadSelectorEntry (thread, sel, info);
+}
+
+static inline BOOL
+enum_process_modules (CONTEXT *, HANDLE process,
+		      HMODULE *modules, DWORD size, LPDWORD needed)
+{
+  return EnumProcessModules (process, modules, size, needed);
+}
+
+#ifdef __x86_64__
+static inline BOOL
+get_thread_context (HANDLE h, WOW64_CONTEXT *context)
+{
+  return Wow64GetThreadContext (h, context);
+}
+
+static inline BOOL
+set_thread_context (HANDLE h, WOW64_CONTEXT *context)
+{
+  return Wow64SetThreadContext (h, context);
+}
+
+static inline BOOL
+get_thread_selector_entry (WOW64_CONTEXT *, HANDLE thread, DWORD sel,
+			   LDT_ENTRY *info)
+{
+  return Wow64GetThreadSelectorEntry (thread, sel, info);
+}
+
+static inline BOOL
+enum_process_modules (WOW64_CONTEXT *, HANDLE process,
+		      HMODULE *modules, DWORD size, LPDWORD needed)
+{
+  return EnumProcessModulesEx (process, modules, size, needed,
+			       LIST_MODULES_32BIT);
+}
+#endif
+
+/* This is available starting with Windows 10.  */
+#ifndef DBG_REPLY_LATER
+# define DBG_REPLY_LATER 0x40010001L
+#endif
+
+/* Return true if it's possible to use DBG_REPLY_LATER with
+   ContinueDebugEvent on this host.  */
+extern bool dbg_reply_later_available ();
+
 /* Load any functions which may not be available in ancient versions
    of Windows.  */
 
@@ -440,4 +652,4 @@ extern bool initialize_loadable ();
 
 }
 
-#endif
+#endif /* GDB_NAT_WINDOWS_NAT_H */

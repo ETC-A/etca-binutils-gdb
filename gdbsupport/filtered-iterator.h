@@ -1,5 +1,5 @@
 /* A forward filtered iterator for GDB, the GNU debugger.
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,10 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_FILTERED_ITERATOR_H
-#define COMMON_FILTERED_ITERATOR_H
-
-#include "gdbsupport/invoke-result.h"
+#ifndef GDBSUPPORT_FILTERED_ITERATOR_H
+#define GDBSUPPORT_FILTERED_ITERATOR_H
 
 /* A filtered iterator.  This wraps BaseIterator and automatically
    skips elements that FilterFunc filters out.  Requires that
@@ -30,21 +28,28 @@ template<typename BaseIterator, typename FilterFunc>
 class filtered_iterator
 {
 public:
-  typedef filtered_iterator self_type;
-  typedef typename BaseIterator::value_type value_type;
-  typedef typename BaseIterator::reference reference;
-  typedef typename BaseIterator::pointer pointer;
-  typedef typename BaseIterator::iterator_category iterator_category;
-  typedef typename BaseIterator::difference_type difference_type;
+  using self_type = filtered_iterator;
+  using value_type = typename std::iterator_traits<BaseIterator>::value_type;
+  using reference = typename std::iterator_traits<BaseIterator>::reference;
+  using pointer = typename std::iterator_traits<BaseIterator>::pointer;
+  using iterator_category
+    = typename std::iterator_traits<BaseIterator>::iterator_category;
+  using difference_type
+    = typename std::iterator_traits<BaseIterator>::difference_type;
 
-  /* Construct by forwarding all arguments to the underlying
-     iterator.  */
-  template<typename... Args>
-  explicit filtered_iterator (Args &&...args)
-    : m_it (std::forward<Args> (args)...)
+  /* Construct by providing the begin underlying iterators.  The end iterator
+     is default-constructed.  */
+  filtered_iterator (BaseIterator begin)
+    : filtered_iterator (std::move (begin), BaseIterator {})
+  {}
+
+  /* Construct by providing begin and end underlying iterators.  */
+  filtered_iterator (BaseIterator begin, BaseIterator end)
+    : m_it (std::move (begin)), m_end (std::move (end))
   { skip_filtered (); }
 
-  /* Create a one-past-end iterator.  */
+  /* Create a one-past-end iterator. The underlying end iterator is obtained
+     by default-constructing. */
   filtered_iterator () = default;
 
   /* Need these as the variadic constructor would be a better match
@@ -56,9 +61,7 @@ public:
     : filtered_iterator (static_cast<const filtered_iterator &> (other))
   {}
 
-  typename gdb::invoke_result<decltype(&BaseIterator::operator*),
-			      BaseIterator>::type
-    operator* () const
+  decltype(auto) operator* () const
   { return *m_it; }
 
   self_type &operator++ ()
@@ -89,4 +92,4 @@ private:
   BaseIterator m_end {};
 };
 
-#endif /* COMMON_FILTERED_ITERATOR_H */
+#endif /* GDBSUPPORT_FILTERED_ITERATOR_H */

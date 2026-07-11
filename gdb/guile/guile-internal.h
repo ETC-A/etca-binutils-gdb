@@ -1,6 +1,6 @@
 /* Internal header for GDB/Scheme code.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef GUILE_GUILE_INTERNAL_H
-#define GUILE_GUILE_INTERNAL_H
+#ifndef GDB_GUILE_GUILE_INTERNAL_H
+#define GDB_GUILE_GUILE_INTERNAL_H
 
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
@@ -27,9 +27,22 @@
 #include "hashtab.h"
 #include "extension-priv.h"
 #include "symtab.h"
-#include "libguile.h"
 #include "objfiles.h"
-#include "top.h"		/* For quit_force().  */
+#include "top.h"
+
+/* GCC introduced C++20 support in GCC 8, using -std=c++2a (the name of the
+   C++20 standard before publishing) and __cplusplus 201709L.  In GCC 10,
+   -std=c++20 was added, but __cplusplus stayed at 201709L, and was only
+   changed to the standard 202002L in GCC 11.  Consequently, some C++20
+   features and restrictions need to be tested against the non-standard
+   201709L, otherwise the build with GCC 10 and -std=c++20 will break.  */
+#if __cplusplus >= 201709L
+/* Work around Werror=volatile in SCM_UNPACK for
+   SCM_DEBUG_TYPING_STRICTNESS == 1.  Reported upstream:
+   https://debbugs.gnu.org/cgi/bugreport.cgi?bug=65333 .  */
+#define SCM_DEBUG_TYPING_STRICTNESS 0
+#endif
+#include "libguile.h"
 
 struct block;
 struct frame_info;
@@ -135,18 +148,6 @@ struct scheme_integer_constant
   (scm_is_eq ((scm), SCM_BOOL_F) || scm_is_eq ((scm), SCM_BOOL_T))
 #define gdbscm_is_false(scm) scm_is_eq ((scm), SCM_BOOL_F)
 #define gdbscm_is_true(scm) (!gdbscm_is_false (scm))
-
-#ifndef HAVE_SCM_NEW_SMOB
-
-/* Guile <= 2.0.5 did not provide this function, so provide it here.  */
-
-static inline SCM
-scm_new_smob (scm_t_bits tc, scm_t_bits data)
-{
-  SCM_RETURN_NEWSMOB (tc, data);
-}
-
-#endif
 
 /* Function name that is passed around in case an error needs to be reported.
    __func is in C99, but we provide a wrapper "just in case",
@@ -326,32 +327,32 @@ extern SCM gdbscm_make_type_error (const char *subr, int arg_pos,
 extern SCM gdbscm_make_invalid_object_error (const char *subr, int arg_pos,
 					     SCM bad_value, const char *error);
 
-extern void gdbscm_invalid_object_error (const char *subr, int arg_pos,
-					 SCM bad_value, const char *error)
-   ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_invalid_object_error (const char *subr,
+						      int arg_pos,
+						      SCM bad_value,
+						      const char *error);
 
 extern SCM gdbscm_make_out_of_range_error (const char *subr, int arg_pos,
 					   SCM bad_value, const char *error);
 
-extern void gdbscm_out_of_range_error (const char *subr, int arg_pos,
-				       SCM bad_value, const char *error)
-   ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_out_of_range_error (const char *subr,
+						    int arg_pos, SCM bad_value,
+						    const char *error);
 
 extern SCM gdbscm_make_misc_error (const char *subr, int arg_pos,
 				   SCM bad_value, const char *error);
 
-extern void gdbscm_misc_error (const char *subr, int arg_pos,
-			       SCM bad_value, const char *error)
-   ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_misc_error (const char *subr, int arg_pos,
+					    SCM bad_value, const char *error);
 
-extern void gdbscm_throw (SCM exception) ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_throw (SCM exception);
 
 struct gdbscm_gdb_exception;
 extern SCM gdbscm_scm_from_gdb_exception
   (const gdbscm_gdb_exception &exception);
 
-extern void gdbscm_throw_gdb_exception (gdbscm_gdb_exception exception)
-  ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_throw_gdb_exception
+  (gdbscm_gdb_exception exception);
 
 extern void gdbscm_print_exception_with_stack (SCM port, SCM stack,
 					       SCM key, SCM args);
@@ -368,8 +369,8 @@ extern excp_matcher_func gdbscm_user_error_p;
 extern SCM gdbscm_make_memory_error (const char *subr, const char *msg,
 				     SCM args);
 
-extern void gdbscm_memory_error (const char *subr, const char *msg, SCM args)
-  ATTRIBUTE_NORETURN;
+[[noreturn]] extern void gdbscm_memory_error (const char *subr,
+					      const char *msg, SCM args);
 
 /* scm-safe-call.c */
 
@@ -429,15 +430,24 @@ extern const struct block *bkscm_scm_to_block
 
 /* scm-cmd.c */
 
-extern char *gdbscm_parse_command_name (const char *name,
-					const char *func_name, int arg_pos,
-					struct cmd_list_element ***base_list,
-					struct cmd_list_element **start_list);
+extern char *gdbscm_parse_command_name
+  (const char *name, const char *func_name, int arg_pos,
+   struct cmd_list_element ***base_list,
+   struct cmd_list_element **start_list,
+   struct cmd_list_element **prefix_cmd = nullptr);
 
 extern int gdbscm_valid_command_class_p (int command_class);
 
 extern char *gdbscm_canonicalize_command_name (const char *name,
 					       int want_trailing_space);
+
+/* scm-color.c */
+
+extern SCM coscm_scm_from_color (const ui_file_style::color &color);
+
+extern int coscm_is_color (SCM scm);
+
+extern const ui_file_style::color & coscm_get_color (SCM color_scm);
 
 /* scm-frame.c */
 
@@ -596,7 +606,7 @@ extern bool gdbscm_auto_load_enabled (const struct extension_language_defn *);
 
 extern void gdbscm_preserve_values
   (const struct extension_language_defn *,
-   struct objfile *, htab_t copied_types);
+   struct objfile *, copied_types_hash_t &copied_types);
 
 extern enum ext_lang_rc gdbscm_apply_val_pretty_printer
   (const struct extension_language_defn *,
@@ -617,6 +627,7 @@ extern void gdbscm_initialize_arches (void);
 extern void gdbscm_initialize_auto_load (void);
 extern void gdbscm_initialize_blocks (void);
 extern void gdbscm_initialize_breakpoints (void);
+extern void gdbscm_initialize_colors (void);
 extern void gdbscm_initialize_commands (void);
 extern void gdbscm_initialize_disasm (void);
 extern void gdbscm_initialize_exceptions (void);
@@ -722,4 +733,4 @@ gdbscm_wrap (Function &&func, Args &&... args)
   return result;
 }
 
-#endif /* GUILE_GUILE_INTERNAL_H */
+#endif /* GDB_GUILE_GUILE_INTERNAL_H */

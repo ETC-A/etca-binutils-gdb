@@ -1,6 +1,6 @@
 /* Go language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -31,7 +31,6 @@
    - 6g mangling isn't supported yet
 */
 
-#include "defs.h"
 #include "gdbsupport/gdb_obstack.h"
 #include "block.h"
 #include "symtab.h"
@@ -42,7 +41,6 @@
 #include "parser-defs.h"
 #include "gdbarch.h"
 
-#include <ctype.h>
 
 /* The main function in the main package.  */
 static const char GO_MAIN_MAIN[] = "main.main";
@@ -55,9 +53,8 @@ static const char GO_MAIN_MAIN[] = "main.main";
 const char *
 go_main_name (void)
 {
-  struct bound_minimal_symbol msym;
-
-  msym = lookup_minimal_symbol (GO_MAIN_MAIN, NULL, NULL);
+  bound_minimal_symbol msym
+    = lookup_minimal_symbol (current_program_space, GO_MAIN_MAIN);
   if (msym.minsym != NULL)
     return GO_MAIN_MAIN;
 
@@ -82,9 +79,9 @@ gccgo_string_p (struct type *type)
       type1 = check_typedef (type1);
 
       if (type0->code () == TYPE_CODE_PTR
-	  && strcmp (type->field (0).name (), "__data") == 0
+	  && streq (type->field (0).name (), "__data")
 	  && type1->code () == TYPE_CODE_INT
-	  && strcmp (type->field (1).name (), "__length") == 0)
+	  && streq (type->field (1).name (), "__length"))
 	{
 	  struct type *target_type = type0->target_type ();
 
@@ -92,7 +89,7 @@ gccgo_string_p (struct type *type)
 
 	  if (target_type->code () == TYPE_CODE_INT
 	      && target_type->length () == 1
-	      && strcmp (target_type->name (), "uint8") == 0)
+	      && streq (target_type->name (), "uint8"))
 	    return 1;
 	}
     }
@@ -106,12 +103,9 @@ gccgo_string_p (struct type *type)
 static int
 sixg_string_p (struct type *type)
 {
-  if (type->num_fields () == 2
-      && type->name () != NULL
-      && strcmp (type->name (), "string") == 0)
-    return 1;
-
-  return 0;
+  return (type->num_fields () == 2
+	  && type->name () != nullptr
+	  && streq (type->name (), "string"));
 }
 
 /* Classify the kind of Go object that TYPE is.
@@ -204,7 +198,7 @@ unpack_mangled_go_symbol (const char *mangled_name,
   *method_type_is_pointerp = 0;
 
   /* main.init is mangled specially.  */
-  if (strcmp (mangled_name, "__go_init_main") == 0)
+  if (streq (mangled_name, "__go_init_main"))
     {
       gdb::unique_xmalloc_ptr<char> package
 	= make_unique_xstrdup ("main");
@@ -215,7 +209,7 @@ unpack_mangled_go_symbol (const char *mangled_name,
     }
 
   /* main.main is mangled specially (missing prefix).  */
-  if (strcmp (mangled_name, "main.main") == 0)
+  if (streq (mangled_name, "main.main"))
     {
       gdb::unique_xmalloc_ptr<char> package
 	= make_unique_xstrdup ("main");
@@ -233,16 +227,28 @@ unpack_mangled_go_symbol (const char *mangled_name,
      libgo_.*: used by gccgo's runtime
 
      Thus we don't support -fgo-prefix (except as used by the runtime).  */
-  if (!startswith (mangled_name, "go.")
-      && !startswith (mangled_name, "libgo_"))
+  bool v3;
+  if (startswith (mangled_name, "go_0"))
+    /* V3 mangling detected, see
+       https://go-review.googlesource.com/c/gofrontend/+/271726 .  */
+    v3 = true;
+  else if (startswith (mangled_name, "go.")
+	   || startswith (mangled_name, "libgo_"))
+    v3 = false;
+  else
     return NULL;
 
   /* Quick check for whether a search may be fruitful.  */
   /* Ignore anything with @plt, etc. in it.  */
   if (strchr (mangled_name, '@') != NULL)
     return NULL;
+
   /* It must have at least two dots.  */
-  first_dot = strchr (mangled_name, '.');
+  if (v3)
+    first_dot = strchr (mangled_name, '0');
+  else
+    first_dot = strchr (mangled_name, '.');
+
   if (first_dot == NULL)
     return NULL;
   /* Treat "foo.bar" as unmangled.  It can collide with lots of other
@@ -263,6 +269,18 @@ unpack_mangled_go_symbol (const char *mangled_name,
   gdb::unique_xmalloc_ptr<char> result = make_unique_xstrdup (mangled_name);
   buf = result.get ();
 
+  if (v3)
+    {
+      /* Replace "go_0" with "\0go.".  */
+      buf[0] = '\0';
+      buf[1] = 'g';
+      buf[2] = 'o';
+      buf[3] = '.';
+
+      /* Skip the '\0'.  */
+      buf++;
+    }
+
   /* Search backwards looking for "N<digit(s)>".  */
   p = buf + len;
   saw_digit = method_type = NULL;
@@ -270,7 +288,7 @@ unpack_mangled_go_symbol (const char *mangled_name,
   while (p > buf)
     {
       int current = *(const unsigned char *) --p;
-      int current_is_digit = isdigit (current);
+      int current_is_digit = c_isdigit (current);
 
       if (saw_digit)
 	{

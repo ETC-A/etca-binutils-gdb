@@ -1,4 +1,4 @@
-# Copyright 2023 Free Software Foundation, Inc.
+# Copyright 2023-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,9 +25,11 @@ if {[build_executable ${testfile}.exp $testfile] == -1} {
     return
 }
 
-if {[dap_launch $testfile] == ""} {
+if {[dap_initialize] == ""} {
     return
 }
+
+set launch_id [dap_launch $testfile]
 
 set line [gdb_get_line_number "STOP"]
 
@@ -44,8 +46,13 @@ set i 1
 foreach bp [dict get [lindex $obj 0] body breakpoints] {
     gdb_assert {[dict get $bp verified] == "false"} \
 	"breakpoint $i invalid"
-    gdb_assert {[dict get $bp message] != ""} \
-	"breakpoint $i has message"
+    if {$i == 1} {
+	gdb_assert {[dict get $bp reason] == "pending"} \
+	    "breakpoint $i pending"
+    } else {
+	gdb_assert {[dict get $bp message] != ""} \
+	    "breakpoint $i has message"
+    }
     incr i
 }
 
@@ -58,7 +65,9 @@ set obj [dap_check_request_and_response "set conditional breakpoint" \
 		  [list s $srcfile] $line]]
 set fn_bpno [dap_get_breakpoint_number $obj]
 
-dap_check_request_and_response "start inferior" configurationDone
+dap_check_request_and_response "configurationDone" configurationDone
+
+dap_check_response "launch response" launch $launch_id
 
 dap_wait_for_event_and_check "stopped at function breakpoint" stopped \
     "body reason" breakpoint \

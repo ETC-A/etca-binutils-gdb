@@ -1,6 +1,6 @@
 // symtab.h -- the gold symbol table   -*- C++ -*-
 
-// Copyright (C) 2006-2023 Free Software Foundation, Inc.
+// Copyright (C) 2006-2026 Free Software Foundation, Inc.
 // Written by Ian Lance Taylor <iant@google.com>.
 
 // This file is part of gold.
@@ -707,6 +707,13 @@ class Symbol
 
     // A reference to an absolute symbol does not need a dynamic relocation.
     if (this->is_absolute())
+      return false;
+
+    // Non-default weak undefined symbols in executable and shared
+    // library are always resolved to 0 at runtime.
+    if (this->visibility() != elfcpp::STV_DEFAULT
+	&& this->is_weak_undefined()
+	&& !parameters->options().relocatable())
       return false;
 
     // An absolute reference within a position-independent output file

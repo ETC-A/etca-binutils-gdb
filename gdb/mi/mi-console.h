@@ -1,5 +1,5 @@
 /* MI Command Set - MI Console.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef MI_MI_CONSOLE_H
-#define MI_MI_CONSOLE_H
+#ifndef GDB_MI_MI_CONSOLE_H
+#define GDB_MI_MI_CONSOLE_H
 
 /* An output stream for MI.  Wraps a given output stream with a prefix
    and handles quoting.  This stream is locally buffered.  */
@@ -29,9 +29,6 @@ public:
   /* Create a console that wraps the given output stream RAW with the
      string PREFIX and quoting it with QUOTE.  */
   mi_console_file (ui_file *raw, const char *prefix, char quote);
-
-  /* MI-specific API.  */
-  void set_raw (ui_file *raw);
 
   /* ui_file-specific methods.  */
 
@@ -55,4 +52,4 @@ private:
   char m_quote;
 };
 
-#endif /* MI_MI_CONSOLE_H */
+#endif /* GDB_MI_MI_CONSOLE_H */

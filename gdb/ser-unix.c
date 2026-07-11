@@ -1,6 +1,6 @@
 /* Serial interface for local (hardwired) serial ports on Un*x like systems
 
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "serial.h"
 #include "ser-base.h"
 #include "ser-unix.h"
@@ -29,10 +28,39 @@
 #include "gdbsupport/gdb_sys_time.h"
 
 #include "gdbsupport/gdb_select.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbsupport/filestuff.h"
-#include <termios.h>
+
+#ifdef HAVE_SYS_IOCTL_H
+#  include <sys/ioctl.h>
+#endif
+
+#if HAVE_IOKIT_SERIAL_IOSS_H
+#  include <IOKit/serial/ioss.h>
+#endif
+
+#if HAVE_ASM_TERMIOS_H
+/* Workaround to resolve conflicting declarations of termios
+   in <asm/termbits.h> and <termios.h>.  */
+#  define termios asmtermios
+#  define tcflag_t asmtcflag_t
+#  include <asm/termbits.h>
+#  undef termios
+#  undef tcflag_t
+#endif
+
+#ifdef HAVE_TERMIOS_H
+#  include <termios.h>
+#endif
+
 #include "gdbsupport/scoped_ignore_sigttou.h"
+
+#if (defined(HAVE_CFSETSPEED_ARBITRARY) \
+     || (defined(HAVE_SYS_IOCTL_H) \
+	 && ((defined(BOTHER) && defined(HAVE_STRUCT_TERMIOS_C_OSPEED)) \
+	     || defined(IOSSIOSPEED))))
+#  define HAVE_CUSTOM_BAUDRATE_SUPPORT 1
+#endif
 
 struct hardwire_ttystate
   {
@@ -50,10 +78,9 @@ show_serial_hwflow (struct ui_file *file, int from_tty,
 }
 #endif
 
-static int hardwire_open (struct serial *scb, const char *name);
 static void hardwire_raw (struct serial *scb);
 static int rate_to_code (int rate);
-static int hardwire_setbaudrate (struct serial *scb, int rate);
+static void hardwire_setbaudrate (struct serial *scb, int rate);
 static int hardwire_setparity (struct serial *scb, int parity);
 static void hardwire_close (struct serial *scb);
 static int get_tty_state (struct serial *scb,
@@ -67,19 +94,17 @@ static void hardwire_print_tty_state (struct serial *, serial_ttystate,
 static int hardwire_drain_output (struct serial *);
 static int hardwire_flush_output (struct serial *);
 static int hardwire_flush_input (struct serial *);
-static int hardwire_send_break (struct serial *);
+static void hardwire_send_break (struct serial *);
 static int hardwire_setstopbits (struct serial *, int);
 
 /* Open up a real live device for serial I/O.  */
 
-static int
+static void
 hardwire_open (struct serial *scb, const char *name)
 {
   scb->fd = gdb_open_cloexec (name, O_RDWR, 0).release ();
   if (scb->fd < 0)
-    return -1;
-
-  return 0;
+    perror_with_name ("could not open device");
 }
 
 static int
@@ -130,6 +155,7 @@ hardwire_set_tty_state (struct serial *scb, serial_ttystate ttystate)
   struct hardwire_ttystate *state;
 
   state = (struct hardwire_ttystate *) ttystate;
+  gdb_assert (state != nullptr);
 
   return set_tty_state (scb, state);
 }
@@ -185,10 +211,11 @@ hardwire_flush_input (struct serial *scb)
   return tcflush (scb->fd, TCIFLUSH);
 }
 
-static int
+static void
 hardwire_send_break (struct serial *scb)
 {
-  return tcsendbreak (scb->fd, 0);
+  if (tcsendbreak (scb->fd, 0) == -1)
+    perror_with_name ("sending break");
 }
 
 static void
@@ -292,14 +319,32 @@ baudtab[] =
     4800, B4800
   }
   ,
+#ifdef B7200
+  {
+    7200, B7200
+  }
+  ,
+#endif
   {
     9600, B9600
   }
   ,
+#ifdef B14400
+  {
+    14400, B14400
+  }
+  ,
+#endif
   {
     19200, B19200
   }
   ,
+#ifdef B28800
+  {
+    28800, B28800
+  }
+  ,
+#endif
   {
     38400, B38400
   }
@@ -307,6 +352,12 @@ baudtab[] =
 #ifdef B57600
   {
     57600, B57600
+  }
+  ,
+#endif
+#ifdef B76800
+  {
+    76800, B76800
   }
   ,
 #endif
@@ -407,7 +458,7 @@ rate_to_code (int rate)
 
   for (i = 0; baudtab[i].rate != -1; i++)
     {
-      /* test for perfect macth.  */
+      /* test for perfect match.  */
       if (rate == baudtab[i].rate)
 	return baudtab[i].code;
       else
@@ -415,49 +466,168 @@ rate_to_code (int rate)
 	  /* check if it is in between valid values.  */
 	  if (rate < baudtab[i].rate)
 	    {
+#if !HAVE_CUSTOM_BAUDRATE_SUPPORT
 	      if (i)
 		{
-		  warning (_("Invalid baud rate %d.  "
-			     "Closest values are %d and %d."),
-			   rate, baudtab[i - 1].rate, baudtab[i].rate);
+		  error (_("Invalid baud rate %d.  "
+			   "Closest values are %d and %d."),
+			 rate, baudtab[i - 1].rate, baudtab[i].rate);
 		}
 	      else
 		{
-		  warning (_("Invalid baud rate %d.  Minimum value is %d."),
-			   rate, baudtab[0].rate);
+		  error (_("Invalid baud rate %d.  Minimum value is %d."),
+			 rate, baudtab[0].rate);
 		}
+#else
 	      return -1;
+#endif
 	    }
 	}
     }
- 
+
+#if !HAVE_CUSTOM_BAUDRATE_SUPPORT
   /* The requested speed was too large.  */
-  warning (_("Invalid baud rate %d.  Maximum value is %d."),
-	    rate, baudtab[i - 1].rate);
+  error (_("Invalid baud rate %d.  Maximum value is %d."),
+	 rate, baudtab[i - 1].rate);
+#else
   return -1;
+#endif
 }
 
-static int
-hardwire_setbaudrate (struct serial *scb, int rate)
+/* Set baud rate using B_code from termios.h.  */
+
+static void
+set_baudcode_baudrate (struct serial *scb, int baud_code)
 {
   struct hardwire_ttystate state;
-  int baud_code = rate_to_code (rate);
-  
-  if (baud_code < 0)
-    {
-      /* The baud rate was not valid.
-	 A warning has already been issued.  */
-      errno = EINVAL;
-      return -1;
-    }
 
   if (get_tty_state (scb, &state))
-    return -1;
+    perror_with_name (_("could not get tty state"));
 
   cfsetospeed (&state.termios, baud_code);
   cfsetispeed (&state.termios, baud_code);
 
-  return set_tty_state (scb, &state);
+  if (set_tty_state (scb, &state))
+    perror_with_name (_("could not set tty state"));
+}
+
+#if HAVE_CUSTOM_BAUDRATE_SUPPORT && defined(HAVE_CFSETSPEED_ARBITRARY)
+
+/* Set a custom baud rate using the POSIX cfsetispeed/cfsetospeed
+   interface.  Supported in glibc 2.42 and later and expected to be
+   standardized in a future POSIX revision.  It is platform-agnostic
+   and also covers systems like GNU Hurd that do not provide BOTHER.  */
+
+static void
+set_custom_baudrate_posix (int fd, int rate)
+{
+  struct termios tio;
+
+  if (tcgetattr (fd, &tio) < 0)
+    perror_with_name (_("Cannot get current baud rate"));
+
+  if (cfsetispeed (&tio, rate) < 0)
+    perror_with_name (_("Cannot set custom input baud rate"));
+
+  if (cfsetospeed (&tio, rate) < 0)
+    perror_with_name (_("Cannot set custom output baud rate"));
+
+  if (tcsetattr (fd, TCSANOW, &tio) < 0)
+    perror_with_name (_("Cannot set custom baud rate"));
+}
+
+#elif HAVE_CUSTOM_BAUDRATE_SUPPORT && defined(BOTHER)
+
+/* Set a custom baud rate using the termios BOTHER.  */
+
+static void
+set_custom_baudrate_linux (int fd, int rate)
+{
+#ifdef TCGETS2
+  struct termios2 tio;
+  const unsigned long req_get = TCGETS2;
+  const unsigned long req_set = TCSETS2;
+#else
+  struct termios tio;
+  const unsigned long req_get = TCGETS;
+  const unsigned long req_set = TCSETS;
+#endif
+
+  if (ioctl (fd, req_get, &tio) < 0)
+    perror_with_name (_("Can not get current baud rate"));
+
+  /* Clear the current output baud rate and fill a new value.  */
+  tio.c_cflag &= ~CBAUD;
+  tio.c_cflag |= BOTHER;
+  tio.c_ospeed = rate;
+
+  /* Clear the current input baud rate and fill a new value.  */
+  tio.c_cflag &= ~(CBAUD << IBSHIFT);
+  tio.c_cflag |= BOTHER << IBSHIFT;
+  tio.c_ispeed = rate;
+
+  if (ioctl (fd, req_set, &tio) < 0)
+    perror_with_name (_("Can not set custom baud rate"));
+}
+
+#elif HAVE_CUSTOM_BAUDRATE_SUPPORT && defined(IOSSIOSPEED)
+
+/* Set a custom baud rate using the IOSSIOSPEED ioctl call.  */
+
+static void
+set_custom_baudrate_darwin (int fd, int rate)
+{
+
+  if (ioctl (fd, IOSSIOSPEED, &rate) < 0)
+    perror_with_name (_("Can not set custom baud rate"));
+}
+
+#endif /* HAVE_CUSTOM_BAUDRATE_SUPPORT
+	  && (defined(HAVE_CFSETSPEED_ARBITRARY)
+	     || defined(BOTHER)
+	     || defined(IOSSIOSPEED)) */
+
+#if HAVE_CUSTOM_BAUDRATE_SUPPORT
+
+/* Set a baud rate that differs from the OS B_codes.
+   Prefer the POSIX cfsetispeed/cfsetospeed interface when the host
+   libc accepts arbitrary baud rates.  Otherwise fall back to
+   Linux-specific (BOTHER) or Darwin-specific (IOSSIOSPEED)
+   interfaces.  */
+
+static void
+set_custom_baudrate (int fd, int rate)
+{
+#if defined(HAVE_CFSETSPEED_ARBITRARY)
+  set_custom_baudrate_posix (fd, rate);
+#elif defined(BOTHER)
+  set_custom_baudrate_linux (fd, rate);
+#elif defined(IOSSIOSPEED)
+  set_custom_baudrate_darwin (fd, rate);
+#endif
+}
+
+#endif /* HAVE_CUSTOM_BAUDRATE_SUPPORT */
+
+/* Set the baud rate for the serial communication.  */
+
+static void
+hardwire_setbaudrate (struct serial *scb, int rate)
+{
+  int baud_code = rate_to_code (rate);
+
+  if (baud_code < 0)
+    {
+#if HAVE_CUSTOM_BAUDRATE_SUPPORT
+      set_custom_baudrate (scb->fd, rate);
+#else
+      /* An error should already have been thrown by rate_to_code().
+	 Add an additional error in case execution somehow reaches this line.  */
+      gdb_assert_not_reached ("Serial baud rate was not found in B_codes");
+#endif
+    }
+  else
+    set_baudcode_baudrate (scb, baud_code);
 }
 
 static int
@@ -563,9 +733,7 @@ static const struct serial_ops hardwire_ops =
   ser_unix_write_prim
 };
 
-void _initialize_ser_hardwire ();
-void
-_initialize_ser_hardwire ()
+INIT_GDB_FILE (ser_hardwire)
 {
   serial_add_interface (&hardwire_ops);
 
@@ -585,11 +753,17 @@ when debugging using remote targets."),
 int
 ser_unix_read_prim (struct serial *scb, size_t count)
 {
-  return read (scb->fd, scb->buf, count);
+  int result = read (scb->fd, scb->buf, count);
+  if (result == -1 && errno != EINTR)
+    perror_with_name ("error while reading");
+  return result;
 }
 
 int
 ser_unix_write_prim (struct serial *scb, const void *buf, size_t len)
 {
-  return write (scb->fd, buf, len);
+  int result = write (scb->fd, buf, len);
+  if (result == -1 && errno != EINTR)
+    perror_with_name ("error while writing");
+  return result;
 }

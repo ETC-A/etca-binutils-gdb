@@ -1,6 +1,6 @@
 /* Everything about catch/throw catchpoints, for GDB.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,21 +17,15 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
-#include <ctype.h>
 #include "breakpoint.h"
-#include "gdbcmd.h"
+#include "exceptions.h"
 #include "inferior.h"
 #include "annotate.h"
 #include "valprint.h"
 #include "cli/cli-utils.h"
-#include "completer.h"
-#include "gdbsupport/gdb_obstack.h"
 #include "mi/mi-common.h"
-#include "linespec.h"
 #include "probe.h"
-#include "objfiles.h"
 #include "cp-abi.h"
 #include "gdbsupport/gdb_regex.h"
 #include "cp-support.h"
@@ -82,10 +76,10 @@ struct exception_catchpoint : public code_breakpoint
 				     _("invalid type-matching regexp")))
   {
     pspace = current_program_space;
-    re_set ();
+    re_set (pspace);
   }
 
-  void re_set () override;
+  void re_set (program_space *pspace) override;
   enum print_stop_action print_it (const bpstat *bs) const override;
   bool print_one (const bp_location **) const override;
   void print_mention () const override;
@@ -198,7 +192,7 @@ exception_catchpoint::check_status (struct bpstat *bs)
 /* Implement the 're_set' method.  */
 
 void
-exception_catchpoint::re_set ()
+exception_catchpoint::re_set (program_space *pspace)
 {
   std::vector<symtab_and_line> sals;
   struct program_space *filter_pspace = current_program_space;
@@ -372,11 +366,11 @@ handle_gnu_v3_exceptions (int tempflag, std::string &&except_rx,
 
 /* Look for an "if" token in *STRING.  The "if" token must be preceded
    by whitespace.
-   
+
    If there is any non-whitespace text between *STRING and the "if"
    token, then it is returned in a newly-xmalloc'd string.  Otherwise,
    this returns NULL.
-   
+
    STRING is updated to point to the "if" token, if it exists, or to
    the end of the string.  */
 
@@ -425,7 +419,7 @@ catch_exception_event (enum exception_event_kind ex_event,
 
   cond_string = ep_parse_optional_if_clause (&arg);
 
-  if ((*arg != '\0') && !isspace (*arg))
+  if ((*arg != '\0') && !c_isspace (*arg))
     error (_("Junk at end of arguments."));
 
   if (ex_event != EX_EVENT_THROW
@@ -487,7 +481,7 @@ compute_exception (struct gdbarch *argc, struct internalvar *var, void *ignore)
      the std::type_info for the exception.  Now we find the type from
      the type_info and cast the result.  */
   obj_type = cplus_type_from_type_info (arg1);
-  return value_ind (value_cast (make_pointer_type (obj_type, NULL), arg0));
+  return value_ind (value_cast (make_pointer_type (obj_type), arg0));
 }
 
 /* Implementation of the '$_exception' variable.  */
@@ -500,9 +494,7 @@ static const struct internalvar_funcs exception_funcs =
 
 
 
-void _initialize_break_catch_throw ();
-void
-_initialize_break_catch_throw ()
+INIT_GDB_FILE (break_catch_throw)
 {
   /* Add catch and tcatch sub-commands.  */
   add_catch_command ("catch", _("\

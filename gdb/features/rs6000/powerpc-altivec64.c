@@ -1,11 +1,10 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: powerpc-altivec64.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_powerpc_altivec64;
+const_target_desc_up tdesc_powerpc_altivec64;
 static void
 initialize_tdesc_powerpc_altivec64 (void)
 {
@@ -152,5 +151,5 @@ initialize_tdesc_powerpc_altivec64 (void)
   tdesc_create_reg (feature, "vscr", 103, 1, "vector", 32, "int");
   tdesc_create_reg (feature, "vrsave", 104, 1, "vector", 32, "int");
 
-  tdesc_powerpc_altivec64 = result.release ();
+  tdesc_powerpc_altivec64 = std::move (result);
 }

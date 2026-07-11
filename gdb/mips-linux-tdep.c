@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux on MIPS processors.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "gdbcore.h"
 #include "target.h"
 #include "solib-svr4.h"
@@ -30,22 +30,21 @@
 #include "gdbtypes.h"
 #include "objfiles.h"
 #include "solib.h"
-#include "solist.h"
 #include "symtab.h"
 #include "target-descriptions.h"
 #include "regset.h"
 #include "mips-linux-tdep.h"
 #include "glibc-tdep.h"
 #include "linux-tdep.h"
+#include "solib-svr4-linux.h"
 #include "xml-syscall.h"
 #include "gdbsupport/gdb_signals.h"
+#include "inferior.h"
 
 #include "features/mips-linux.c"
 #include "features/mips-dsp-linux.c"
 #include "features/mips64-linux.c"
 #include "features/mips64-dsp-linux.c"
-
-static struct target_so_ops mips_svr4_so_ops;
 
 /* This enum represents the signals' numbers on the MIPS
    architecture.  It just contains the signal definitions which are
@@ -86,32 +85,33 @@ enum
 /* Figure out where the longjmp will land.
    We expect the first arg to be a pointer to the jmp_buf structure
    from which we extract the pc (MIPS_LINUX_JB_PC) that we will land
-   at.  The pc is copied into PC.  This routine returns 1 on
+   at.  The pc is copied into PC.  This routine returns true on
    success.  */
 
 #define MIPS_LINUX_JB_ELEMENT_SIZE 4
 #define MIPS_LINUX_JB_PC 0
 
-static int
-mips_linux_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
+static bool
+mips_linux_get_longjmp_target (const frame_info_ptr &frame, CORE_ADDR *pc)
 {
   CORE_ADDR jb_addr;
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  gdb_byte buf[gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT];
+  gdb::byte_vector buf (gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT);
 
   jb_addr = get_frame_register_unsigned (frame, MIPS_A0_REGNUM);
 
   if (target_read_memory ((jb_addr
 			   + MIPS_LINUX_JB_PC * MIPS_LINUX_JB_ELEMENT_SIZE),
-			  buf, gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT))
-    return 0;
+			  buf.data (),
+			  gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT))
+    return false;
 
-  *pc = extract_unsigned_integer (buf,
+  *pc = extract_unsigned_integer (buf.data (),
 				  gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT,
 				  byte_order);
 
-  return 1;
+  return true;
 }
 
 /* Transform the bits comprising a 32-bit register to the right size
@@ -245,8 +245,8 @@ mips_fill_gregset_wrapper (const struct regset *regset,
 
 #define MIPS64_LINUX_JB_PC 0
 
-static int
-mips64_linux_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
+static bool
+mips64_linux_get_longjmp_target (const frame_info_ptr &frame, CORE_ADDR *pc)
 {
   CORE_ADDR jb_addr;
   struct gdbarch *gdbarch = get_frame_arch (frame);
@@ -260,13 +260,13 @@ mips64_linux_get_longjmp_target (frame_info_ptr frame, CORE_ADDR *pc)
   if (target_read_memory (jb_addr + MIPS64_LINUX_JB_PC * element_size,
 			  buf,
 			  gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT))
-    return 0;
+    return false;
 
   *pc = extract_unsigned_integer (buf,
 				  gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT,
 				  byte_order);
 
-  return 1;
+  return true;
 }
 
 /* Register set support functions.  These operate on standard 64-bit
@@ -565,10 +565,10 @@ mips_linux_core_read_description (struct gdbarch *gdbarch,
   switch (bfd_section_size (section))
     {
     case sizeof (mips_elf_gregset_t):
-      return mips_tdesc_gp32;
+      return mips_tdesc_gp32.get ();
 
     case sizeof (mips64_elf_gregset_t):
-      return mips_tdesc_gp64;
+      return mips_tdesc_gp64.get ();
 
     default:
       return NULL;
@@ -599,8 +599,8 @@ mips_linux_in_dynsym_stub (CORE_ADDR pc)
 {
   gdb_byte buf[28], *p;
   ULONGEST insn, insn1;
-  int n64 = (mips_abi (target_gdbarch ()) == MIPS_ABI_N64);
-  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch ());
+  int n64 = (mips_abi (current_inferior ()->arch ()) == MIPS_ABI_N64);
+  bfd_endian byte_order = gdbarch_byte_order (current_inferior ()->arch ());
 
   if (in_mips_stubs_section (pc))
     return 1;
@@ -665,24 +665,59 @@ mips_linux_in_dynsym_stub (CORE_ADDR pc)
   return 1;
 }
 
-/* Return non-zero iff PC belongs to the dynamic linker resolution
-   code, a PLT entry, or a lazy binding stub.  */
+/* Mix-in class to add Linux/MIPS-specific methods to a base solib_ops
+   class.  */
 
-static int
-mips_linux_in_dynsym_resolve_code (CORE_ADDR pc)
+template <typename Base>
+struct mips_linux_svr4_solib_ops : public Base
+{
+  using Base::Base;
+
+  bool in_dynsym_resolve_code (CORE_ADDR pc) const override;
+};
+
+template <typename Base>
+bool
+mips_linux_svr4_solib_ops<Base>::in_dynsym_resolve_code (CORE_ADDR pc) const
 {
   /* Check whether PC is in the dynamic linker.  This also checks
      whether it is in the .plt section, used by non-PIC executables.  */
-  if (svr4_in_dynsym_resolve_code (pc))
-    return 1;
+  if (Base::in_dynsym_resolve_code (pc))
+    return true;
 
   /* Likewise for the stubs.  They live in the .MIPS.stubs section these
      days, so we check if the PC is within, than fall back to a pattern
      match.  */
   if (mips_linux_in_dynsym_stub (pc))
-    return 1;
+    return true;
 
-  return 0;
+  return false;
+}
+
+/* solib_ops for ILP32 Linux/MIPS systems.  */
+
+using mips_linux_ilp32_svr4_solib_ops
+  = mips_linux_svr4_solib_ops<linux_ilp32_svr4_solib_ops>;
+
+/* Return a new solib_ops for ILP32 Linux/MIPS systems.  */
+
+static solib_ops_up
+make_mips_linux_ilp32_svr4_solib_ops (program_space *pspace)
+{
+  return std::make_unique<mips_linux_ilp32_svr4_solib_ops> (pspace);
+}
+
+/* solib_ops for LP64 Linux/MIPS systems.  */
+
+using mips_linux_lp64_svr4_solib_ops
+  = mips_linux_svr4_solib_ops<linux_lp64_svr4_solib_ops>;
+
+/* Return a new solib_ops for LP64 Linux/MIPS systems.  */
+
+static solib_ops_up
+make_mips_linux_lp64_svr4_solib_ops (program_space *pspace)
+{
+  return std::make_unique<mips_linux_lp64_svr4_solib_ops> (pspace);
 }
 
 /* See the comments for SKIP_SOLIB_RESOLVER at the top of infrun.c,
@@ -697,9 +732,8 @@ mips_linux_in_dynsym_resolve_code (CORE_ADDR pc)
 static CORE_ADDR
 mips_linux_skip_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
 {
-  struct bound_minimal_symbol resolver;
-
-  resolver = lookup_minimal_symbol ("__dl_runtime_resolve", NULL, NULL);
+  bound_minimal_symbol resolver
+    = lookup_minimal_symbol (current_program_space, "__dl_runtime_resolve");
 
   if (resolver.minsym && resolver.value_address () == pc)
     return frame_unwind_caller_pc (get_current_frame ());
@@ -713,21 +747,21 @@ mips_linux_skip_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
    efficient way, but simplest.  First, declare all the unwinders.  */
 
 static void mips_linux_o32_sigframe_init (const struct tramp_frame *self,
-					  frame_info_ptr this_frame,
+					  const frame_info_ptr &this_frame,
 					  struct trad_frame_cache *this_cache,
 					  CORE_ADDR func);
 
 static void mips_linux_n32n64_sigframe_init (const struct tramp_frame *self,
-					     frame_info_ptr this_frame,
+					     const frame_info_ptr &this_frame,
 					     struct trad_frame_cache *this_cache,
 					     CORE_ADDR func);
 
 static int mips_linux_sigframe_validate (const struct tramp_frame *self,
-					 frame_info_ptr this_frame,
+					 const frame_info_ptr &this_frame,
 					 CORE_ADDR *pc);
 
 static int micromips_linux_sigframe_validate (const struct tramp_frame *self,
-					      frame_info_ptr this_frame,
+					      const frame_info_ptr &this_frame,
 					      CORE_ADDR *pc);
 
 #define MIPS_NR_LINUX 4000
@@ -956,7 +990,7 @@ static const struct tramp_frame micromips_linux_n64_rt_sigframe = {
 
 static void
 mips_linux_o32_sigframe_init (const struct tramp_frame *self,
-			      frame_info_ptr this_frame,
+			      const frame_info_ptr &this_frame,
 			      struct trad_frame_cache *this_cache,
 			      CORE_ADDR func)
 {
@@ -1149,7 +1183,7 @@ mips_linux_o32_sigframe_init (const struct tramp_frame *self,
 
 static void
 mips_linux_n32n64_sigframe_init (const struct tramp_frame *self,
-				 frame_info_ptr this_frame,
+				 const frame_info_ptr &this_frame,
 				 struct trad_frame_cache *this_cache,
 				 CORE_ADDR func)
 {
@@ -1234,7 +1268,7 @@ mips_linux_n32n64_sigframe_init (const struct tramp_frame *self,
 
 static int
 mips_linux_sigframe_validate (const struct tramp_frame *self,
-			      frame_info_ptr this_frame,
+			      const frame_info_ptr &this_frame,
 			      CORE_ADDR *pc)
 {
   return mips_pc_is_mips (*pc);
@@ -1244,7 +1278,7 @@ mips_linux_sigframe_validate (const struct tramp_frame *self,
 
 static int
 micromips_linux_sigframe_validate (const struct tramp_frame *self,
-				   frame_info_ptr this_frame,
+				   const frame_info_ptr &this_frame,
 				   CORE_ADDR *pc)
 {
   if (mips_pc_is_micromips (get_frame_arch (this_frame), *pc))
@@ -1289,7 +1323,7 @@ mips_linux_restart_reg_p (struct gdbarch *gdbarch)
    instruction to be executed.  */
 
 static CORE_ADDR
-mips_linux_syscall_next_pc (frame_info_ptr frame)
+mips_linux_syscall_next_pc (const frame_info_ptr &frame)
 {
   CORE_ADDR pc = get_frame_pc (frame);
   ULONGEST v0 = get_frame_register_unsigned (frame, MIPS_V0_REGNUM);
@@ -1537,8 +1571,7 @@ mips_linux_init_abi (struct gdbarch_info info,
       case MIPS_ABI_O32:
 	set_gdbarch_get_longjmp_target (gdbarch,
 					mips_linux_get_longjmp_target);
-	set_solib_svr4_fetch_link_map_offsets
-	  (gdbarch, linux_ilp32_fetch_link_map_offsets);
+	set_solib_svr4_ops (gdbarch, make_mips_linux_ilp32_svr4_solib_ops);
 	tramp_frame_prepend_unwinder (gdbarch, &micromips_linux_o32_sigframe);
 	tramp_frame_prepend_unwinder (gdbarch,
 				      &micromips_linux_o32_rt_sigframe);
@@ -1549,8 +1582,7 @@ mips_linux_init_abi (struct gdbarch_info info,
       case MIPS_ABI_N32:
 	set_gdbarch_get_longjmp_target (gdbarch,
 					mips_linux_get_longjmp_target);
-	set_solib_svr4_fetch_link_map_offsets
-	  (gdbarch, linux_ilp32_fetch_link_map_offsets);
+	set_solib_svr4_ops (gdbarch, make_mips_linux_ilp32_svr4_solib_ops);
 	set_gdbarch_long_double_bit (gdbarch, 128);
 	set_gdbarch_long_double_format (gdbarch, floatformats_ieee_quad);
 	tramp_frame_prepend_unwinder (gdbarch,
@@ -1561,8 +1593,7 @@ mips_linux_init_abi (struct gdbarch_info info,
       case MIPS_ABI_N64:
 	set_gdbarch_get_longjmp_target (gdbarch,
 					mips64_linux_get_longjmp_target);
-	set_solib_svr4_fetch_link_map_offsets
-	  (gdbarch, linux_lp64_fetch_link_map_offsets);
+	set_solib_svr4_ops (gdbarch, make_mips_linux_lp64_svr4_solib_ops);
 	set_gdbarch_long_double_bit (gdbarch, 128);
 	set_gdbarch_long_double_format (gdbarch, floatformats_ieee_quad);
 	tramp_frame_prepend_unwinder (gdbarch,
@@ -1576,21 +1607,11 @@ mips_linux_init_abi (struct gdbarch_info info,
 
   set_gdbarch_skip_solib_resolver (gdbarch, mips_linux_skip_resolver);
 
-  set_gdbarch_software_single_step (gdbarch, mips_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, mips_software_single_step);
 
   /* Enable TLS support.  */
   set_gdbarch_fetch_tls_load_module_address (gdbarch,
 					     svr4_fetch_objfile_link_map);
-
-  /* Initialize this lazily, to avoid an initialization order
-     dependency on solib-svr4.c's _initialize routine.  */
-  if (mips_svr4_so_ops.in_dynsym_resolve_code == NULL)
-    {
-      mips_svr4_so_ops = svr4_so_ops;
-      mips_svr4_so_ops.in_dynsym_resolve_code
-	= mips_linux_in_dynsym_resolve_code;
-    }
-  set_gdbarch_so_ops (gdbarch, &mips_svr4_so_ops);
 
   set_gdbarch_write_pc (gdbarch, mips_linux_write_pc);
 
@@ -1628,9 +1649,7 @@ mips_linux_init_abi (struct gdbarch_info info,
     }
 }
 
-void _initialize_mips_linux_tdep ();
-void
-_initialize_mips_linux_tdep ()
+INIT_GDB_FILE (mips_linux_tdep)
 {
   const struct bfd_arch_info *arch_info;
 

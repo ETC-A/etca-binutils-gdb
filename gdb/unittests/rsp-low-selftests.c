@@ -1,6 +1,6 @@
 /* Unit tests for the rsp-low.c file.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/selftest.h"
 #include "gdbsupport/rsp-low.h"
 
@@ -52,7 +51,7 @@ static void test_hex2str ()
 {
   SELF_CHECK (hex2str ("666f6f") == "foo");
   SELF_CHECK (hex2str ("666f6fa") == "foo");
-  SELF_CHECK (hex2str ("666f6f", 2) == "fo");
+  SELF_CHECK (hex2str ("666f6f", 2) == "fo"); /* codespell:ignore */
   SELF_CHECK (hex2str ("666", 2) == "f");
   SELF_CHECK (hex2str ("666", 6) == "f");
   SELF_CHECK (hex2str ("") == "");
@@ -61,9 +60,7 @@ static void test_hex2str ()
 } /* namespace rsp_low */
 } /* namespace selftests */
 
-void _initialize_rsp_low_selftests ();
-void
-_initialize_rsp_low_selftests ()
+INIT_GDB_FILE (rsp_low_selftests)
 {
   selftests::register_test ("hex2bin_byte_vector",
 			    selftests::rsp_low::test_hex2bin_byte_vector);

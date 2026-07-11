@@ -1,6 +1,6 @@
 /* Native-dependent code for MIPS systems running NetBSD.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,6 @@
 
 /* We define this to get types like register_t.  */
 #define _KERNTYPES
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 #include "target.h"
@@ -61,7 +60,7 @@ mips_nbsd_nat_target::fetch_registers (struct regcache *regcache, int regno)
 
       if (ptrace (PT_GETREGS, pid, (PTRACE_TYPE_ARG3) &regs, 0) == -1)
 	perror_with_name (_("Couldn't get registers"));
-      
+
       mipsnbsd_supply_reg (regcache, (char *) &regs, regno);
       if (regno != -1)
 	return;
@@ -104,7 +103,7 @@ mips_nbsd_nat_target::store_registers (struct regcache *regcache, int regno)
   if (regno == -1
       || regno >= gdbarch_fp0_regnum (regcache->arch ()))
     {
-      struct fpreg fpregs; 
+      struct fpreg fpregs;
 
       if (ptrace (PT_GETFPREGS, pid, (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	perror_with_name (_("Couldn't get floating point status"));
@@ -116,9 +115,7 @@ mips_nbsd_nat_target::store_registers (struct regcache *regcache, int regno)
     }
 }
 
-void _initialize_mipsnbsd_nat ();
-void
-_initialize_mipsnbsd_nat ()
+INIT_GDB_FILE (mipsnbsd_nat)
 {
   add_inf_child_target (&the_mips_nbsd_nat_target);
 }

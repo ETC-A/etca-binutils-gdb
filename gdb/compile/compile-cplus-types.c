@@ -1,6 +1,6 @@
 /* Convert types from GDB to GCC
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "gdbsupport/preprocessor.h"
 #include "gdbtypes.h"
 #include "compile-internal.h"
@@ -30,7 +29,7 @@
 #include "cp-abi.h"
 #include "objfiles.h"
 #include "block.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "c-lang.h"
 #include "compile-c.h"
 #include <algorithm>
@@ -73,9 +72,10 @@ compile_cplus_instance::decl_name (const char *natural)
 static enum gcc_cp_symbol_kind
 get_field_access_flag (const struct type *type, int num)
 {
-  if (TYPE_FIELD_PROTECTED (type, num))
+  field &fld = type->field (num);
+  if (fld.is_protected ())
     return GCC_CP_ACCESS_PROTECTED;
-  else if (TYPE_FIELD_PRIVATE (type, num))
+  else if (fld.is_private ())
     return GCC_CP_ACCESS_PRIVATE;
 
   /* GDB assumes everything else is public.  */
@@ -153,7 +153,7 @@ type_name_to_scope (const char *type_name, const struct block *block)
 
       /* Look up the resulting name.  */
       struct block_symbol bsymbol
-	= lookup_symbol (lookup_name.c_str (), block, VAR_DOMAIN, nullptr);
+	= lookup_symbol (lookup_name.c_str (), block, SEARCH_VFT, nullptr);
 
       if (bsymbol.symbol != nullptr)
 	{
@@ -383,7 +383,7 @@ compile_cplus_instance::new_scope (const char *type_name, struct type *type)
 	  scope_component comp
 	    = {
 		decl_name (type->name ()).get (),
-		lookup_symbol (type->name (), block (), VAR_DOMAIN, nullptr)
+		lookup_symbol (type->name (), block (), SEARCH_VFT, nullptr)
 	      };
 	  scope.push_back (comp);
 	}
@@ -583,8 +583,8 @@ compile_cplus_convert_struct_or_union_members
     {
       const char *field_name = type->field (i).name ();
 
-      if (TYPE_FIELD_IGNORE (type, i)
-	  || TYPE_FIELD_ARTIFICIAL (type, i))
+      if (type->field (i).is_ignored ()
+	  || type->field (i).is_artificial ())
 	continue;
 
       /* GDB records unnamed/anonymous fields with empty string names.  */
@@ -616,7 +616,7 @@ compile_cplus_convert_struct_or_union_members
 		const char *physname = type->field (i).loc_physname ();
 		struct block_symbol sym
 		  = lookup_symbol (physname, instance->block (),
-				   VAR_DOMAIN, nullptr);
+				   SEARCH_VFT, nullptr);
 
 		if (sym.symbol == nullptr)
 		  {
@@ -624,7 +624,7 @@ compile_cplus_convert_struct_or_union_members
 		       we can do but ignore this member.  */
 		    continue;
 		  }
-		const char *filename = sym.symbol->symtab ()->filename;
+		const char *filename = sym.symbol->symtab ()->filename ();
 		unsigned int line = sym.symbol->line ();
 
 		physaddr = sym.symbol->value_address ();
@@ -642,7 +642,7 @@ compile_cplus_convert_struct_or_union_members
 	}
       else
 	{
-	  unsigned long bitsize = TYPE_FIELD_BITSIZE (type, i);
+	  unsigned long bitsize = type->field (i).bitsize ();
 	  enum gcc_cp_symbol_kind field_flags = GCC_CP_SYMBOL_FIELD
 	    | get_field_access_flag (type, i);
 
@@ -728,7 +728,7 @@ compile_cplus_convert_struct_or_union_methods (compile_cplus_instance *instance,
 	  gcc_type method_type;
 	  struct block_symbol sym
 	    = lookup_symbol (TYPE_FN_FIELD_PHYSNAME (methods, j),
-			     instance->block (), VAR_DOMAIN, nullptr);
+			     instance->block (), SEARCH_VFT, nullptr);
 
 	  if (sym.symbol == nullptr)
 	    {
@@ -763,7 +763,7 @@ compile_cplus_convert_struct_or_union_methods (compile_cplus_instance *instance,
 	      continue;
 	    }
 
-	  const char *filename = sym.symbol->symtab ()->filename;
+	  const char *filename = sym.symbol->symtab ()->filename ();
 	  unsigned int line = sym.symbol->line ();
 	  CORE_ADDR address = sym.symbol->value_block()->start ();
 	  const char *kind;
@@ -982,7 +982,7 @@ compile_cplus_convert_func (compile_cplus_instance *instance,
   int artificials = 0;
   for (int i = 0; i < type->num_fields (); ++i)
     {
-      if (strip_artificial && TYPE_FIELD_ARTIFICIAL (type, i))
+      if (strip_artificial && type->field (i).is_artificial ())
 	{
 	  --array.n_elements;
 	  ++artificials;
@@ -1395,9 +1395,7 @@ gcc_cp_plugin::pop_binding_level (const char *debug_name)
   return pop_binding_level ();
 }
 
-void _initialize_compile_cplus_types ();
-void
-_initialize_compile_cplus_types ()
+INIT_GDB_FILE (compile_cplus_types)
 {
   add_setshow_boolean_cmd ("compile-cplus-types", no_class,
 			     &debug_compile_cplus_types, _("\

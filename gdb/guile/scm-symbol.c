@@ -1,6 +1,6 @@
 /* Scheme interface to symbols.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,6 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
 #include "block.h"
 #include "frame.h"
 #include "symtab.h"
@@ -137,7 +136,7 @@ syscm_get_symbol_map (struct symbol *symbol)
       struct syscm_gdbarch_data *data = syscm_gdbarch_data_key.get (gdbarch);
       if (data == nullptr)
 	{
-	  data = syscm_gdbarch_data_key.emplace (gdbarch);
+	  data = &syscm_gdbarch_data_key.emplace (gdbarch);
 	  data->htab
 	    = gdbscm_create_eqable_gsmob_ptr_map (syscm_hash_symbol_smob,
 						  syscm_eq_symbol_smob);
@@ -406,7 +405,7 @@ gdbscm_symbol_addr_class (SCM self)
     = syscm_get_valid_symbol_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   const struct symbol *symbol = s_smob->symbol;
 
-  return scm_from_int (symbol->aclass ());
+  return scm_from_int (symbol->loc_class ());
 }
 
 /* (symbol-argument? <gdb:symbol>) -> boolean */
@@ -429,11 +428,9 @@ gdbscm_symbol_constant_p (SCM self)
   symbol_smob *s_smob
     = syscm_get_valid_symbol_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   const struct symbol *symbol = s_smob->symbol;
-  enum address_class theclass;
+  location_class loc_class = symbol->loc_class ();
 
-  theclass = symbol->aclass ();
-
-  return scm_from_bool (theclass == LOC_CONST || theclass == LOC_CONST_BYTES);
+  return scm_from_bool (loc_class == LOC_CONST || loc_class == LOC_CONST_BYTES);
 }
 
 /* (symbol-function? <gdb:symbol>) -> boolean */
@@ -444,11 +441,9 @@ gdbscm_symbol_function_p (SCM self)
   symbol_smob *s_smob
     = syscm_get_valid_symbol_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   const struct symbol *symbol = s_smob->symbol;
-  enum address_class theclass;
+  location_class loc_class = symbol->loc_class ();
 
-  theclass = symbol->aclass ();
-
-  return scm_from_bool (theclass == LOC_BLOCK);
+  return scm_from_bool (loc_class == LOC_BLOCK);
 }
 
 /* (symbol-variable? <gdb:symbol>) -> boolean */
@@ -459,14 +454,12 @@ gdbscm_symbol_variable_p (SCM self)
   symbol_smob *s_smob
     = syscm_get_valid_symbol_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   const struct symbol *symbol = s_smob->symbol;
-  enum address_class theclass;
-
-  theclass = symbol->aclass ();
+  location_class loc_class = symbol->loc_class ();
 
   return scm_from_bool (!symbol->is_argument ()
-			&& (theclass == LOC_LOCAL || theclass == LOC_REGISTER
-			    || theclass == LOC_STATIC || theclass == LOC_COMPUTED
-			    || theclass == LOC_OPTIMIZED_OUT));
+			&& (loc_class == LOC_LOCAL || loc_class == LOC_REGISTER
+			    || loc_class == LOC_STATIC || loc_class == LOC_COMPUTED
+			    || loc_class == LOC_OPTIMIZED_OUT));
 }
 
 /* (symbol-needs-frame? <gdb:symbol>) -> boolean
@@ -527,7 +520,7 @@ gdbscm_symbol_value (SCM self, SCM rest)
   if (!gdbscm_is_false (frame_scm))
     f_smob = frscm_get_frame_smob_arg_unsafe (frame_scm, frame_pos, FUNC_NAME);
 
-  if (symbol->aclass () == LOC_TYPEDEF)
+  if (symbol->loc_class () == LOC_TYPEDEF)
     {
       gdbscm_out_of_range_error (FUNC_NAME, SCM_ARG1, self,
 				 _("cannot get the value of a typedef"));
@@ -544,7 +537,7 @@ gdbscm_symbol_value (SCM self, SCM rest)
 	  if (frame_info == NULL)
 	    error (_("Invalid frame"));
 	}
-      
+
       if (symbol_read_needs_frame (symbol) && frame_info == NULL)
 	error (_("Symbol requires a frame to compute its value"));
 
@@ -617,7 +610,8 @@ gdbscm_lookup_symbol (SCM name_scm, SCM rest)
   gdbscm_gdb_exception except {};
   try
     {
-      symbol = lookup_symbol (name, block, (domain_enum) domain,
+      domain_search_flags flags = from_scripting_domain (domain);
+      symbol = lookup_symbol (name, block, flags,
 			      &is_a_field_of_this).symbol;
     }
   catch (const gdb_exception &ex)
@@ -654,7 +648,8 @@ gdbscm_lookup_global_symbol (SCM name_scm, SCM rest)
 
   try
     {
-      symbol = lookup_global_symbol (name, NULL, (domain_enum) domain).symbol;
+      domain_search_flags flags = from_scripting_domain (domain);
+      symbol = lookup_global_symbol (name, NULL, flags).symbol;
     }
   catch (const gdb_exception &ex)
     {
@@ -693,15 +688,18 @@ static const scheme_integer_constant symbol_integer_constants[] =
   X (LOC_OPTIMIZED_OUT),
   X (LOC_COMPUTED),
   X (LOC_REGPARM_ADDR),
-
-  X (UNDEF_DOMAIN),
-  X (VAR_DOMAIN),
-  X (STRUCT_DOMAIN),
-  X (LABEL_DOMAIN),
-  X (VARIABLES_DOMAIN),
-  X (FUNCTIONS_DOMAIN),
-  X (TYPES_DOMAIN),
 #undef X
+
+#define SYM_DOMAIN(X) \
+  { "SYMBOL_" #X "_DOMAIN", to_scripting_domain (X ## _DOMAIN) },	\
+  { "SEARCH_" #X "_DOMAIN", to_scripting_domain (SEARCH_ ## X ## _DOMAIN) },
+#include "sym-domains.def"
+#undef SYM_DOMAIN
+
+  /* Historical.  */
+  { "SYMBOL_VARIABLES_DOMAIN", to_scripting_domain (SEARCH_VAR_DOMAIN) },
+  { "SYMBOL_FUNCTIONS_DOMAIN", to_scripting_domain (SEARCH_FUNCTION_DOMAIN) },
+  { "SYMBOL_TYPES_DOMAIN", to_scripting_domain (SEARCH_TYPE_DOMAIN) },
 
   END_INTEGER_CONSTANTS
 };

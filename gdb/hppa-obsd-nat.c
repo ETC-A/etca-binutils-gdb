@@ -1,6 +1,6 @@
 /* Native-dependent code for OpenBSD/hppa.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 #include "target.h"
@@ -56,11 +55,10 @@ hppaobsd_fpregset_supplies_p (int regnum)
 static void
 hppaobsd_supply_gregset (struct regcache *regcache, const void *gregs)
 {
-  gdb_byte zero[4] = { 0 };
   const char *regs = gregs;
   int regnum;
 
-  regcache->raw_supply (HPPA_R0_REGNUM, &zero);
+  regcache->raw_supply_zeroed (HPPA_R0_REGNUM);
   for (regnum = HPPA_R1_REGNUM; regnum <= HPPA_R31_REGNUM; regnum++)
     regcache->raw_supply (regnum, regs + regnum * 4);
 
@@ -82,7 +80,7 @@ hppaobsd_supply_gregset (struct regcache *regcache, const void *gregs)
       regcache->raw_supply (HPPA_SR7_REGNUM, regs + 44 * 4);
       regcache->raw_supply (HPPA_CR26_REGNUM, regs + 45 * 4);
       regcache->raw_supply (HPPA_CR27_REGNUM, regs + 46 * 4);
-    } 
+    }
   else
     {
       regcache->raw_supply (HPPA_SAR_REGNUM, regs);
@@ -252,9 +250,7 @@ hppa_obsd_nat_target::store_registers (struct regcache *regcache, int regnum)
     }
 }
 
-void _initialize_hppaobsd_nat ();
-void
-_initialize_hppaobsd_nat ()
+INIT_GDB_FILE (hppaobsd_nat)
 {
   add_inf_child_target (&the_hppa_obsd_nat_target);
 }

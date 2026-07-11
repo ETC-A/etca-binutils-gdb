@@ -1,6 +1,6 @@
 /* Target-dependent code for Solaris.
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "symtab.h"
 #include "inferior.h"
@@ -44,15 +43,16 @@
 static int
 sol2_pc_in_sigtramp (CORE_ADDR pc, const char *name)
 {
-  return (name && (strcmp (name, "sigacthandler") == 0
-		   || strcmp (name, "ucbsigvechandler") == 0
-		   || strcmp (name, "__sighndlr") == 0));
+  return (name != nullptr
+	  && (streq (name, "sigacthandler")
+	      || streq (name, "ucbsigvechandler")
+	      || streq (name, "__sighndlr")));
 }
 
 /* Return whether THIS_FRAME corresponds to a Solaris sigtramp routine.  */
 
 int
-sol2_sigtramp_p (frame_info_ptr this_frame)
+sol2_sigtramp_p (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   const char *name;
@@ -64,9 +64,8 @@ sol2_sigtramp_p (frame_info_ptr this_frame)
 static CORE_ADDR
 sol2_skip_solib_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
 {
-  struct bound_minimal_symbol msym;
-
-  msym = lookup_minimal_symbol("elf_bndr", NULL, NULL);
+  bound_minimal_symbol msym
+    = lookup_minimal_symbol (current_program_space, "elf_bndr");
   if (msym.minsym && msym.value_address () == pc)
     return frame_unwind_caller_pc (get_current_frame ());
 
@@ -104,11 +103,6 @@ sol2_core_pid_to_str (struct gdbarch *gdbarch, ptid_t ptid)
 void
 sol2_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
-  /* The Sun compilers (Sun ONE Studio, Forte Developer, Sun WorkShop, SunPRO)
-     compiler puts out 0 instead of the address in N_SO stabs.  Starting with
-     SunPRO 3.0, the compiler does this for N_FUN stabs too.  */
-  set_gdbarch_sofun_address_maybe_missing (gdbarch, 1);
-
   /* Solaris uses SVR4-style shared libraries.  */
   set_gdbarch_skip_solib_resolver (gdbarch, sol2_skip_solib_resolver);
 

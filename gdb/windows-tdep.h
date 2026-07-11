@@ -1,4 +1,4 @@
-/* Copyright (C) 2008-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,10 +15,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef WINDOWS_TDEP_H
-#define WINDOWS_TDEP_H
+#ifndef GDB_WINDOWS_TDEP_H
+#define GDB_WINDOWS_TDEP_H
 
-struct obstack;
+#include "frame-unwind.h"
+
 struct gdbarch;
 
 extern struct cmd_list_element *info_w32_cmdlist;
@@ -29,9 +30,10 @@ extern void windows_xfer_shared_library (const char* so_name,
 					 CORE_ADDR load_addr,
 					 CORE_ADDR *text_offset_cached,
 					 struct gdbarch *gdbarch,
-					 struct obstack *obstack);
+					 std::string &xml);
 
 extern ULONGEST windows_core_xfer_shared_libraries (struct gdbarch *gdbarch,
+						    struct bfd &cbfd,
 						    gdb_byte *readbuf,
 						    ULONGEST offset,
 						    ULONGEST len);
@@ -56,4 +58,36 @@ extern void cygwin_init_abi (struct gdbarch_info info,
 
 extern bool is_linked_with_cygwin_dll (bfd *abfd);
 
-#endif
+/* Cygwin sigwapper unwinder.  Unwinds signal frames over
+   sigbe/sigdelayed.  */
+
+class cygwin_sigwrapper_frame_unwind : public frame_unwind
+{
+public:
+  explicit cygwin_sigwrapper_frame_unwind
+    (gdb::array_view<const gdb::array_view<const gdb_byte>> patterns_list);
+
+  /* Architecture-specific list of instruction patterns to match.
+     It's a list of patterns instead of single pattern because some
+     architectures want to match more than one function
+     (sigbe/sigdelayed & friends).  Each potential instruction
+     sequence is assumed to be followed by 4 bytes for tls::stackptr.
+     If any pattern in the list matches, then the frame is assumed to
+     be a sigwrapper frame.  */
+  gdb::array_view<const gdb::array_view<const gdb_byte>> patterns_list;
+
+  /* Calculate the frame ID of a cygwin wrapper.  */
+  void this_id (const frame_info_ptr &this_frame, void **this_prologue_cache,
+		struct frame_id *id) const override;
+
+  /* Sniff the frame to tell if this unwinder should be used.  */
+  int sniff (const frame_info_ptr &this_frame,
+	       void **this_prologue_cache) const override;
+
+  /* Calculate the value of a given register in the previous frame.  */
+  struct value *prev_register (const frame_info_ptr &this_frame,
+			       void **this_cache,
+			       int regnum) const override;
+};
+
+#endif /* GDB_WINDOWS_TDEP_H */

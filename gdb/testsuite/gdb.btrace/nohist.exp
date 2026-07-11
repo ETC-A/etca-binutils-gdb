@@ -1,6 +1,6 @@
 # This testcase is part of GDB, the GNU debugger.
 #
-# Copyright 2014-2023 Free Software Foundation, Inc.
+# Copyright 2014-2026 Free Software Foundation, Inc.
 #
 # Contributed by Intel Corp. <markus.t.metzger@intel.com>
 #
@@ -20,11 +20,11 @@
 require allow_btrace_tests
 
 standard_testfile record_goto.c
-if [prepare_for_testing "failed to prepare" $testfile $srcfile] {
+if {[prepare_for_testing "failed to prepare" $testfile $srcfile]} {
     return -1
 }
 
-if ![runto_main] {
+if {![runto_main]} {
     return -1
 }
 
@@ -42,7 +42,7 @@ with_test_prefix "forward" {
     check_not_replaying
 }
 
-gdb_test "reverse-continue" "No more reverse-execution history\.\r\n.*"
+gdb_test "reverse-continue" "Reached end of recorded history; stopping.*"
 
 with_test_prefix "backward" {
     check_not_replaying

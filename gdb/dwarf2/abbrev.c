@@ -1,6 +1,6 @@
 /* DWARF 2 abbreviations
 
-   Copyright (C) 1994-2023 Free Software Foundation, Inc.
+   Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
    Adapted by Gary Funck (gary@intrepid.com), Intrepid Technology,
    Inc.  with support from Florida State University (under contract
@@ -24,57 +24,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "dwarf2/read.h"
 #include "dwarf2/abbrev.h"
 #include "dwarf2/leb.h"
+#include "dwarf2/section.h"
 #include "bfd.h"
-
-/* Hash function for an abbrev.  */
-
-static hashval_t
-hash_abbrev (const void *item)
-{
-  const struct abbrev_info *info = (const struct abbrev_info *) item;
-  /* Warning: if you change this next line, you must also update the
-     other code in this class using the _with_hash functions.  */
-  return info->number;
-}
-
-/* Comparison function for abbrevs.  */
-
-static int
-eq_abbrev (const void *lhs, const void *rhs)
-{
-  const struct abbrev_info *l_info = (const struct abbrev_info *) lhs;
-  const struct abbrev_info *r_info = (const struct abbrev_info *) rhs;
-  return l_info->number == r_info->number;
-}
-
-/* Abbreviation tables.
-
-   In DWARF version 2, the description of the debugging information is
-   stored in a separate .debug_abbrev section.  Before we read any
-   dies from a section we read in all abbreviations and install them
-   in a hash table.  */
-
-abbrev_table::abbrev_table (sect_offset off, struct dwarf2_section_info *sect)
-  : sect_off (off),
-    section (sect),
-    m_abbrevs (htab_create_alloc (20, hash_abbrev, eq_abbrev,
-				  nullptr, xcalloc, xfree))
-{
-}
-
-/* Add an abbreviation to the table.  */
-
-void
-abbrev_table::add_abbrev (struct abbrev_info *abbrev)
-{
-  void **slot = htab_find_slot_with_hash (m_abbrevs.get (), abbrev,
-					  abbrev->number, INSERT);
-  *slot = abbrev;
-}
 
 /* Helper function that returns true if a DIE with the given tag might
    plausibly be indexed.  */
@@ -88,11 +41,11 @@ tag_interesting_for_index (dwarf_tag tag)
     case DW_TAG_base_type:
     case DW_TAG_class_type:
     case DW_TAG_constant:
+    case DW_TAG_entry_point:
     case DW_TAG_enumeration_type:
     case DW_TAG_enumerator:
     case DW_TAG_imported_declaration:
     case DW_TAG_imported_unit:
-    case DW_TAG_inlined_subroutine:
     case DW_TAG_interface_type:
     case DW_TAG_module:
     case DW_TAG_namespace:
@@ -128,7 +81,7 @@ abbrev_table::read (struct dwarf2_section_info *section,
   struct obstack *obstack = &abbrev_table->m_abbrev_obstack;
 
   /* Caller must ensure this.  */
-  gdb_assert (section->readin);
+  gdb_assert (section->read_in);
   abbrev_ptr = section->buffer + to_underlying (sect_off);
 
   while (true)
@@ -154,6 +107,8 @@ abbrev_table::read (struct dwarf2_section_info *section,
       cur_abbrev->has_children = read_1_byte (abfd, abbrev_ptr);
       abbrev_ptr += 1;
 
+      cur_abbrev->maybe_ada_import = false;
+
       unsigned int size = 0;
       unsigned int sibling_offset = -1;
       bool is_csize = true;
@@ -162,8 +117,8 @@ abbrev_table::read (struct dwarf2_section_info *section,
       bool has_specification_or_origin = false;
       bool has_name = false;
       bool has_linkage_name = false;
-      bool has_location = false;
       bool has_external = false;
+      bool has_const_value = false;
 
       /* Now read in declarations.  */
       int num_attrs = 0;
@@ -217,14 +172,13 @@ abbrev_table::read (struct dwarf2_section_info *section,
 	      has_linkage_name = true;
 	      break;
 
-	    case DW_AT_const_value:
-	    case DW_AT_location:
-	      has_location = true;
-	      break;
-
 	    case DW_AT_sibling:
 	      if (is_csize && cur_attr.form == DW_FORM_ref4)
 		sibling_offset = size;
+	      break;
+
+	    case DW_AT_const_value:
+	      has_const_value = true;
 	      break;
 	    }
 
@@ -282,7 +236,8 @@ abbrev_table::read (struct dwarf2_section_info *section,
 	}
       else if ((cur_abbrev->tag == DW_TAG_structure_type
 		|| cur_abbrev->tag == DW_TAG_class_type
-		|| cur_abbrev->tag == DW_TAG_union_type)
+		|| cur_abbrev->tag == DW_TAG_union_type
+		|| cur_abbrev->tag == DW_TAG_namespace)
 	       && cur_abbrev->has_children)
 	{
 	  /* We have to record this as interesting, regardless of how
@@ -291,13 +246,66 @@ abbrev_table::read (struct dwarf2_section_info *section,
 	     the correct scope.  */
 	  cur_abbrev->interesting = true;
 	}
+      else if (cur_abbrev->tag == DW_TAG_member && has_const_value
+	       && has_external)
+	{
+	  /* For a static const member with initializer, gcc (and likewise
+	     clang) generates a DW_TAG_member with a DW_AT_const_value
+	     attribute when using DWARF v4 or earlier.
+
+	       class A {
+		 static const int aaa = 11;
+	       };
+
+	       <2><28>: Abbrev Number: 3 (DW_TAG_member)
+		  <29>	 DW_AT_name	   : aaa
+		  <34>	 DW_AT_external	   : 1
+		  <34>	 DW_AT_declaration : 1
+		  <34>	 DW_AT_const_value : 11
+
+	     That's not the case if we move the initializer out of the class
+	     declaration, we get a DW_TAG_variable representing the value:
+
+	       class A {
+		 static const int aaa;
+	       };
+	       const int A::aaa = 11;
+
+	       <2><28>: Abbrev Number: 3 (DW_TAG_member)
+		  <29>	 DW_AT_name	   : aaa
+		  <34>	 DW_AT_external	   : 1
+		  <34>	 DW_AT_declaration : 1
+	       <1><41>: Abbrev Number: 6 (DW_TAG_variable)
+		  <42>	 DW_AT_specification: <0x28>
+		  <48>	 DW_AT_linkage_name: _ZN1A3aaaE
+		  <4c>	 DW_AT_location	   : 9 byte block: (DW_OP_addr: 0)
+
+	     We could try to cater here for the case that we have a
+	     DW_AT_location instead of a DW_AT_const_value, but that doesn't
+	     seem to be handled by the rest of GDB.
+
+	     I did find an example of a non-external one for std::_Function_base
+	     ::_Base_manager<get_compile_file_tempdir()::<lambda()> >
+	     ::__stored_locally:
+
+	       <4><27bd192>: Abbrev Number: 279 (DW_TAG_member)
+		  <27bd194>   DW_AT_name	: __stored_locally
+		  <27bd19e>   DW_AT_accessibility: 2  (protected)
+		  <27bd19f>   DW_AT_declaration : 1
+		  <27bd19f>   DW_AT_const_value : 1 byte block: 1
+
+	     but again that doesn't seem to be handled by the rest of GDB.  */
+	  cur_abbrev->interesting = true;
+	}
       else if (has_hardcoded_declaration
 	       && (cur_abbrev->tag != DW_TAG_variable || !has_external))
-	cur_abbrev->interesting = false;
+	{
+	  cur_abbrev->interesting = false;
+	  if (cur_abbrev->tag == DW_TAG_subprogram && has_name
+	      && has_linkage_name)
+	    cur_abbrev->maybe_ada_import = true;
+	}
       else if (!tag_interesting_for_index (cur_abbrev->tag))
-	cur_abbrev->interesting = false;
-      else if (!has_location && !has_specification_or_origin && !has_external
-	       && cur_abbrev->tag == DW_TAG_variable)
 	cur_abbrev->interesting = false;
       else
 	cur_abbrev->interesting = true;

@@ -1,6 +1,6 @@
 /* Perform arithmetic and other operations on values, for GDB.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "value.h"
 #include "symtab.h"
 #include "gdbtypes.h"
@@ -28,6 +28,9 @@
 #include "infcall.h"
 #include "gdbsupport/byte-vector.h"
 #include "gdbarch.h"
+#include "rust-lang.h"
+#include "ada-lang.h"
+#include "cli/cli-style.h"
 
 /* Forward declarations.  */
 static struct value *value_subscripted_rvalue (struct value *array,
@@ -37,7 +40,7 @@ static struct value *value_subscripted_rvalue (struct value *array,
 /* Given a pointer, return the size of its target.
    If the pointer type is void *, then return 1.
    If the target type is incomplete, then error out.
-   This isn't a general purpose function, but just a 
+   This isn't a general purpose function, but just a
    helper for value_ptradd.  */
 
 static LONGEST
@@ -57,7 +60,7 @@ find_size_for_pointer_math (struct type *ptr_type)
       else
 	{
 	  const char *name;
-	  
+
 	  name = ptr_target->name ();
 	  if (name == NULL)
 	    error (_("Cannot perform pointer math on incomplete types, "
@@ -115,7 +118,7 @@ value_ptrdiff (struct value *arg1, struct value *arg2)
 	     "an integer nor a pointer of the same type."));
 
   sz = type_length_units (check_typedef (type1->target_type ()));
-  if (sz == 0) 
+  if (sz == 0)
     {
       warning (_("Type size unknown, assuming 1. "
 	       "Try casting to a known type, or void *."));
@@ -148,14 +151,14 @@ value_subscript (struct value *array, LONGEST index)
       || tarray->code () == TYPE_CODE_STRING)
     {
       struct type *range_type = tarray->index_type ();
-      gdb::optional<LONGEST> lowerbound = get_discrete_low_bound (range_type);
+      std::optional<LONGEST> lowerbound = get_discrete_low_bound (range_type);
       if (!lowerbound.has_value ())
 	lowerbound = 0;
 
       if (array->lval () != lval_memory)
 	return value_subscripted_rvalue (array, index, *lowerbound);
 
-      gdb::optional<LONGEST> upperbound
+      std::optional<LONGEST> upperbound
 	= get_discrete_high_bound (range_type);
 
       if (!upperbound.has_value ())
@@ -249,6 +252,23 @@ value_subscripted_rvalue (struct value *array, LONGEST index,
   return value_from_component (array, elt_type, elt_offs);
 }
 
+/* See value.h.  */
+
+struct value *
+value_to_array (struct value *val)
+{
+  struct type *type = check_typedef (val->type ());
+  if (type->code () == TYPE_CODE_ARRAY)
+    return val;
+
+  if (type->is_array_like ())
+    {
+      const language_defn *defn = language_def (type->language ());
+      return defn->to_array (val);
+    }
+  return nullptr;
+}
+
 
 /* Check to see if either argument is a structure, or a reference to
    one.  This is called so we know whether to go ahead with the normal
@@ -289,7 +309,7 @@ binop_user_defined_p (enum exp_opcode op,
 }
 
 /* Check to see if argument is a structure.  This is called so
-   we know whether to go ahead with the normal unop or look for a 
+   we know whether to go ahead with the normal unop or look for a
    user defined function instead.
 
    For now, we do not overload the `&' operator.  */
@@ -365,7 +385,7 @@ value_user_defined_op (struct value **argp, gdb::array_view<value *> args,
 }
 
 /* We know either arg1 or arg2 is a structure, so try to find the right
-   user defined function.  Create an argument vector that calls 
+   user defined function.  Create an argument vector that calls
    arg1.operator @ (arg1,arg2) and return that value (where '@' is any
    binary operator which is legal for GNU C++).
 
@@ -540,7 +560,8 @@ value_x_binop (struct value *arg1, struct value *arg2, enum exp_opcode op,
 				    argvec.slice (1, 2 - static_memfuncp));
     }
   throw_error (NOT_FOUND_ERROR,
-	       _("member function %s not found"), tstr);
+	       _("member function %ps not found"),
+	       styled_string (function_name_style.style (), tstr));
 }
 
 /* We know that arg1 is a structure, so try to find a unary user
@@ -653,7 +674,8 @@ value_x_unop (struct value *arg1, enum exp_opcode op, enum noside noside)
 				    argvec.slice (1, nargs));
     }
   throw_error (NOT_FOUND_ERROR,
-	       _("member function %s not found"), tstr);
+	       _("member function %ps not found"),
+	       styled_string (function_name_style.style (), tstr));
 }
 
 
@@ -668,7 +690,7 @@ value_concat (struct value *arg1, struct value *arg2)
   struct type *type2 = check_typedef (arg2->type ());
 
   if (type1->code () != TYPE_CODE_ARRAY && type2->code () != TYPE_CODE_ARRAY)
-    error ("no array provided to concatenation");
+    error (_("no array provided to concatenation"));
 
   LONGEST low1, high1;
   struct type *elttype1 = type1;
@@ -1067,7 +1089,7 @@ type_length_bits (type *type)
 static bool
 check_valid_shift_count (enum exp_opcode op, type *result_type,
 			 type *shift_count_type, const gdb_mpz &shift_count,
-			 unsigned long &nbits)
+			 ULONGEST &nbits)
 {
   if (!shift_count_type->is_unsigned ())
     {
@@ -1093,7 +1115,7 @@ check_valid_shift_count (enum exp_opcode op, type *result_type,
 	}
     }
 
-  nbits = shift_count.as_integer<unsigned long> ();
+  nbits = shift_count.as_integer<ULONGEST> ();
   if (nbits >= type_length_bits (result_type))
     {
       /* In Go, shifting by large amounts is defined.  Be silent and
@@ -1183,11 +1205,11 @@ scalar_binop (struct value *arg1, struct value *arg2, enum exp_opcode op)
 	case BINOP_BITWISE_XOR:
 	  v = v1 ^ v2;
 	  break;
-	      
+
 	case BINOP_EQUAL:
 	  v = v1 == v2;
 	  break;
-	  
+
 	case BINOP_NOTEQUAL:
 	  v = v1 != v2;
 	  break;
@@ -1272,7 +1294,7 @@ scalar_binop (struct value *arg1, struct value *arg2, enum exp_opcode op)
 
 	case BINOP_LSH:
 	  {
-	    unsigned long nbits;
+	    ULONGEST nbits;
 	    if (!check_valid_shift_count (op, result_type, type2, v2, nbits))
 	      v = 0;
 	    else
@@ -1282,9 +1304,23 @@ scalar_binop (struct value *arg1, struct value *arg2, enum exp_opcode op)
 
 	case BINOP_RSH:
 	  {
-	    unsigned long nbits;
+	    ULONGEST nbits;
 	    if (!check_valid_shift_count (op, result_type, type2, v2, nbits))
-	      v = 0;
+	      {
+		/* Pretend the too-large shift was decomposed in a
+		   number of smaller shifts.  An arithmetic signed
+		   right shift of a negative number always yields -1
+		   with such semantics.  This is the right thing to
+		   do for Go, and we might as well do it for
+		   languages where it is undefined.  Also, pretend a
+		   shift by a negative number was a shift by the
+		   negative number cast to unsigned, which is the
+		   same as shifting by a too-large number.  */
+		if (v1 < 0 && !result_type->is_unsigned ())
+		  v = -1;
+		else
+		  v = 0;
+	      }
 	    else
 	      v = v1 >> nbits;
 	  }
@@ -1461,7 +1497,7 @@ value_binop (struct value *arg1, struct value *arg2, enum exp_opcode op)
       /* Widen the scalar operand to a vector.  */
       struct value **v = t1_is_vec ? &arg2 : &arg1;
       struct type *t = t1_is_vec ? type2 : type1;
-      
+
       if (t->code () != TYPE_CODE_FLT
 	  && t->code () != TYPE_CODE_DECFLOAT
 	  && !is_integral_type (t))

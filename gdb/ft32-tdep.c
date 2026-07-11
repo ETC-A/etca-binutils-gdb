@@ -1,6 +1,6 @@
 /* Target-dependent code for FT32.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,13 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
 #include "symtab.h"
 #include "gdbtypes.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "value.h"
 #include "inferior.h"
@@ -61,7 +61,7 @@ struct ft32_frame_cache
   /* Saved SP in this frame */
   CORE_ADDR saved_sp;
   /* Has the new frame been LINKed.  */
-  bfd_boolean established;
+  bool established;
 };
 
 /* Implement the "frame_align" gdbarch method.  */
@@ -77,7 +77,7 @@ ft32_frame_align (struct gdbarch *gdbarch, CORE_ADDR sp)
 
 constexpr gdb_byte ft32_break_insn[] = { 0x02, 0x00, 0x34, 0x00 };
 
-typedef BP_MANIPULATION (ft32_break_insn) ft32_breakpoint;
+using ft32_breakpoint = BP_MANIPULATION (ft32_break_insn);
 
 /* FT32 register names.  */
 
@@ -96,7 +96,7 @@ static const char *const ft32_register_names[] =
 static const char *
 ft32_register_name (struct gdbarch *gdbarch, int reg_nr)
 {
-  gdb_static_assert (ARRAY_SIZE (ft32_register_names) == FT32_NUM_REGS);
+  static_assert (ARRAY_SIZE (ft32_register_names) == FT32_NUM_REGS);
   return ft32_register_names[reg_nr];
 }
 
@@ -174,15 +174,15 @@ ft32_analyze_prologue (CORE_ADDR start_addr, CORE_ADDR end_addr,
   ULONGEST inst;
   int isize = 0;
   int regnum, pushreg;
-  struct bound_minimal_symbol msymbol;
   const int first_saved_reg = 13;	/* The first saved register.  */
+
   /* PROLOGS are addresses of the subroutine prologs, PROLOGS[n]
      is the address of __prolog_$rN.
      __prolog_$rN pushes registers from 13 through n inclusive.
      So for example CALL __prolog_$r15 is equivalent to:
-       PUSH $r13 
-       PUSH $r14 
-       PUSH $r15 
+       PUSH $r13
+       PUSH $r14
+       PUSH $r15
      Note that PROLOGS[0] through PROLOGS[12] are unused.  */
   CORE_ADDR prologs[32];
 
@@ -195,7 +195,8 @@ ft32_analyze_prologue (CORE_ADDR start_addr, CORE_ADDR end_addr,
 
       snprintf (prolog_symbol, sizeof (prolog_symbol), "__prolog_$r%02d",
 		regnum);
-      msymbol = lookup_minimal_symbol (prolog_symbol, NULL, NULL);
+      bound_minimal_symbol msymbol
+	= lookup_minimal_symbol (current_program_space, prolog_symbol);
       if (msymbol.minsym)
 	prologs[regnum] = msymbol.value_address ();
       else
@@ -205,7 +206,7 @@ ft32_analyze_prologue (CORE_ADDR start_addr, CORE_ADDR end_addr,
   if (start_addr >= end_addr)
     return end_addr;
 
-  cache->established = 0;
+  cache->established = false;
   for (next_addr = start_addr; next_addr < end_addr; next_addr += isize)
     {
       inst = ft32_fetch_instruction (next_addr, &isize, byte_order);
@@ -250,7 +251,7 @@ ft32_analyze_prologue (CORE_ADDR start_addr, CORE_ADDR end_addr,
       inst = ft32_fetch_instruction (next_addr, &isize, byte_order);
       if (FT32_IS_LINK (inst))
 	{
-	  cache->established = 1;
+	  cache->established = true;
 	  for (regnum = FT32_R0_REGNUM; regnum < FT32_PC_REGNUM; regnum++)
 	    {
 	      if (cache->saved_regs[regnum] != REG_UNAVAIL)
@@ -297,18 +298,19 @@ ft32_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 	  plg_end = ft32_analyze_prologue (func_addr,
 					   func_end, &cache, gdbarch);
 	  /* Found a function.  */
-	  sym = lookup_symbol (func_name, NULL, VAR_DOMAIN, NULL).symbol;
+	  sym = lookup_symbol (func_name, nullptr, SEARCH_FUNCTION_DOMAIN,
+			       nullptr).symbol;
 	  /* Don't use line number debug info for assembly source files.  */
 	  if ((sym != NULL) && sym->language () != language_asm)
 	    {
-	      sal = find_pc_line (func_addr, 0);
+	      sal = find_sal_for_pc (func_addr, 0);
 	      if (sal.end && sal.end < func_end)
 		{
 		  /* Found a line number, use it as end of prologue.  */
 		  return sal.end;
 		}
 	    }
-	  /* No useable line symbol.  Use result of prologue parsing method.  */
+	  /* No usable line symbol.  Use result of prologue parsing method.  */
 	  return plg_end;
 	}
     }
@@ -375,7 +377,7 @@ ft32_address_class_name_to_type_flags (struct gdbarch *gdbarch,
 				       const char* name,
 				       type_instance_flags *type_flags_ptr)
 {
-  if (strcmp (name, "flash") == 0)
+  if (streq (name, "flash"))
     {
       *type_flags_ptr = TYPE_INSTANCE_FLAG_ADDRESS_CLASS_1;
       return true;
@@ -435,10 +437,9 @@ ft32_return_value (struct gdbarch *gdbarch, struct value *function,
 static struct ft32_frame_cache *
 ft32_alloc_frame_cache (void)
 {
-  struct ft32_frame_cache *cache;
   int i;
 
-  cache = FRAME_OBSTACK_ZALLOC (struct ft32_frame_cache);
+  auto *cache = frame_obstack_zalloc<ft32_frame_cache> ();
 
   for (i = 0; i < FT32_NUM_REGS; ++i)
     cache->saved_regs[i] = REG_UNAVAIL;
@@ -449,7 +450,7 @@ ft32_alloc_frame_cache (void)
 /* Populate a ft32_frame_cache object for this_frame.  */
 
 static struct ft32_frame_cache *
-ft32_frame_cache (frame_info_ptr this_frame, void **this_cache)
+ft32_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct ft32_frame_cache *cache;
   CORE_ADDR current_pc;
@@ -489,7 +490,7 @@ ft32_frame_cache (frame_info_ptr this_frame, void **this_cache)
    frame.  This will be used to create a new GDB frame struct.  */
 
 static void
-ft32_frame_this_id (frame_info_ptr this_frame,
+ft32_frame_this_id (const frame_info_ptr &this_frame,
 		    void **this_prologue_cache, struct frame_id *this_id)
 {
   struct ft32_frame_cache *cache = ft32_frame_cache (this_frame,
@@ -505,7 +506,7 @@ ft32_frame_this_id (frame_info_ptr this_frame,
 /* Get the value of register regnum in the previous stack frame.  */
 
 static struct value *
-ft32_frame_prev_register (frame_info_ptr this_frame,
+ft32_frame_prev_register (const frame_info_ptr &this_frame,
 			  void **this_prologue_cache, int regnum)
 {
   struct ft32_frame_cache *cache = ft32_frame_cache (this_frame,
@@ -523,21 +524,21 @@ ft32_frame_prev_register (frame_info_ptr this_frame,
   return frame_unwind_got_register (this_frame, regnum, regnum);
 }
 
-static const struct frame_unwind ft32_frame_unwind =
-{
+static const struct frame_unwind_legacy ft32_frame_unwind (
   "ft32 prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   ft32_frame_this_id,
   ft32_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 /* Return the base address of this_frame.  */
 
 static CORE_ADDR
-ft32_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+ft32_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct ft32_frame_cache *cache = ft32_frame_cache (this_frame,
 						     this_cache);
@@ -575,7 +576,7 @@ ft32_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      be defined.  */
   type_allocator alloc (gdbarch);
   void_type = alloc.new_type (TYPE_CODE_VOID, TARGET_CHAR_BIT, "void");
-  func_void_type = make_function_type (void_type, NULL);
+  func_void_type = lookup_function_type (void_type);
   tdep->pc_type = init_pointer_type (alloc, 4 * TARGET_CHAR_BIT, NULL,
 				     func_void_type);
   tdep->pc_type->set_instance_flags (tdep->pc_type->instance_flags ()
@@ -619,9 +620,7 @@ ft32_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 /* Register this machine's init routine.  */
 
-void _initialize_ft32_tdep ();
-void
-_initialize_ft32_tdep ()
+INIT_GDB_FILE (ft32_tdep)
 {
   gdbarch_register (bfd_arch_ft32, ft32_gdbarch_init);
 }

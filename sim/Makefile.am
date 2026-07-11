@@ -1,6 +1,6 @@
 ## Process this file with automake to generate Makefile.in
 ##
-#   Copyright (C) 1993-2023 Free Software Foundation, Inc.
+#   Copyright (C) 1993-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,8 +24,6 @@ GNULIB_PARENT_DIR = ..
 srccom = $(srcdir)/common
 srcroot = $(srcdir)/..
 
-SUBDIRS = @subdirs@
-
 SIM_PRIMARY_TARGET = @SIM_PRIMARY_TARGET@
 
 ## We don't set some of these vars here, but we need to define them so they may
@@ -44,6 +42,8 @@ MOSTLYCLEANFILES = core
 ## We build some objects ourselves directly that Automake doesn't track, so
 ## make sure all objects in subdirs get cleaned up.
 MOSTLYCLEANFILES += $(SIM_ENABLED_ARCHES:%=%/*.o)
+
+CONFIG_STATUS_DEPENDENCIES = $(srcroot)/bfd/development.sh
 
 AM_CFLAGS = \
 	$(WERROR_CFLAGS) \
@@ -67,12 +67,9 @@ AM_CPPFLAGS_FOR_BUILD = \
 	-I$(srcroot)/include \
 	$(SIM_HW_CFLAGS) \
 	$(SIM_INLINE)
-COMPILE_FOR_BUILD = $(CC_FOR_BUILD) $(AM_CPPFLAGS_FOR_BUILD) $(CPPFLAGS_FOR_BUILD) $(CFLAGS_FOR_BUILD)
+COMPILE_FOR_BUILD = $(CC_FOR_BUILD) $(AM_CPPFLAGS_FOR_BUILD) $(CPPFLAGS_FOR_BUILD) $(CFLAGS_FOR_BUILD) $(BUILD_WERROR_CFLAGS) $(BUILD_WARN_CFLAGS)
 LINK_FOR_BUILD = $(CC_FOR_BUILD) $(CFLAGS_FOR_BUILD) $(LDFLAGS_FOR_BUILD) -o $@
 
-## Deps to add to the all-recursive target.  These are built before descending
-## into any subdirs.
-SIM_ALL_RECURSIVE_DEPS =
 ## Deps to add to the install-data-local target.
 SIM_INSTALL_DATA_LOCAL_DEPS =
 ## Deps to add to the install-exec-local target.
@@ -108,9 +105,6 @@ include testsuite/local.mk
 ## Arch includes must come after common/local.mk.
 if SIM_ENABLE_ARCH_aarch64
 include aarch64/local.mk
-endif
-if SIM_ENABLE_ARCH_arm
-include arm/local.mk
 endif
 if SIM_ENABLE_ARCH_avr
 include avr/local.mk
@@ -202,11 +196,6 @@ endif
 if SIM_ENABLE_ARCH_v850
 include v850/local.mk
 endif
-
-## Helper targets for running make from the top-level when some subdirs still
-## have Makefiles in subdirs.
-
-all-recursive: $(SIM_ALL_RECURSIVE_DEPS)
 
 install-data-local: installdirs $(SIM_INSTALL_DATA_LOCAL_DEPS)
 	$(AM_V_at)$(MKDIR_P) $(DESTDIR)$(libdir)

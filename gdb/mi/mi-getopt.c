@@ -1,5 +1,5 @@
 /* MI Command Set - MI Option Parser.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "mi-getopt.h"
 /* See comments about mi_getopt and mi_getopt_silent in mi-getopt.h.
    When there is an unknown option, if ERROR_ON_UNKNOWN is true,
@@ -38,7 +37,7 @@ mi_getopt_1 (const char *prefix, int argc, const char *const *argv,
     return -1;
   arg = argv[*oind];
   /* ``--''? */
-  if (strcmp (arg, "--") == 0)
+  if (streq (arg, "--"))
     {
       *oind += 1;
       *oarg = NULL;
@@ -53,7 +52,7 @@ mi_getopt_1 (const char *prefix, int argc, const char *const *argv,
   /* Look the option up.  */
   for (opt = opts; opt->name != NULL; opt++)
     {
-      if (strcmp (opt->name, arg + 1) != 0)
+      if (!streq (opt->name, arg + 1))
 	continue;
       if (opt->arg_p)
 	{
@@ -73,7 +72,7 @@ mi_getopt_1 (const char *prefix, int argc, const char *const *argv,
     }
 
   if (error_on_unknown)
-    error (_("%s: Unknown option ``%s''"), prefix, arg + 1);
+    error (_("%s: Unknown option \"%s\""), prefix, arg + 1);
   else
     return -1;
 }
@@ -96,7 +95,7 @@ mi_getopt_allow_unknown (const char *prefix, int argc,
   return mi_getopt_1 (prefix, argc, argv, opts, oind, oarg, 0);
 }
 
-int 
+int
 mi_valid_noargs (const char *prefix, int argc, const char *const *argv)
 {
   int oind = 0;

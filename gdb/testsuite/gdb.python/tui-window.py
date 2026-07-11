@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2023 Free Software Foundation, Inc.
+# Copyright (C) 2020-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,6 +20,9 @@ import gdb
 the_window = None
 
 
+tui_enabled = False
+
+
 class TestWindow:
     def __init__(self, win):
         global the_window
@@ -32,7 +35,10 @@ class TestWindow:
         self.win.erase()
         w = self.win.width
         h = self.win.height
-        self.win.write("Test: " + str(self.count) + " " + str(w) + "x" + str(h))
+        self.win.write(
+            string="Test: " + str(self.count) + " " + str(w) + "x" + str(h),
+            full_window=False,
+        )
         self.count = self.count + 1
 
     # Tries to delete the title attribute.  GDB will throw an error.
@@ -59,3 +65,11 @@ def change_window_title():
 
 
 gdb.register_window_type("fail", failwin)
+
+
+def set_tui_enabled(ev):
+    global tui_enabled
+    tui_enabled = ev.enabled
+
+
+gdb.events.tui_enabled.connect(set_tui_enabled)

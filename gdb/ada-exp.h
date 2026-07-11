@@ -1,6 +1,6 @@
 /* Definitions for Ada expressions
 
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef ADA_EXP_H
-#define ADA_EXP_H
+#ifndef GDB_ADA_EXP_H
+#define GDB_ADA_EXP_H
 
 #include "expop.h"
 
@@ -30,36 +30,14 @@ extern struct value *ada_atr_tag (struct type *expect_type,
 				  struct expression *exp,
 				  enum noside noside, enum exp_opcode op,
 				  struct value *arg1);
-extern struct value *ada_atr_size (struct type *expect_type,
-				   struct expression *exp,
-				   enum noside noside, enum exp_opcode op,
-				   struct value *arg1);
 extern struct value *ada_abs (struct type *expect_type,
 			      struct expression *exp,
 			      enum noside noside, enum exp_opcode op,
 			      struct value *arg1);
-extern struct value *ada_unop_in_range (struct type *expect_type,
-					struct expression *exp,
-					enum noside noside, enum exp_opcode op,
-					struct value *arg1, struct type *type);
 extern struct value *ada_mult_binop (struct type *expect_type,
 				     struct expression *exp,
 				     enum noside noside, enum exp_opcode op,
 				     struct value *arg1, struct value *arg2);
-extern struct value *ada_equal_binop (struct type *expect_type,
-				      struct expression *exp,
-				      enum noside noside, enum exp_opcode op,
-				      struct value *arg1, struct value *arg2);
-extern struct value *ada_ternop_slice (struct expression *exp,
-				       enum noside noside,
-				       struct value *array,
-				       struct value *low_bound_val,
-				       struct value *high_bound_val);
-extern struct value *ada_binop_in_bounds (struct expression *exp,
-					  enum noside noside,
-					  struct value *arg1,
-					  struct value *arg2,
-					  int n);
 extern struct value *ada_binop_minmax (struct type *expect_type,
 				       struct expression *exp,
 				       enum noside noside, enum exp_opcode op,
@@ -200,9 +178,23 @@ public:
 
 using ada_neg_operation = unop_operation<UNOP_NEG, ada_unop_neg>;
 using ada_atr_tag_operation = unop_operation<OP_ATR_TAG, ada_atr_tag>;
-using ada_atr_size_operation = unop_operation<OP_ATR_SIZE, ada_atr_size>;
 using ada_abs_operation = unop_operation<UNOP_ABS, ada_abs>;
 using ada_pos_operation = unop_operation<OP_ATR_POS, ada_pos_atr>;
+
+/* Implementation of the 'Size and 'Object_Size attribute.  The
+   boolean parameter is true for 'Size and false for 'Object_Size.  */
+class ada_atr_size_operation
+  : public maybe_constant_operation<operation_up, bool>
+{
+  using maybe_constant_operation::maybe_constant_operation;
+
+  value *evaluate (struct type *expect_type,
+		   struct expression *exp,
+		   enum noside noside) override;
+
+  enum exp_opcode opcode () const override
+  { return OP_ATR_SIZE; }
+};
 
 /* The in-range operation, given a type.  */
 class ada_unop_range_operation
@@ -214,12 +206,7 @@ public:
 
   value *evaluate (struct type *expect_type,
 		   struct expression *exp,
-		   enum noside noside) override
-  {
-    value *val = std::get<0> (m_storage)->evaluate (nullptr, exp, noside);
-    return ada_unop_in_range (expect_type, exp, noside, UNOP_IN_RANGE,
-			      val, std::get<1> (m_storage));
-  }
+		   enum noside noside) override;
 
   enum exp_opcode opcode () const override
   { return UNOP_IN_RANGE; }
@@ -261,14 +248,7 @@ public:
 
   value *evaluate (struct type *expect_type,
 		   struct expression *exp,
-		   enum noside noside) override
-  {
-    value *arg1 = std::get<1> (m_storage)->evaluate (nullptr, exp, noside);
-    value *arg2 = std::get<2> (m_storage)->evaluate (arg1->type (),
-						     exp, noside);
-    return ada_equal_binop (expect_type, exp, noside, std::get<0> (m_storage),
-			    arg1, arg2);
-  }
+		   enum noside noside) override;
 
   void do_generate_ax (struct expression *exp,
 		       struct agent_expr *ax,
@@ -286,33 +266,6 @@ public:
   { return std::get<0> (m_storage); }
 };
 
-/* Bitwise operators for Ada.  */
-template<enum exp_opcode OP>
-class ada_bitwise_operation
-  : public maybe_constant_operation<operation_up, operation_up>
-{
-public:
-
-  using maybe_constant_operation::maybe_constant_operation;
-
-  value *evaluate (struct type *expect_type,
-		   struct expression *exp,
-		   enum noside noside) override
-  {
-    value *lhs = std::get<0> (m_storage)->evaluate (nullptr, exp, noside);
-    value *rhs = std::get<1> (m_storage)->evaluate (nullptr, exp, noside);
-    value *result = eval_op_binary (expect_type, exp, noside, OP, lhs, rhs);
-    return value_cast (lhs->type (), result);
-  }
-
-  enum exp_opcode opcode () const override
-  { return OP; }
-};
-
-using ada_bitwise_and_operation = ada_bitwise_operation<BINOP_BITWISE_AND>;
-using ada_bitwise_ior_operation = ada_bitwise_operation<BINOP_BITWISE_IOR>;
-using ada_bitwise_xor_operation = ada_bitwise_operation<BINOP_BITWISE_XOR>;
-
 /* Ada array- or string-slice operation.  */
 class ada_ternop_slice_operation
   : public maybe_constant_operation<operation_up, operation_up, operation_up>,
@@ -324,13 +277,7 @@ public:
 
   value *evaluate (struct type *expect_type,
 		   struct expression *exp,
-		   enum noside noside) override
-  {
-    value *array = std::get<0> (m_storage)->evaluate (nullptr, exp, noside);
-    value *low = std::get<1> (m_storage)->evaluate (nullptr, exp, noside);
-    value *high = std::get<2> (m_storage)->evaluate (nullptr, exp, noside);
-    return ada_ternop_slice (exp, noside, array, low, high);
-  }
+		   enum noside noside) override;
 
   enum exp_opcode opcode () const override
   { return TERNOP_SLICE; }
@@ -352,13 +299,7 @@ public:
 
   value *evaluate (struct type *expect_type,
 		   struct expression *exp,
-		   enum noside noside) override
-  {
-    value *arg1 = std::get<0> (m_storage)->evaluate (nullptr, exp, noside);
-    value *arg2 = std::get<1> (m_storage)->evaluate (nullptr, exp, noside);
-    return ada_binop_in_bounds (exp, noside, arg1, arg2,
-				std::get<2> (m_storage));
-  }
+		   enum noside noside) override;
 
   enum exp_opcode opcode () const override
   { return BINOP_IN_BOUNDS; }
@@ -553,6 +494,113 @@ public:
 
   enum exp_opcode opcode () const override
   { return BINOP_ASSIGN; }
+
+  value *current ()
+  { return m_current; }
+
+  /* A helper function for the parser to evaluate just the LHS of the
+     assignment.  */
+  value *eval_for_resolution (struct expression *exp)
+  {
+    return std::get<0> (m_storage)->evaluate (nullptr, exp,
+					      EVAL_AVOID_SIDE_EFFECTS);
+  }
+
+  /* The parser must construct the assignment node before parsing the
+     RHS, so that '@' can access the assignment, so this helper
+     function is needed to set the RHS after construction.  */
+  void set_rhs (operation_up rhs)
+  {
+    std::get<1> (m_storage) = std::move (rhs);
+  }
+
+private:
+
+  /* Temporary storage for the value of the left-hand-side.  */
+  value *m_current = nullptr;
+};
+
+/* Implement the Ada target name symbol ('@').  This is used to refer
+   to the LHS of an assignment from the RHS.  */
+class ada_target_operation : public operation
+{
+public:
+
+  explicit ada_target_operation (ada_assign_operation *lhs)
+    : m_lhs (lhs)
+  { }
+
+  value *evaluate (struct type *expect_type,
+		   struct expression *exp,
+		   enum noside noside) override
+  {
+    if (noside == EVAL_AVOID_SIDE_EFFECTS)
+      return m_lhs->eval_for_resolution (exp);
+    return m_lhs->current ();
+  }
+
+  enum exp_opcode opcode () const override
+  {
+    /* It doesn't really matter.  */
+    return OP_VAR_VALUE;
+  }
+
+  void dump (struct ui_file *stream, int depth) const override
+  {
+    gdb_printf (stream, _("%*sAda target symbol '@'\n"), depth, "");
+  }
+
+private:
+
+  /* The left hand side of the assignment.  */
+  ada_assign_operation *m_lhs;
+};
+
+/* When constructing an aggregate, an object of this type is created
+   to track the needed state.  */
+
+struct aggregate_assigner
+{
+  /* An lvalue containing LHS (possibly LHS itself).  */
+  value *container;
+
+  /* An lvalue of record or array type; this is the object being
+     assigned to.  */
+  value *lhs;
+
+  /* The expression being evaluated.  */
+  expression *exp;
+
+  /* The bounds of LHS.  This is used by the 'others' component.  */
+  LONGEST low;
+  LONGEST high;
+
+  /* This indicates which sub-components have already been assigned
+     to.  */
+  std::vector<LONGEST> indices;
+
+private:
+
+  /* The current index value.  This is only valid during the 'assign'
+     operation and is part of the implementation of iterated component
+     association.  */
+  LONGEST m_current_index = 0;
+
+public:
+
+  /* Assign the result of evaluating ARG to the INDEXth component of
+     LHS (a simple array or a record).  Does not modify the inferior's
+     memory, nor does it modify LHS (unless LHS == CONTAINER).  */
+  void assign (LONGEST index, operation_up &arg);
+
+  /* Add the interval [FROM .. TO] to the sorted set of intervals
+     [ INDICES[0] .. INDICES[1] ],...  The resulting intervals do not
+     overlap.  */
+  void add_interval (LONGEST low, LONGEST high);
+
+  /* Return the current index as a value, using the index type of
+     LHS.  */
+  value *current_value () const;
 };
 
 /* This abstract class represents a single component in an Ada
@@ -561,14 +609,8 @@ class ada_component
 {
 public:
 
-  /* Assign to LHS, which is part of CONTAINER.  EXP is the expression
-     being evaluated.  INDICES, LOW, and HIGH indicate which
-     sub-components have already been assigned; INDICES should be
-     updated by this call.  */
-  virtual void assign (struct value *container,
-		       struct value *lhs, struct expression *exp,
-		       std::vector<LONGEST> &indices,
-		       LONGEST low, LONGEST high) = 0;
+  /* Assign to ASSIGNER.  */
+  virtual void assign (aggregate_assigner &assigner) = 0;
 
   /* Same as operation::uses_objfile.  */
   virtual bool uses_objfile (struct objfile *objfile) = 0;
@@ -585,7 +627,7 @@ protected:
 };
 
 /* Unique pointer specialization for Ada assignment components.  */
-typedef std::unique_ptr<ada_component> ada_component_up;
+using ada_component_up = std::unique_ptr<ada_component>;
 
 /* An operation that holds a single component.  */
 class ada_aggregate_operation
@@ -627,10 +669,11 @@ public:
   {
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high) override;
+  /* This is the "with delta" form -- BASE is the base expression.  */
+  ada_aggregate_component (operation_up &&base,
+			   std::vector<ada_component_up> &&components);
+
+  void assign (aggregate_assigner &assigner) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
@@ -638,6 +681,10 @@ public:
 
 private:
 
+  /* If the assignment has a "with delta" clause, this is the
+     base expression.  */
+  operation_up m_base;
+  /* The individual components to assign.  */
   std::vector<ada_component_up> m_components;
 };
 
@@ -653,10 +700,7 @@ public:
   {
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high) override;
+  void assign (aggregate_assigner &assigner) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
@@ -678,10 +722,7 @@ public:
   {
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high) override;
+  void assign (aggregate_assigner &assigner) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
@@ -699,14 +740,10 @@ class ada_association
 public:
 
   /* Like ada_component::assign, but takes an operation as a
-     parameter.  The operation is evaluated and then assigned into LHS
-     according to the rules of the concrete implementation.  */
-  virtual void assign (struct value *container,
-		       struct value *lhs,
-		       struct expression *exp,
-		       std::vector<LONGEST> &indices,
-		       LONGEST low, LONGEST high,
-		       operation_up &op) = 0;
+     parameter.  The operation is evaluated and then assigned into
+     ASSIGNER according to the rules of the concrete
+     implementation.  */
+  virtual void assign (aggregate_assigner &assigner, operation_up &op) = 0;
 
   /* Same as operation::uses_objfile.  */
   virtual bool uses_objfile (struct objfile *objfile) = 0;
@@ -723,7 +760,7 @@ protected:
 };
 
 /* Unique pointer specialization for Ada assignment associations.  */
-typedef std::unique_ptr<ada_association> ada_association_up;
+using ada_association_up = std::unique_ptr<ada_association>;
 
 /* A component that holds a vector of associations and an operation.
    The operation is re-evaluated for each choice.  */
@@ -744,19 +781,80 @@ public:
     m_assocs = std::move (assoc);
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high) override;
+  /* Set the underlying operation  */
+  void set_operation (operation_up op)
+  { m_op = std::move (op); }
+
+  /* Set the index variable name for an iterated association.  */
+  void set_name (std::string &&name)
+  { m_name = std::move (name); }
+
+  /* The name of this choice component.  This is empty unless this is
+     an iterated association.  */
+  const std::string &name () const
+  { return m_name; }
+
+  void assign (aggregate_assigner &assigner) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
   void dump (ui_file *stream, int depth) override;
 
+  /* Return the current value of the index variable.  This may only be
+     called underneath a call to 'assign'.  */
+  value *current_value () const
+  { return m_assigner->current_value (); }
+
 private:
 
   std::vector<ada_association_up> m_assocs;
   operation_up m_op;
+
+  /* Name of the variable used for iteration.  This isn't needed for
+     evaluation, only for debug dumping.  This is the empty string for
+     ordinary (non-iterated) choices.  */
+  std::string m_name;
+
+  /* A pointer to the current assignment operation; only valid when in
+     a call to the 'assign' method.  This is used to find the index
+     variable value during the evaluation of the RHS of the =>, via
+     ada_index_var_operation.  */
+  const aggregate_assigner *m_assigner = nullptr;
+};
+
+/* Implement the index variable for iterated component
+   association.  */
+class ada_index_var_operation : public operation
+{
+public:
+
+  ada_index_var_operation ()
+  { }
+
+  /* Link this variable to the choices object.  May only be called
+     once.  */
+  void set_choices (ada_choices_component *var)
+  {
+    gdb_assert (m_var == nullptr && var != nullptr);
+    m_var = var;
+  }
+
+  value *evaluate (struct type *expect_type,
+		   struct expression *exp,
+		   enum noside noside) override;
+
+  enum exp_opcode opcode () const override
+  {
+    /* It doesn't really matter.  */
+    return OP_VAR_VALUE;
+  }
+
+  void dump (struct ui_file *stream, int depth) const override;
+
+private:
+
+  /* The choices component that introduced the index variable.  */
+  ada_choices_component *m_var = nullptr;
 };
 
 /* An association that uses a discrete range.  */
@@ -770,11 +868,7 @@ public:
   {
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high,
-	       operation_up &op) override;
+  void assign (aggregate_assigner &assigner, operation_up &op) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
@@ -798,17 +892,18 @@ public:
   {
   }
 
-  void assign (struct value *container,
-	       struct value *lhs, struct expression *exp,
-	       std::vector<LONGEST> &indices,
-	       LONGEST low, LONGEST high,
-	       operation_up &op) override;
+  void assign (aggregate_assigner &assigner, operation_up &op) override;
 
   bool uses_objfile (struct objfile *objfile) override;
 
   void dump (ui_file *stream, int depth) override;
 
 private:
+
+  /* A helper function to find the plain name of the LHS.  If OP
+     represents a plain name, the unqualified name is returned as a
+     string.  Otherwise, nullptr is returned.  */
+  const char *find_name (operation_up &op) const;
 
   operation_up m_val;
 };
@@ -859,4 +954,4 @@ public:
 
 } /* namespace expr */
 
-#endif /* ADA_EXP_H */
+#endif /* GDB_ADA_EXP_H */

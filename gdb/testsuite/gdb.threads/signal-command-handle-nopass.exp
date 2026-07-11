@@ -1,4 +1,4 @@
-# Copyright (C) 2014-2023 Free Software Foundation, Inc.
+# Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ require {!target_info exists gdb,nosignals}
 
 if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" \
 	 executable { debug }] != "" } {
-    return -1
+    return
 }
 
 # Run the test proper.  STEP_OVER indicates whether we leave in place
@@ -32,10 +32,10 @@ if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" \
 # request a signal be delivered with the "signal" command.
 
 proc test { step_over } {
-    global srcfile binfile
+    global srcfile binfile tdlabel_re
 
     with_test_prefix "step-over $step_over" {
-	clean_restart ${binfile}
+	clean_restart ${::testfile}
 
 	if {![runto_main]} {
 	    return 0
@@ -59,7 +59,7 @@ proc test { step_over } {
 
 	gdb_test "thread 1" "Switching to thread 1.*"
 
-	set pattern "\\\* 1\[ \t\]+Thread.*"
+	set pattern "\\\* 1\[ \t\]+${tdlabel_re}.*"
 
 	gdb_test "info threads" $pattern "thread 1 selected"
 

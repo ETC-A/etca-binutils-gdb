@@ -1,5 +1,5 @@
 # Frame-filter commands.
-# Copyright (C) 2013-2023 Free Software Foundation, Inc.
+# Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,11 +16,12 @@
 
 """Internal functions for working with frame-filters."""
 
-import gdb
-from gdb.FrameIterator import FrameIterator
-from gdb.FrameDecorator import FrameDecorator
-import itertools
 import collections
+import itertools
+
+import gdb
+from gdb.FrameDecorator import DAPFrameDecorator, FrameDecorator
+from gdb.FrameIterator import FrameIterator
 
 
 def get_priority(filter_item):
@@ -157,22 +158,26 @@ def _sort_list():
 
 
 # Internal function that implements frame_iterator and
-# execute_frame_filters.  If ALWAYS is True, then this will always
-# return an iterator.
-def _frame_iterator(frame, frame_low, frame_high, always):
+# execute_frame_filters.  If DAP_SEMANTICS is True, then this will
+# always return an iterator and will wrap frames in DAPFrameDecorator.
+def _frame_iterator(frame, frame_low, frame_high, dap_semantics):
     # Get a sorted list of frame filters.
     sorted_list = list(_sort_list())
 
     # Check to see if there are any frame-filters.  If not, just
     # return None and let default backtrace printing occur.
-    if not always and len(sorted_list) == 0:
+    if not dap_semantics and len(sorted_list) == 0:
         return None
 
     frame_iterator = FrameIterator(frame)
 
     # Apply a basic frame decorator to all gdb.Frames.  This unifies
     # the interface.
-    frame_iterator = map(FrameDecorator, frame_iterator)
+    if dap_semantics:
+        decorator = DAPFrameDecorator
+    else:
+        decorator = FrameDecorator
+    frame_iterator = map(decorator, frame_iterator)
 
     for ff in sorted_list:
         frame_iterator = ff.filter(frame_iterator)
@@ -181,18 +186,7 @@ def _frame_iterator(frame, frame_low, frame_high, always):
 
     # Is this a slice from the end of the backtrace, ie bt -2?
     if frame_low < 0:
-        count = 0
-        slice_length = abs(frame_low)
-        # We cannot use MAXLEN argument for deque as it is 2.6 onwards
-        # and some GDB versions might be < 2.6.
-        sliced = collections.deque()
-
-        for frame_item in frame_iterator:
-            if count >= slice_length:
-                sliced.popleft()
-            count = count + 1
-            sliced.append(frame_item)
-
+        sliced = collections.deque(iterable=frame_iterator, maxlen=abs(frame_low))
         return iter(sliced)
 
     # -1 for frame_high means until the end of the backtrace.  Set to
@@ -214,7 +208,11 @@ def frame_iterator(frame, frame_low, frame_high):
     """Helper function that will execute the chain of frame filters.
     Each filter is executed in priority order.  After the execution
     completes, slice the iterator to frame_low - frame_high range.  An
-    iterator is always returned.
+    iterator is always returned.  The iterator will always yield
+    frame decorator objects, but note that these decorators have
+    slightly different semantics from the ordinary ones: they will
+    always return a fully-qualified 'filename' (if possible) and will
+    never substitute the objfile name.
 
     Arguments:
         frame: The initial frame.

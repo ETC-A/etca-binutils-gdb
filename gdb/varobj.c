@@ -1,6 +1,6 @@
 /* Implementation of the GDB variable objects API.
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,12 +15,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "value.h"
 #include "expression.h"
 #include "frame.h"
 #include "language.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "block.h"
 #include "valprint.h"
 #include "gdbsupport/gdb_regex.h"
@@ -38,7 +37,7 @@
 #include "python/python.h"
 #include "python/python-internal.h"
 #else
-typedef int PyObject;
+using PyObject = int;
 #endif
 
 /* See varobj.h.  */
@@ -164,8 +163,6 @@ create_child_with_value (struct varobj *parent, int index,
 
 /* Utility routines */
 
-static enum varobj_display_formats variable_default_display (struct varobj *);
-
 static bool update_type_if_necessary (struct varobj *var,
 				      struct value *new_value);
 
@@ -261,7 +258,7 @@ varobj_create (const char *objname,
 	       const char *expression, CORE_ADDR frame, enum varobj_type type)
 {
   /* Fill out a varobj structure for the (root) variable being constructed.  */
-  std::unique_ptr<varobj> var (new varobj (new varobj_root));
+  auto var = std::make_unique<varobj> (new varobj_root);
 
   if (expression != NULL)
     {
@@ -279,7 +276,7 @@ varobj_create (const char *objname,
 	{
 	  /* Allow creator to specify context of variable.  */
 	  if ((type == USE_CURRENT_FRAME) || (type == USE_SELECTED_FRAME))
-	    fi = get_selected_frame (NULL);
+	    fi = get_selected_frame ();
 	  else
 	    /* FIXME: cagney/2002-11-23: This code should be doing a
 	       lookup using the frame ID and not just the frame's
@@ -308,7 +305,7 @@ varobj_create (const char *objname,
 
       innermost_block_tracker tracker (INNERMOST_BLOCK_FOR_SYMBOLS
 				       | INNERMOST_BLOCK_FOR_REGISTERS);
-      /* Wrap the call to parse expression, so we can 
+      /* Wrap the call to parse expression, so we can
 	 return a sensible error.  */
       try
 	{
@@ -326,17 +323,14 @@ varobj_create (const char *objname,
 	}
 
       /* Don't allow variables to be created for types.  */
-      enum exp_opcode opcode = var->root->exp->first_opcode ();
-      if (opcode == OP_TYPE
-	  || opcode == OP_TYPEOF
-	  || opcode == OP_DECLTYPE)
+      if (var->root->exp->type_p ())
 	{
 	  gdb_printf (gdb_stderr, "Attempt to use a type name"
 		      " as an expression.\n");
 	  return NULL;
 	}
 
-      var->format = variable_default_display (var.get ());
+      var->format = FORMAT_NATURAL;
       var->root->valid_block =
 	var->root->floating ? NULL : tracker.block ();
       var->root->global
@@ -345,7 +339,7 @@ varobj_create (const char *objname,
       /* For a root var, the name and the expr are the same.  */
       var->path_expr = expression;
 
-      /* When the frame is different from the current frame, 
+      /* When the frame is different from the current frame,
 	 we must select the appropriate frame before parsing
 	 the expression, otherwise the value will not be current.
 	 Since select_frame is so benign, just call it for all cases.  */
@@ -360,8 +354,8 @@ varobj_create (const char *objname,
 
 	  var->root->frame = get_frame_id (fi);
 	  var->root->thread_id = inferior_thread ()->global_num;
-	  old_id = get_frame_id (get_selected_frame (NULL));
-	  select_frame (fi);	 
+	  old_id = get_frame_id (get_selected_frame ());
+	  select_frame (fi);
 	}
 
       /* We definitely need to catch errors here.  If evaluation of
@@ -488,22 +482,9 @@ enum varobj_display_formats
 varobj_set_display_format (struct varobj *var,
 			   enum varobj_display_formats format)
 {
-  switch (format)
-    {
-    case FORMAT_NATURAL:
-    case FORMAT_BINARY:
-    case FORMAT_DECIMAL:
-    case FORMAT_HEXADECIMAL:
-    case FORMAT_OCTAL:
-    case FORMAT_ZHEXADECIMAL:
-      var->format = format;
-      break;
+  var->format = format;
 
-    default:
-      var->format = variable_default_display (var);
-    }
-
-  if (varobj_value_is_changeable_p (var) 
+  if (varobj_value_is_changeable_p (var)
       && var->value != nullptr && !var->value->lazy ())
     {
       var->print_value = varobj_value_get_print_value (var->value.get (),
@@ -1068,7 +1049,7 @@ install_default_visualizer (struct varobj *var)
 
       if (pretty_printer == Py_None)
 	pretty_printer.reset (nullptr);
-  
+
       install_visualizer (var->dynamic, NULL, pretty_printer.release ());
     }
 }
@@ -1176,7 +1157,7 @@ update_type_if_necessary (struct varobj *var, struct value *new_value)
 
 /* Assign a new value to a variable object.  If INITIAL is true,
    this is the first assignment after the variable object was just
-   created, or changed type.  In that case, just assign the value 
+   created, or changed type.  In that case, just assign the value
    and return false.
    Otherwise, assign the new value, and return true if the value is
    different from the current one, false otherwise.  The comparison is
@@ -1189,7 +1170,7 @@ update_type_if_necessary (struct varobj *var, struct value *new_value)
    take care of releasing it when needed.  */
 static bool
 install_new_value (struct varobj *var, struct value *value, bool initial)
-{ 
+{
   bool changeable;
   bool need_to_fetch;
   bool changed = false;
@@ -1202,7 +1183,7 @@ install_new_value (struct varobj *var, struct value *value, bool initial)
   changeable = varobj_value_is_changeable_p (var);
 
   /* If the type has custom visualizer, we consider it to be always
-     changeable.  FIXME: need to make sure this behaviour will not
+     changeable.  FIXME: need to make sure this behavior will not
      mess up read-sensitive values.  */
   if (var->dynamic->pretty_printer != NULL)
     changeable = true;
@@ -1328,7 +1309,7 @@ install_new_value (struct varobj *var, struct value *value, bool initial)
     {
       /* For values that are not changeable, we don't compare the values.
 	 However, we want to notice if a value was not NULL and now is NULL,
-	 or vise versa, so that we report when top-level varobjs come in scope
+	 or vice versa, so that we report when top-level varobjs come in scope
 	 and leave the scope.  */
       changed = (var->value != NULL) != (value != NULL);
     }
@@ -1380,7 +1361,7 @@ varobj_set_child_range (struct varobj *var, int from, int to)
   var->to = to;
 }
 
-void 
+void
 varobj_set_visualizer (struct varobj *var, const char *visualizer)
 {
 #if HAVE_PYTHON
@@ -1408,6 +1389,9 @@ varobj_set_visualizer (struct varobj *var, const char *visualizer)
   /* If there are any children now, wipe them.  */
   varobj_delete (var, 1 /* children only */);
   var->num_children = -1;
+
+  /* Also be sure to reset the print value.  */
+  varobj_set_display_format (var, var->format);
 #else
   error (_("Python support required"));
 #endif
@@ -1453,7 +1437,7 @@ varobj_value_has_mutated (const struct varobj *var, struct value *new_value,
    changed.
 
    The IS_EXPLICIT parameter specifies if this call is result
-   of MI request to update this specific variable, or 
+   of MI request to update this specific variable, or
    result of implicit -var-update *.  For implicit request, we don't
    update frozen variables.
 
@@ -1489,7 +1473,7 @@ varobj_update (struct varobj **varp, bool is_explicit)
 
       /* Update the root variable.  value_of_root can return NULL
 	 if the variable is no longer around, i.e. we stepped out of
-	 the frame in which a local existed.  We are letting the 
+	 the frame in which a local existed.  We are letting the
 	 value_of_root variable dispose of the varobj if the type
 	 has changed.  */
       newobj = value_of_root (varp, &type_changed);
@@ -1499,7 +1483,7 @@ varobj_update (struct varobj **varp, bool is_explicit)
       r.type_changed = type_changed;
       if (install_new_value ((*varp), newobj, type_changed))
 	r.changed = true;
-      
+
       if (newobj == NULL)
 	r.status = VAROBJ_NOT_IN_SCOPE;
       r.value_installed = true;
@@ -1692,7 +1676,7 @@ delete_variable_1 (int *delcountp, struct varobj *var, bool only_children_p,
 {
   /* Delete any children of this variable, too.  */
   for (varobj *child : var->children)
-    {   
+    {
       if (!child)
 	continue;
 
@@ -1716,7 +1700,7 @@ delete_variable_1 (int *delcountp, struct varobj *var, bool only_children_p,
     }
 
   /* If this variable has a parent, remove it from its parent's list.  */
-  /* OPTIMIZATION: if the parent of this variable is also being deleted, 
+  /* OPTIMIZATION: if the parent of this variable is also being deleted,
      (as indicated by remove_from_parent_p) we don't bother doing an
      expensive list search to find the element to remove when we are
      discarding the list afterwards.  */
@@ -1884,14 +1868,6 @@ varobj_get_value_type (const struct varobj *var)
   return type;
 }
 
-/* What is the default display for this variable? We assume that
-   everything is "natural".  Any exceptions?  */
-static enum varobj_display_formats
-variable_default_display (struct varobj *var)
-{
-  return FORMAT_NATURAL;
-}
-
 /*
  * Language-dependencies
  */
@@ -1958,7 +1934,7 @@ value_of_root_1 (struct varobj **var_handle)
   struct value *new_val = NULL;
   struct varobj *var = *var_handle;
   bool within_scope = false;
-								 
+
   /*  Only root variables can be updated...  */
   if (!is_root_p (var))
     /* Not a root var.  */
@@ -1975,7 +1951,7 @@ value_of_root_1 (struct varobj **var_handle)
 	 created.  Technically, it's possible that the program became
 	 multi-threaded since then, but we don't support such
 	 scenario yet.  */
-      within_scope = check_scope (var);	  
+      within_scope = check_scope (var);
     }
   else
     {
@@ -2012,7 +1988,7 @@ value_of_root_1 (struct varobj **var_handle)
    - *type_changed will be set to 1
    - old varobj will be freed, and new one will be
    created, with the same name.
-   - *var_handle will be set to the new varobj 
+   - *var_handle will be set to the new varobj
    Otherwise, *type_changed will be set to 0.  */
 static struct value *
 value_of_root (struct varobj **var_handle, bool *type_changed)
@@ -2117,6 +2093,9 @@ my_value_of_variable (struct varobj *var, enum varobj_display_formats format)
       if (var->dynamic->pretty_printer != NULL)
 	return varobj_value_get_print_value (var->value.get (), var->format,
 					     var);
+      else if (var->parent != nullptr && varobj_is_dynamic_p (var->parent))
+	return var->print_value;
+
       return (*var->root->lang_ops->value_of_variable) (var, format);
     }
   else
@@ -2202,7 +2181,7 @@ varobj_value_get_print_value (struct value *value,
 			    = gdbpy_get_display_hint (value_formatter);
 			  if (hint)
 			    {
-			      if (!strcmp (hint.get (), "string"))
+			      if (streq (hint.get (), "string"))
 				string_print = true;
 			    }
 
@@ -2231,6 +2210,12 @@ varobj_value_get_print_value (struct value *value,
 	      if (PyObject_HasAttr (value_formatter, gdbpy_children_cst))
 		return "{...}";
 	    }
+	}
+      else
+	{
+	  /* If we've made it here, we don't want a pretty-printer --
+	     if we had one, it would already have been used.  */
+	  opts.raw = true;
 	}
     }
 #endif
@@ -2365,7 +2350,7 @@ varobj_re_set_iter (struct varobj *var)
 
 /* See varobj.h.  */
 
-void 
+void
 varobj_re_set (void)
 {
   all_root_varobjs (varobj_re_set_iter);
@@ -2439,9 +2424,7 @@ eq_varobj_and_string (const void *a, const void *b)
   return obj->obj_name == name;
 }
 
-void _initialize_varobj ();
-void
-_initialize_varobj ()
+INIT_GDB_FILE (varobj)
 {
   varobj_table = htab_create_alloc (5, hash_varobj, eq_varobj_and_string,
 				    nullptr, xcalloc, xfree);

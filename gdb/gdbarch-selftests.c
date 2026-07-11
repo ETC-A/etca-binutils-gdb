@@ -1,6 +1,6 @@
 /* Self tests for gdbarch for GDB, the GNU debugger.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/selftest.h"
 #include "selftest-arch.h"
 #include "target.h"
@@ -26,8 +25,7 @@
 #include "gdbsupport/def-vector.h"
 #include "gdbarch.h"
 #include "scoped-mock-context.h"
-
-#include <map>
+#include "gdbsupport/unordered_map.h"
 
 namespace selftests {
 
@@ -102,13 +100,14 @@ register_to_value_test (struct gdbarch *gdbarch)
 
 	      /* Allocate two bytes more for overflow check.  */
 	      std::vector<gdb_byte> buf (type->length () + 2, 0);
-	      int optim, unavail, ok;
+	      bool optim, unavail;
 
 	      /* Set the fingerprint in the last two bytes.  */
 	      buf [type->length ()]= 'w';
 	      buf [type->length () + 1]= 'l';
-	      ok = gdbarch_register_to_value (gdbarch, frame, regnum, type,
-					      buf.data (), &optim, &unavail);
+	      bool ok = gdbarch_register_to_value (gdbarch, frame, regnum,
+						   type, buf.data (), &optim,
+						   &unavail);
 
 	      SELF_CHECK (ok);
 	      SELF_CHECK (!optim);
@@ -129,10 +128,13 @@ register_to_value_test (struct gdbarch *gdbarch)
 static void
 register_name_test (struct gdbarch *gdbarch)
 {
+  if (selftest_skip_warning_arch (gdbarch))
+    return;
+
   scoped_mock_context<test_target_ops> mockctx (gdbarch);
 
   /* Track the number of times each register name appears.  */
-  std::map<const std::string, int> name_counts;
+  gdb::unordered_string_map<int> name_counts;
 
   const int num_regs = gdbarch_num_cooked_regs (gdbarch);
   for (auto regnum = 0; regnum < num_regs; regnum++)
@@ -165,15 +167,31 @@ register_name_test (struct gdbarch *gdbarch)
     }
 }
 
-} // namespace selftests
+/* Test gdbarch_stack_grows_down.  Stacks must either grow down or up.  */
 
-void _initialize_gdbarch_selftests ();
-void
-_initialize_gdbarch_selftests ()
+static void
+check_stack_growth (struct gdbarch *gdbarch)
+{
+  /* We don't call gdbarch_stack_grows_down here, instead we're testing the
+     implementation by calling gdbarch_inner_than.  GDB assumes that stacks
+     either grow down or up (see uses of gdbarch_stack_grows_down), so exactly
+     one of these needs to be true.  */
+  bool stack_grows_down = gdbarch_inner_than (gdbarch, 1, 2);
+  bool stack_grows_up = gdbarch_inner_than (gdbarch, 2, 1);
+
+  SELF_CHECK (stack_grows_up != stack_grows_down);
+}
+
+} /* namespace selftests */
+
+INIT_GDB_FILE (gdbarch_selftests)
 {
   selftests::register_test_foreach_arch ("register_to_value",
 					 selftests::register_to_value_test);
 
   selftests::register_test_foreach_arch ("register_name",
 					 selftests::register_name_test);
+
+  selftests::register_test_foreach_arch ("stack_growth",
+					 selftests::check_stack_growth);
 }

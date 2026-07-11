@@ -1,6 +1,6 @@
 /* TUI windows implemented in Python
 
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "python-internal.h"
 #include "gdbsupport/intrusive_list.h"
@@ -37,15 +36,16 @@
 #include "tui/tui-layout.h"
 #include "tui/tui-wingeneral.h"
 #include "tui/tui-winsource.h"
+#include "observable.h"
+#include "py-events.h"
+#include "py-event.h"
 
 class tui_py_window;
 
 /* A PyObject representing a TUI window.  */
 
-struct gdbpy_tui_window
+struct gdbpy_tui_window: public PyObject
 {
-  PyObject_HEAD
-
   /* The TUI window, or nullptr if the window has been deleted.  */
   tui_py_window *window;
 
@@ -53,8 +53,9 @@ struct gdbpy_tui_window
   bool is_valid () const;
 };
 
-extern PyTypeObject gdbpy_tui_window_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("gdbpy_tui_window");
+static_assert (gdb::is_python_allocatable_v<gdbpy_tui_window>);
+
+extern PyTypeObject gdbpy_tui_window_object_type;
 
 /* A TUI window written in Python.  */
 
@@ -96,11 +97,13 @@ public:
       {
 	wnoutrefresh (handle.get ());
 	touchwin (m_inner_window.get ());
-	tui_wrefresh (m_inner_window.get ());
+	wnoutrefresh (m_inner_window.get ());
       }
     else
       tui_win_info::refresh_window ();
   }
+
+  void resize (int height, int width, int origin_x, int origin_y) override;
 
   void click (int mouse_x, int mouse_y, int mouse_button) override;
 
@@ -163,8 +166,7 @@ tui_py_window::~tui_py_window ()
   if (m_window != nullptr
       && PyObject_HasAttrString (m_window.get (), "close"))
     {
-      gdbpy_ref<> result (PyObject_CallMethod (m_window.get (), "close",
-					       nullptr));
+      gdbpy_ref<> result = gdbpy_call_method (m_window, "close");
       if (result == nullptr)
 	gdbpy_print_stack ();
     }
@@ -180,6 +182,8 @@ tui_py_window::~tui_py_window ()
 void
 tui_py_window::rerender ()
 {
+  tui_batch_rendering batch;
+
   tui_win_info::rerender ();
 
   gdbpy_enter enter_py;
@@ -197,8 +201,7 @@ tui_py_window::rerender ()
 
   if (PyObject_HasAttrString (m_window.get (), "render"))
     {
-      gdbpy_ref<> result (PyObject_CallMethod (m_window.get (), "render",
-					       nullptr));
+      gdbpy_ref<> result = gdbpy_call_method (m_window, "render");
       if (result == nullptr)
 	gdbpy_print_stack ();
     }
@@ -207,12 +210,14 @@ tui_py_window::rerender ()
 void
 tui_py_window::do_scroll_horizontal (int num_to_scroll)
 {
+  tui_batch_rendering batch;
+
   gdbpy_enter enter_py;
 
   if (PyObject_HasAttrString (m_window.get (), "hscroll"))
     {
-      gdbpy_ref<> result (PyObject_CallMethod (m_window.get(), "hscroll",
-					       "i", num_to_scroll, nullptr));
+      gdbpy_ref<> result = gdbpy_call_method (m_window, "hscroll",
+					      num_to_scroll);
       if (result == nullptr)
 	gdbpy_print_stack ();
     }
@@ -221,27 +226,38 @@ tui_py_window::do_scroll_horizontal (int num_to_scroll)
 void
 tui_py_window::do_scroll_vertical (int num_to_scroll)
 {
+  tui_batch_rendering batch;
+
   gdbpy_enter enter_py;
 
   if (PyObject_HasAttrString (m_window.get (), "vscroll"))
     {
-      gdbpy_ref<> result (PyObject_CallMethod (m_window.get (), "vscroll",
-					       "i", num_to_scroll, nullptr));
+      gdbpy_ref<> result = gdbpy_call_method (m_window, "vscroll",
+					      num_to_scroll);
       if (result == nullptr)
 	gdbpy_print_stack ();
     }
 }
 
 void
+tui_py_window::resize (int height_, int width_, int origin_x_, int origin_y_)
+{
+  m_inner_window.reset (nullptr);
+
+  tui_win_info::resize (height_, width_, origin_x_, origin_y_);
+}
+
+void
 tui_py_window::click (int mouse_x, int mouse_y, int mouse_button)
 {
+  tui_batch_rendering batch;
+
   gdbpy_enter enter_py;
 
   if (PyObject_HasAttrString (m_window.get (), "click"))
     {
-      gdbpy_ref<> result (PyObject_CallMethod (m_window.get (), "click",
-					       "iii", mouse_x, mouse_y,
-					       mouse_button));
+      gdbpy_ref<> result = gdbpy_call_method (m_window, "click",
+					      mouse_x, mouse_y, mouse_button);
       if (result == nullptr)
 	gdbpy_print_stack ();
     }
@@ -252,6 +268,8 @@ tui_py_window::output (const char *text, bool full_window)
 {
   if (m_inner_window != nullptr)
     {
+      tui_batch_rendering batch;
+
       if (full_window)
 	werase (m_inner_window.get ());
 
@@ -259,7 +277,7 @@ tui_py_window::output (const char *text, bool full_window)
       if (full_window)
 	check_and_display_highlight_if_needed ();
       else
-	tui_wrefresh (m_inner_window.get ());
+	wnoutrefresh (m_inner_window.get ());
     }
 }
 
@@ -339,7 +357,8 @@ intrusive_list<gdbpy_tui_window_maker>
 gdbpy_tui_window_maker::~gdbpy_tui_window_maker ()
 {
   /* Remove this gdbpy_tui_window_maker from the global list.  */
-  m_window_maker_list.erase (m_window_maker_list.iterator_to (*this));
+  if (is_linked ())
+    m_window_maker_list.erase (m_window_maker_list.iterator_to (*this));
 
   if (m_constr != nullptr)
     {
@@ -408,11 +427,10 @@ gdbpy_register_tui_window (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
-      return nullptr;
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 
@@ -446,8 +464,8 @@ gdbpy_tui_is_valid (PyObject *self, PyObject *args)
   gdbpy_tui_window *win = (gdbpy_tui_window *) self;
 
   if (win->is_valid ())
-    Py_RETURN_TRUE;
-  Py_RETURN_FALSE;
+    return py_true ().release ();
+  return py_false ().release ();
 }
 
 /* Python function that erases the TUI window.  */
@@ -460,25 +478,28 @@ gdbpy_tui_erase (PyObject *self, PyObject *args)
 
   win->window->erase ();
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Python function that writes some text to a TUI window.  */
 static PyObject *
-gdbpy_tui_write (PyObject *self, PyObject *args)
+gdbpy_tui_write (PyObject *self, PyObject *args, PyObject *kw)
 {
+  static const char *keywords[] = { "string", "full_window", nullptr };
+
   gdbpy_tui_window *win = (gdbpy_tui_window *) self;
   const char *text;
   int full_window = 0;
 
-  if (!PyArg_ParseTuple (args, "s|i", &text, &full_window))
+  if (!gdb_PyArg_ParseTupleAndKeywords (args, kw, "s|i", keywords,
+					&text, &full_window))
     return nullptr;
 
   REQUIRE_WINDOW (win);
 
   win->window->output (text, full_window);
 
-  Py_RETURN_NONE;
+  return py_none ().release ();
 }
 
 /* Return the width of the TUI window.  */
@@ -551,7 +572,7 @@ static PyMethodDef tui_object_methods[] =
 Return true if this TUI window is valid, false if not." },
   { "erase", gdbpy_tui_erase, METH_NOARGS,
     "Erase the TUI window." },
-  { "write", (PyCFunction) gdbpy_tui_write, METH_VARARGS,
+  { "write", (PyCFunction) gdbpy_tui_write, METH_VARARGS | METH_KEYWORDS,
     "Append a string to the TUI window." },
   { NULL } /* Sentinel.  */
 };
@@ -597,17 +618,42 @@ PyTypeObject gdbpy_tui_window_object_type =
   0,				  /* tp_alloc */
 };
 
+/* Called when TUI is enabled or disabled.  */
+
+static void
+gdbpy_tui_enabled (bool state)
+{
+  gdbpy_enter enter_py;
+
+  if (evregpy_no_listeners_p (gdb_py_events.tui_enabled))
+    return;
+
+  gdbpy_ref<> event_obj = create_event_object (&tui_enabled_event_object_type);
+  if (event_obj == nullptr)
+    {
+      gdbpy_print_stack ();
+      return;
+    }
+
+  gdbpy_ref<> code (PyBool_FromLong (state));
+  if (evpy_add_attribute (event_obj.get (), "enabled", code.get ()) < 0
+      || evpy_emit_event (event_obj.get (), gdb_py_events.tui_enabled) < 0)
+    gdbpy_print_stack ();
+}
+
 #endif /* TUI */
 
 /* Initialize this module.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
+static int
 gdbpy_initialize_tui ()
 {
 #ifdef TUI
   gdbpy_tui_window_object_type.tp_new = PyType_GenericNew;
-  if (PyType_Ready (&gdbpy_tui_window_object_type) < 0)
+  if (gdbpy_type_ready (&gdbpy_tui_window_object_type) < 0)
     return -1;
+
+  gdb::observers::tui_enabled.attach (gdbpy_tui_enabled, "py-tui");
 #endif	/* TUI */
 
   return 0;

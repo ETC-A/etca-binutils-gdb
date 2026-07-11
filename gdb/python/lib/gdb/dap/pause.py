@@ -1,4 +1,4 @@
-# Copyright 2022-2023 Free Software Foundation, Inc.
+# Copyright 2022-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -13,11 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from .events import StopKinds, ExecutionInvoker
+from .events import exec_and_expect_stop
 from .server import request
-from .startup import send_gdb
 
 
-@request("pause")
+@request("pause", response=False, expect_stopped=False)
 def pause(**args):
-    send_gdb(ExecutionInvoker("interrupt -a", StopKinds.PAUSE))
+    exec_and_expect_stop("interrupt -a", True)

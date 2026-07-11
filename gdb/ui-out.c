@@ -1,6 +1,6 @@
 /* Output generating routines for GDB.
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
@@ -20,13 +20,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "expression.h"		/* For language.h */
+#include "expression.h"
 #include "language.h"
 #include "ui-out.h"
 #include "gdbsupport/format.h"
 #include "cli/cli-style.h"
 #include "diagnostics.h"
+#include "buffered-streams.h"
 
 #include <vector>
 #include <memory>
@@ -236,9 +236,9 @@ void ui_out_table::append_header (int width, ui_align alignment,
     internal_error (_("table header must be specified after table_begin and "
 		      "before table_body."));
 
-  std::unique_ptr<ui_out_hdr> header (new ui_out_hdr (m_headers.size () + 1,
-							width, alignment,
-							col_name, col_hdr));
+  auto header = std::make_unique<ui_out_hdr> (m_headers.size () + 1,
+					      width, alignment,
+					      col_name, col_hdr);
 
   m_headers.push_back (std::move (header));
 }
@@ -328,7 +328,7 @@ ui_out::current_level () const
 void
 ui_out::push_level (ui_out_type type)
 {
-  std::unique_ptr<ui_out_level> level (new ui_out_level (type));
+  auto level = std::make_unique<ui_out_level> (type);
 
   m_levels.push_back (std::move (level));
 }
@@ -354,7 +354,7 @@ ui_out::table_begin (int nr_cols, int nr_rows, const std::string &tblid)
     internal_error (_("tables cannot be nested; table_begin found before \
 previous table_end."));
 
-  m_table_up.reset (new ui_out_table (level () + 1, nr_cols, tblid));
+  m_table_up = std::make_unique<ui_out_table> (level () + 1, nr_cols, tblid);
 
   do_table_begin (nr_cols, nr_rows, tblid.c_str ());
 }
@@ -434,7 +434,8 @@ ui_out::end (ui_out_type type)
 }
 
 void
-ui_out::field_signed (const char *fldname, LONGEST value)
+ui_out::field_signed (const char *fldname, LONGEST value,
+		      const ui_file_style &style)
 {
   int fldno;
   int width;
@@ -442,7 +443,7 @@ ui_out::field_signed (const char *fldname, LONGEST value)
 
   verify_field (&fldno, &width, &align);
 
-  do_field_signed (fldno, width, align, fldname, value);
+  do_field_signed (fldno, width, align, fldname, value, style);
 }
 
 void
@@ -455,7 +456,8 @@ ui_out::field_fmt_signed (int input_width, ui_align input_align,
 
   verify_field (&fldno, &width, &align);
 
-  do_field_signed (fldno, input_width, input_align, fldname, value);
+  do_field_signed (fldno, input_width, input_align, fldname, value,
+		   ui_file_style ());
 }
 
 /* See ui-out.h.  */
@@ -557,19 +559,8 @@ ui_out::field_fmt (const char *fldname, const ui_file_style &style,
 }
 
 void
-ui_out::spaces (int numspaces)
-{
-  do_spaces (numspaces);
-}
-
-void
-ui_out::text (const char *string)
-{
-  do_text (string);
-}
-
-void
-ui_out::call_do_message (const ui_file_style &style, const char *format,
+ui_out::call_do_message (ui_file_style &current_style,
+			 const ui_file_style &style, const char *format,
 			 ...)
 {
   va_list args;
@@ -581,7 +572,7 @@ ui_out::call_do_message (const ui_file_style &style, const char *format,
      to put a "format" attribute on call_do_message.  */
   DIAGNOSTIC_PUSH
   DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
-  do_message (style, format, args);
+  do_message (current_style, style, format, args);
   DIAGNOSTIC_POP
 
   va_end (args);
@@ -593,11 +584,12 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 {
   format_pieces fpieces (&format, true);
 
+  ui_file_style current_style = in_style;
   ui_file_style style = in_style;
 
   for (auto &&piece : fpieces)
     {
-      const char *current_substring = piece.string;
+      const char *current_substring = fpieces.piece_str (piece);
 
       gdb_assert (piece.n_int_args >= 0 && piece.n_int_args <= 2);
       int intvals[2] = { 0, 0 };
@@ -618,13 +610,15 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	    switch (piece.n_int_args)
 	      {
 	      case 0:
-		call_do_message (style, current_substring, str);
+		call_do_message (current_style, style, current_substring,
+				 str);
 		break;
 	      case 1:
-		call_do_message (style, current_substring, intvals[0], str);
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], str);
 		break;
 	      case 2:
-		call_do_message (style, current_substring,
+		call_do_message (current_style, style, current_substring,
 				 intvals[0], intvals[1], str);
 		break;
 	      }
@@ -637,7 +631,8 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	  gdb_assert_not_reached ("wide_char_arg not supported in vmessage");
 	  break;
 	case long_long_arg:
-	  call_do_message (style, current_substring, va_arg (args, long long));
+	  call_do_message (current_style, style, current_substring,
+			   va_arg (args, long long));
 	  break;
 	case int_arg:
 	  {
@@ -645,13 +640,15 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	    switch (piece.n_int_args)
 	      {
 	      case 0:
-		call_do_message (style, current_substring, val);
+		call_do_message (current_style, style, current_substring,
+				 val);
 		break;
 	      case 1:
-		call_do_message (style, current_substring, intvals[0], val);
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], val);
 		break;
 	      case 2:
-		call_do_message (style, current_substring,
+		call_do_message (current_style, style, current_substring,
 				 intvals[0], intvals[1], val);
 		break;
 	      }
@@ -663,13 +660,15 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	    switch (piece.n_int_args)
 	      {
 	      case 0:
-		call_do_message (style, current_substring, val);
+		call_do_message (current_style, style, current_substring,
+				 val);
 		break;
 	      case 1:
-		call_do_message (style, current_substring, intvals[0], val);
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], val);
 		break;
 	      case 2:
-		call_do_message (style, current_substring,
+		call_do_message (current_style, style, current_substring,
 				 intvals[0], intvals[1], val);
 		break;
 	      }
@@ -681,20 +680,43 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	    switch (piece.n_int_args)
 	      {
 	      case 0:
-		call_do_message (style, current_substring, val);
+		call_do_message (current_style, style, current_substring,
+				 val);
 		break;
 	      case 1:
-		call_do_message (style, current_substring, intvals[0], val);
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], val);
 		break;
 	      case 2:
-		call_do_message (style, current_substring,
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], intvals[1], val);
+		break;
+	      }
+	  }
+	  break;
+	case ptrdiff_t_arg:
+	  {
+	    ptrdiff_t val = va_arg (args, ptrdiff_t);
+	    switch (piece.n_int_args)
+	      {
+	      case 0:
+		call_do_message (current_style, style, current_substring,
+				 val);
+		break;
+	      case 1:
+		call_do_message (current_style, style, current_substring,
+				 intvals[0], val);
+		break;
+	      case 2:
+		call_do_message (current_style, style, current_substring,
 				 intvals[0], intvals[1], val);
 		break;
 	      }
 	  }
 	  break;
 	case double_arg:
-	  call_do_message (style, current_substring, va_arg (args, double));
+	  call_do_message (current_style, style, current_substring,
+			   va_arg (args, double));
 	  break;
 	case long_double_arg:
 	  gdb_assert_not_reached ("long_double_arg not supported in vmessage");
@@ -735,7 +757,7 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	    case 's':
 	      {
 		styled_string_s *ss = va_arg (args, styled_string_s *);
-		call_do_message (ss->style, "%s", ss->str);
+		call_do_message (current_style, ss->style, "%s", ss->str);
 	      }
 	      break;
 	    case '[':
@@ -750,7 +772,8 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	      }
 	      break;
 	    default:
-	      call_do_message (style, current_substring, va_arg (args, void *));
+	      call_do_message (current_style, style, current_substring,
+			       va_arg (args, void *));
 	      break;
 	    }
 	  break;
@@ -762,12 +785,16 @@ ui_out::vmessage (const ui_file_style &in_style, const char *format,
 	     because some platforms have modified GCC to include
 	     -Wformat-security by default, which will warn here if
 	     there is no argument.  */
-	  call_do_message (style, current_substring, 0);
+	  call_do_message (current_style, style, current_substring, 0);
 	  break;
 	default:
 	  internal_error (_("failed internal consistency check"));
 	}
     }
+
+  ui_file_style plain;
+  if (can_emit_style_escape () && current_style != plain)
+    emit_style_escape (plain);
 }
 
 void
@@ -779,37 +806,6 @@ ui_out::message (const char *format, ...)
   vmessage (ui_file_style (), format, args);
 
   va_end (args);
-}
-
-void
-ui_out::wrap_hint (int indent)
-{
-  do_wrap_hint (indent);
-}
-
-void
-ui_out::flush ()
-{
-  do_flush ();
-}
-
-void
-ui_out::redirect (ui_file *outstream)
-{
-  do_redirect (outstream);
-}
-
-/* Test the flags against the mask given.  */
-ui_out_flags
-ui_out::test_flags (ui_out_flags mask)
-{
-  return m_flags & mask;
-}
-
-bool
-ui_out::is_mi_like_p () const
-{
-  return do_is_mi_like_p ();
 }
 
 /* Verify that the field/tuple/list is correctly positioned.  Return

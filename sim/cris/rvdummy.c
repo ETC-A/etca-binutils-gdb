@@ -1,7 +1,7 @@
 /* Test-driver for the remote-virtual-component simulator framework
    for GDB, the GNU Debugger.
 
-   Copyright 2006-2023 Free Software Foundation, Inc.
+   Copyright 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -478,7 +478,6 @@ main (int argc, char *argv[])
 {
   int optc;
   int fd;
-  FILE *f;
   int i;
 
   progname = argv[0];

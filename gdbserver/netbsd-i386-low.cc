@@ -1,4 +1,4 @@
-/* Copyright (C) 2020-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,6 @@
 #include <sys/ptrace.h>
 #include <limits.h>
 
-#include "server.h"
 #include "netbsd-low.h"
 #include "gdbsupport/x86-xstate.h"
 #include "arch/i386.h"
@@ -140,12 +139,12 @@ netbsd_i386_target::get_regs_info ()
 void
 netbsd_i386_target::low_arch_setup ()
 {
-  target_desc *tdesc
+  target_desc_up tdesc
     = i386_create_target_description (X86_XSTATE_SSE_MASK, false, false);
 
-  init_target_desc (tdesc, i386_expedite_regs);
+  init_target_desc (tdesc.get (), i386_expedite_regs, GDB_OSABI_NETBSD);
 
-  current_process ()->tdesc = tdesc;
+  current_process ()->tdesc = tdesc.release ();
 }
 
 /* The singleton target ops object.  */

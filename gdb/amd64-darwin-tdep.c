@@ -1,5 +1,5 @@
 /* Darwin support for GDB, the GNU debugger.
-   Copyright (C) 1997-2023 Free Software Foundation, Inc.
+   Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
    Contributed by Apple Computer, Inc.
 
@@ -18,7 +18,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "inferior.h"
 #include "gdbcore.h"
@@ -68,14 +68,14 @@ int amd64_darwin_thread_state_reg_offset[] =
   20 * 8			/* %gs */
 };
 
-const int amd64_darwin_thread_state_num_regs = 
+const int amd64_darwin_thread_state_num_regs =
   ARRAY_SIZE (amd64_darwin_thread_state_reg_offset);
 
 /* Assuming THIS_FRAME is a Darwin sigtramp routine, return the
    address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-amd64_darwin_sigcontext_addr (frame_info_ptr this_frame)
+amd64_darwin_sigcontext_addr (const frame_info_ptr &this_frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -113,12 +113,10 @@ x86_darwin_init_abi_64 (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   tdep->jb_pc_offset = 56;
 
-  set_gdbarch_so_ops (gdbarch, &darwin_so_ops);
+  set_gdbarch_make_solib_ops (gdbarch, make_darwin_solib_ops);
 }
 
-void _initialize_amd64_darwin_tdep ();
-void
-_initialize_amd64_darwin_tdep ()
+INIT_GDB_FILE (amd64_darwin_tdep)
 {
   gdbarch_register_osabi (bfd_arch_i386, bfd_mach_x86_64,
 			  GDB_OSABI_DARWIN, x86_darwin_init_abi_64);

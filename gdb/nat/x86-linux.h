@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux x86 (i386 and x86-64).
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,10 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef NAT_X86_LINUX_H
-#define NAT_X86_LINUX_H
+#ifndef GDB_NAT_X86_LINUX_H
+#define GDB_NAT_X86_LINUX_H
 
 #include "nat/linux-nat.h"
+#include <asm/ldt.h>
 
 /* Set whether our local mirror of LWP's debug registers has been
    changed since the values were last written to the thread.  Nonzero
@@ -47,4 +48,50 @@ extern void x86_linux_delete_thread (struct arch_lwp_info *arch_lwp);
 
 extern void x86_linux_prepare_to_resume (struct lwp_info *lwp);
 
-#endif /* NAT_X86_LINUX_H */
+/* Return value from x86_linux_ptrace_get_arch_size function.  Indicates if
+   a thread is 32-bit, 64-bit, or x32.  */
+
+struct x86_linux_arch_size
+{
+  explicit x86_linux_arch_size (bool is_64bit, bool is_x32)
+    : m_is_64bit (is_64bit),
+      m_is_x32 (is_x32)
+  {
+    /* Nothing.  */
+  }
+
+  bool is_64bit () const
+  { return m_is_64bit; }
+
+  bool is_x32 () const
+  { return m_is_x32; }
+
+private:
+  bool m_is_64bit = false;
+  bool m_is_x32 = false;
+};
+
+/* Use ptrace calls to figure out if thread TID is 32-bit, 64-bit, or
+   64-bit running in x32 mode.  */
+
+extern x86_linux_arch_size x86_linux_ptrace_get_arch_size (int tid);
+
+/* Check shadow stack hardware and kernel support.  */
+
+extern bool x86_check_ssp_support (const int tid);
+
+/* Get the three TLS related GDT (Global Descriptor Table) entries from
+   the kernel for thread PID, placing the results into BUFFER, an array of
+   length 3.  */
+
+extern bool i386_ptrace_get_tls_data
+  (int pid, gdb::array_view<user_desc> buffer);
+
+/* Store the three TLS related GDT (Global Descriptor Table) entries held
+   in BUFFER back into the kernel for thread PID.  BUFFER must have a
+   length of three.  */
+
+extern bool i386_ptrace_set_tls_data
+  (int pid, gdb::array_view<user_desc> buffer);
+
+#endif /* GDB_NAT_X86_LINUX_H */

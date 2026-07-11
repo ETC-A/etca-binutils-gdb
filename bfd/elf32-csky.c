@@ -1,5 +1,5 @@
 /* 32-bit ELF support for C-SKY.
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
    Contributed by C-SKY Microsystems and Mentor Graphics.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -1502,8 +1502,7 @@ csky_elf_link_hash_table_create (bfd *abfd)
 
   if (!_bfd_elf_link_hash_table_init (&ret->elf, abfd,
 				      csky_elf_link_hash_newfunc,
-				      sizeof (struct csky_elf_link_hash_entry),
-				      CSKY_ELF_DATA))
+				      sizeof (struct csky_elf_link_hash_entry)))
     {
       free (ret);
       return NULL;
@@ -1522,8 +1521,7 @@ csky_elf_link_hash_table_create (bfd *abfd)
 static bool
 csky_elf_mkobject (bfd *abfd)
 {
-  return bfd_elf_allocate_object (abfd, sizeof (struct csky_elf_obj_tdata),
-				  CSKY_ELF_DATA);
+  return bfd_elf_allocate_object (abfd, sizeof (struct csky_elf_obj_tdata));
 }
 
 /* Adjust a symbol defined by a dynamic object and referenced by a
@@ -1614,7 +1612,7 @@ csky_elf_adjust_dynamic_symbol (struct bfd_link_info *info,
      only references to the symbol are via the global offset table.
      For such cases we need not do anything here; the relocations will
      be handled correctly by relocate_section.  */
-  if (bfd_link_pic (info) || htab->elf.is_relocatable_executable)
+  if (bfd_link_pic (info))
     return true;
 
   /* We must allocate the symbol in our .dynbss section, which will
@@ -1893,8 +1891,7 @@ csky_allocate_dynrelocs (struct elf_link_hash_entry *h, void *inf)
 /* Set the sizes of the dynamic sections.  */
 
 static bool
-csky_elf_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
-				struct bfd_link_info *info)
+csky_elf_late_size_sections (struct bfd_link_info *info)
 {
   struct csky_elf_link_hash_table *htab;
   bfd *dynobj;
@@ -1907,17 +1904,18 @@ csky_elf_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
     return false;
   dynobj = htab->elf.dynobj;
   if (dynobj == NULL)
-    return false;
+    return true;
 
   if (htab->elf.dynamic_sections_created)
     {
       /* Set the contents of the .interp section to the interpreter.  */
       if (!bfd_link_pic (info) && !info->nointerp)
 	{
-	  s = bfd_get_section_by_name (dynobj, ".interp");
+	  s = htab->elf.interp;
 	  BFD_ASSERT (s != NULL);
 	  s->size = sizeof ELF_DYNAMIC_INTERPRETER;
 	  s->contents = (unsigned char *) ELF_DYNAMIC_INTERPRETER;
+	  s->alloced = 1;
 	}
     }
 
@@ -1966,7 +1964,7 @@ csky_elf_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
       if (!local_got_refcounts)
 	continue;
 
-      symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+      symtab_hdr = &elf_symtab_hdr (ibfd);
       locsymcount = symtab_hdr->sh_info;
       end_local_got = local_got_refcounts + locsymcount;
       local_tls_type = csky_elf_local_got_tls_type (ibfd);
@@ -2086,27 +2084,25 @@ csky_elf_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
       s->contents = (bfd_byte *) bfd_zalloc (dynobj, s->size);
       if (s->contents == NULL)
 	return false;
+      s->alloced = 1;
     }
 
   if (htab->elf.dynamic_sections_created)
     htab->elf.dt_pltgot_required = htab->elf.sgot->size != 0;
-  return _bfd_elf_add_dynamic_tags (output_bfd, info, relocs);
+  return _bfd_elf_add_dynamic_tags (info, relocs);
 }
 
 /* Finish up dynamic symbol handling.  We set the contents of various
    dynamic sections here.  */
 
 static bool
-csky_elf_finish_dynamic_symbol (bfd *output_bfd,
-				struct bfd_link_info *info,
+csky_elf_finish_dynamic_symbol (struct bfd_link_info *info,
 				struct elf_link_hash_entry *h,
 				Elf_Internal_Sym *sym)
 {
   struct csky_elf_link_hash_table *htab;
 
   htab = csky_elf_hash_table (info);
-  if (htab == NULL)
-    return false;
 
   /* Sanity check to make sure no unexpected symbol reaches here.
      This matches the test in csky_elf_relocate_section handling
@@ -2134,30 +2130,30 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
 		  || ((h->forced_local || bfd_link_executable (info))
 		      && h->def_regular));
       BFD_ASSERT (plt != NULL && gotplt != NULL && relplt != NULL);
-      if (bfd_csky_abi (output_bfd) == CSKY_ABI_V2)
+      if (bfd_csky_abi (info->output_bfd) == CSKY_ABI_V2)
 	plt_index = h->plt.offset / PLT_ENTRY_SIZE - 1;
       else
 	plt_index = h->plt.offset / PLT_ENTRY_SIZE_P - 1;
       got_offset = (plt_index + 3) * 4;
 
       /* Fill in the entry in the procedure linkage table.  */
-      if (bfd_csky_abi (output_bfd) == CSKY_ABI_V2)
+      if (bfd_csky_abi (info->output_bfd) == CSKY_ABI_V2)
 	{
-	  csky_put_insn_32 (output_bfd, csky_elf_plt_entry_v2[0],
+	  csky_put_insn_32 (info->output_bfd, csky_elf_plt_entry_v2[0],
 			    plt->contents + h->plt.offset);
-	  csky_put_insn_32 (output_bfd,
+	  csky_put_insn_32 (info->output_bfd,
 			    (csky_elf_plt_entry_v2[1] | plt_index),
 			    plt->contents + h->plt.offset + 4);
-	  csky_put_insn_32 (output_bfd, csky_elf_plt_entry_v2[2],
+	  csky_put_insn_32 (info->output_bfd, csky_elf_plt_entry_v2[2],
 			    plt->contents + h->plt.offset + 8);
 	}
       else
 	{
 	  int i;
 	  for (i = 0; i < 6; i++)
-	    bfd_put_16 (output_bfd, csky_elf_plt_entry_v1[i],
+	    bfd_put_16 (info->output_bfd, csky_elf_plt_entry_v1[i],
 			plt->contents + h->plt.offset + i * 2);
-	  bfd_put_32 (output_bfd, plt_index,
+	  bfd_put_32 (info->output_bfd, plt_index,
 		      plt->contents + h->plt.offset + i * 2);
 	}
 
@@ -2173,7 +2169,7 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
 	     + plt_index * sizeof (Elf32_External_Rela));
 
       if (loc != NULL)
-	bfd_elf32_swap_reloca_out (output_bfd, &rel, loc);
+	bfd_elf32_swap_reloca_out (info->output_bfd, &rel, loc);
       if (! h->def_regular)
 	{
 	  /* Mark the symbol as undefined, rather than as defined in
@@ -2224,7 +2220,7 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
       else
 	{
 	  BFD_ASSERT ((h->got.offset & 1) == 0);
-	  bfd_put_32 (output_bfd, (bfd_vma) 0,
+	  bfd_put_32 (info->output_bfd, 0,
 		      htab->elf.sgot->contents + h->got.offset);
 	  rel.r_info = ELF32_R_INFO (h->dynindx, R_CKCORE_GLOB_DAT);
 	  rel.r_addend = 0;
@@ -2234,7 +2230,7 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
       loc += htab->elf.srelgot->reloc_count++ * sizeof (Elf32_External_Rela);
 
       if (loc != NULL)
-	bfd_elf32_swap_reloca_out (output_bfd, &rel, loc);
+	bfd_elf32_swap_reloca_out (info->output_bfd, &rel, loc);
     }
 
   if (h->needs_copy)
@@ -2259,7 +2255,7 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
 	s = htab->elf.srelbss;
       BFD_ASSERT (s != NULL);
       loc = s->contents + s->reloc_count++ * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rela, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rela, loc);
     }
 
   /* Mark _DYNAMIC and _GLOBAL_OFFSET_TABLE_ as absolute.  */
@@ -2273,8 +2269,8 @@ csky_elf_finish_dynamic_symbol (bfd *output_bfd,
 /* Finish up the dynamic sections.  */
 
 static bool
-csky_elf_finish_dynamic_sections (bfd *output_bfd,
-				  struct bfd_link_info *info)
+csky_elf_finish_dynamic_sections (struct bfd_link_info *info,
+				  bfd_byte *buf ATTRIBUTE_UNUSED)
 {
   struct csky_elf_link_hash_table *htab;
   bfd *dynobj;
@@ -2330,7 +2326,7 @@ csky_elf_finish_dynamic_sections (bfd *output_bfd,
 
 	  if (name != NULL)
 	    {
-	      asection *s = bfd_get_section_by_name (output_bfd, name);
+	      asection *s = bfd_get_section_by_name (info->output_bfd, name);
 
 	      if (s == NULL)
 		dyn.d_un.d_val = 0;
@@ -2339,7 +2335,7 @@ csky_elf_finish_dynamic_sections (bfd *output_bfd,
 	      else
 		dyn.d_un.d_val = s->size;
 	    }
-	  bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	  bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	}
     }
 
@@ -2352,12 +2348,12 @@ csky_elf_finish_dynamic_sections (bfd *output_bfd,
     {
       if (got_sec->size > 0)
 	{
-	  bfd_put_32 (output_bfd,
-		      (sdyn == NULL ? (bfd_vma) 0
+	  bfd_put_32 (info->output_bfd,
+		      (sdyn == NULL ? 0
 		       : sdyn->output_section->vma + sdyn->output_offset),
 		      got_sec->contents);
-	  bfd_put_32 (output_bfd, (bfd_vma) 0, got_sec->contents + 4);
-	  bfd_put_32 (output_bfd, (bfd_vma) 0, got_sec->contents + 8);
+	  bfd_put_32 (info->output_bfd, 0, got_sec->contents + 4);
+	  bfd_put_32 (info->output_bfd, 0, got_sec->contents + 8);
 	}
       elf_section_data (got_sec->output_section)->this_hdr.sh_entsize = 4;
     }
@@ -2414,13 +2410,13 @@ csky_elf_reloc_type_class (const struct bfd_link_info *info ATTRIBUTE_UNUSED,
 static asection *
 csky_elf_gc_mark_hook (asection *sec,
 		       struct bfd_link_info *info,
-		       Elf_Internal_Rela *rel,
+		       struct elf_reloc_cookie *cookie,
 		       struct elf_link_hash_entry *h,
-		       Elf_Internal_Sym *sym)
+		       unsigned int symndx)
 {
   if (h != NULL)
     {
-      switch (ELF32_R_TYPE (rel->r_info))
+      switch (ELF32_R_TYPE (cookie->rel->r_info))
 	{
 	case R_CKCORE_GNU_VTINHERIT:
 	case R_CKCORE_GNU_VTENTRY:
@@ -2428,7 +2424,7 @@ csky_elf_gc_mark_hook (asection *sec,
 	}
     }
 
-  return _bfd_elf_gc_mark_hook (sec, info, rel, h, sym);
+  return _bfd_elf_gc_mark_hook (sec, info, cookie, h, symndx);
 }
 
 /* Match symbol names created by tc-csky.c:make_mapping_symbol.  */
@@ -2488,7 +2484,7 @@ csky_elf_check_relocs (bfd * abfd,
   if (htab == NULL)
     return false;
 
-  symtab_hdr = & elf_tdata (abfd)->symtab_hdr;
+  symtab_hdr = &elf_symtab_hdr (abfd);
   sym_hashes = elf_sym_hashes (abfd);
 
   rel_end = relocs + sec->reloc_count;
@@ -3037,8 +3033,7 @@ csky_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
   if (! _bfd_generic_verify_endian_match (ibfd, info))
     return false;
 
-  if (bfd_get_flavour (ibfd) != bfd_target_elf_flavour
-      || bfd_get_flavour (obfd) != bfd_target_elf_flavour)
+  if (bfd_get_flavour (ibfd) != bfd_target_elf_flavour)
     return true;
 
   /* Merge ".csky.attribute" section.  */
@@ -3448,20 +3443,19 @@ elf32_csky_size_stubs (bfd *output_bfd,
   while (1)
     {
       bfd *input_bfd;
-      unsigned int bfd_indx;
       asection *stub_sec;
       bool stub_changed = false;
 
-      for (input_bfd = info->input_bfds, bfd_indx = 0;
+      for (input_bfd = info->input_bfds;
 	   input_bfd != NULL;
-	   input_bfd = input_bfd->link.next, bfd_indx++)
+	   input_bfd = input_bfd->link.next)
 	{
 	  Elf_Internal_Shdr *symtab_hdr;
 	  asection *section;
 	  Elf_Internal_Sym *local_syms = NULL;
 
 	  /* We'll need the symbol table in a second.  */
-	  symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
+	  symtab_hdr = &elf_symtab_hdr (input_bfd);
 	  if (symtab_hdr->sh_info == 0)
 	    continue;
 
@@ -3728,7 +3722,7 @@ csky_build_one_stub (struct bfd_hash_entry *gen_entry,
      section.  The user should fix his linker script.  */
   if (stub_entry->target_section->output_section == NULL
       && info->non_contiguous_regions)
-    info->callbacks->einfo (_("%F%P: Could not assign `%pA' to an output section. "
+    info->callbacks->fatal (_("%P: Could not assign `%pA' to an output section. "
 			      "Retry without --enable-non-contiguous-regions.\n"),
 			    stub_entry->target_section);
 
@@ -3858,6 +3852,7 @@ elf32_csky_build_stubs (struct bfd_link_info *info)
       stub_sec->contents = bfd_zalloc (htab->stub_bfd, size);
       if (stub_sec->contents == NULL && size != 0)
 	return false;
+      stub_sec->alloced = 1;
       stub_sec->size = 0;
     }
 
@@ -4274,8 +4269,7 @@ tpoff (struct bfd_link_info *info, bfd_vma address)
 /* Relocate a csky section.  */
 
 static int
-csky_elf_relocate_section (bfd *                  output_bfd,
-			   struct bfd_link_info * info,
+csky_elf_relocate_section (struct bfd_link_info * info,
 			   bfd *                  input_bfd,
 			   asection *             input_section,
 			   bfd_byte *             contents,
@@ -4348,7 +4342,8 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	  /* Get symbol table entry.  */
 	  sym = local_syms + r_symndx;
 	  sec = local_sections[r_symndx];
-	  relocation = _bfd_elf_rela_local_sym (output_bfd, sym, &sec, rel);
+	  relocation = _bfd_elf_rela_local_sym (info->output_bfd,
+						sym, &sec, rel);
 	  addend = (bfd_vma)rel->r_addend;
 	}
       else
@@ -4382,8 +4377,8 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	  else
 #endif
 	    RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					     rel, 1, relend, howto, 0,
-					     contents);
+					     rel, 1, relend, R_CKCORE_NONE,
+					     howto, 0, contents);
 	}
 
       if (bfd_link_relocatable (info))
@@ -4455,7 +4450,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		    off &= ~1;
 		  else
 		    {
-		      bfd_put_32 (output_bfd, relocation,
+		      bfd_put_32 (info->output_bfd, relocation,
 				  htab->elf.sgot->contents + off);
 		      h->got.offset |= 1;
 
@@ -4492,7 +4487,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		off &= ~1;
 	      else
 		{
-		  bfd_put_32 (output_bfd, relocation,
+		  bfd_put_32 (info->output_bfd, relocation,
 			      htab->elf.sgot->contents + off);
 		  local_got_offsets[r_symndx] |= 1;
 		  if (bfd_link_pic (info))
@@ -4516,7 +4511,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	      loc = srelgot->contents;
 	      loc += (srelgot->reloc_count++ * sizeof (Elf32_External_Rela));
 	      if (loc != NULL)
-		bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 	    }
 	  relocation = htab->elf.sgot->output_offset + off;
 	  break;
@@ -4548,21 +4543,24 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	case R_CKCORE_DOFFSET_IMM18BY2:
 	case R_CKCORE_DOFFSET_IMM18BY4:
 	  {
-	    asection *sdata = bfd_get_section_by_name (output_bfd, ".data");
+	    asection *sdata = bfd_get_section_by_name (info->output_bfd,
+						       ".data");
 	    relocation -= sdata->output_section->vma;
 	  }
 	  break;
 
 	case R_CKCORE_DOFFSET_LO16:
 	  {
-	    asection *sdata = bfd_get_section_by_name (output_bfd, ".data");
+	    asection *sdata = bfd_get_section_by_name (info->output_bfd,
+						       ".data");
 	    relocation -= sdata->output_section->vma;
 	  }
 	  break;
 
 	case R_CKCORE_TOFFSET_LO16:
 	  {
-	    asection *stext = bfd_get_section_by_name (output_bfd, ".text");
+	    asection *stext = bfd_get_section_by_name (info->output_bfd,
+						       ".text");
 	    if (stext)
 	      relocation -= stext->output_section->vma;
 	  }
@@ -4618,7 +4616,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 			    relative_reloc = true;
 			}
 		    }
-		  bfd_put_32 (output_bfd, relocation,
+		  bfd_put_32 (info->output_bfd, relocation,
 			      htab->elf.sgot->contents + off);
 
 		  if (relative_reloc)
@@ -4639,14 +4637,15 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		      loc += (srelgot->reloc_count++
 			      * sizeof (Elf32_External_Rela));
 		      if (loc != NULL)
-			bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+			bfd_elf32_swap_reloca_out (info->output_bfd,
+						   &outrel, loc);
 		    }
 		  relocation = off + htab->elf.sgot->output_offset;
 		}
 	      break;
 	    }
 	  /* The relocation is the got offset.  */
-	  if (bfd_csky_abi (output_bfd) == CSKY_ABI_V2)
+	  if (bfd_csky_abi (info->output_bfd) == CSKY_ABI_V2)
 	    relocation = (h->plt.offset / PLT_ENTRY_SIZE + 2) * 4;
 	  else
 	    relocation = (h->plt.offset / PLT_ENTRY_SIZE_P + 2) * 4;
@@ -4718,7 +4717,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		      howto = &csky_elf_howto_table[R_CKCORE_PCREL_IMM26BY2];
 		      read_content_substitute = CSKY_INSN_BSR32;
 		    }
-		  else if (bfd_csky_arch (output_bfd) == CSKY_ARCH_810)
+		  else if (bfd_csky_arch (info->output_bfd) == CSKY_ARCH_810)
 		    /* if bsr32 cannot reach, generate
 		       "lrw r25, label; jsr r25" instead of
 		       jsri label.  */
@@ -4737,7 +4736,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	      break;
 	    } /* else if h == NULL...  */
 
-	  else if (bfd_csky_arch (output_bfd) == CSKY_ARCH_810
+	  else if (bfd_csky_arch (info->output_bfd) == CSKY_ARCH_810
 		   && (ELF32_R_TYPE (rel->r_info)
 		       == R_CKCORE_PCREL_JSR_IMM26BY2))
 	    {
@@ -4772,7 +4771,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	      relocate = false;
 
 	      outrel.r_offset =
-		_bfd_elf_section_offset (output_bfd, info, input_section,
+		_bfd_elf_section_offset (info->output_bfd, info, input_section,
 					 rel->r_offset);
 	      if (outrel.r_offset == (bfd_vma) -1)
 		skip = true;
@@ -4807,7 +4806,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		      * sizeof (Elf32_External_Rela));
 
 	      if (loc != NULL)
-		bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 
 	      /* If this reloc is against an external symbol, we do not
 		 want to diddle with the addend. Otherwise, we need to
@@ -4858,7 +4857,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 	      relocate = false;
 
 	      outrel.r_offset =
-		_bfd_elf_section_offset (output_bfd, info, input_section,
+		_bfd_elf_section_offset (info->output_bfd, info, input_section,
 					 rel->r_offset);
 
 	      if (outrel.r_offset == (bfd_vma) -1)
@@ -4896,7 +4895,7 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		      * sizeof (Elf32_External_Rela));
 
 	      if (loc != NULL)
-		bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 
 	      /* If this reloc is against an external symbol, we do
 		 want to diddle with the addend. Otherwise, we need to
@@ -4931,17 +4930,17 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 		    = (htab->elf.sgot->output_section->vma
 		       + htab->elf.sgot->output_offset + off);
 		  outrel.r_info = ELF32_R_INFO (0, R_CKCORE_TLS_DTPMOD32);
-		  bfd_put_32 (output_bfd, outrel.r_addend,
+		  bfd_put_32 (info->output_bfd, outrel.r_addend,
 			      htab->elf.sgot->contents + off);
 
 		  loc = htab->elf.srelgot->contents;
 		  loc += (htab->elf.srelgot->reloc_count++
 			  * sizeof (Elf32_External_Rela));
 		  if (loc)
-		    bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		    bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 		}
 	      else
-		bfd_put_32 (output_bfd, 1,
+		bfd_put_32 (info->output_bfd, 1,
 			    htab->elf.sgot->contents + off);
 	      htab->tls_ldm_got.offset |= 1;
 	    }
@@ -5033,15 +5032,15 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 			     + cur_off);
 			outrel.r_info
 			  = ELF32_R_INFO (indx, R_CKCORE_TLS_DTPMOD32);
-			bfd_put_32 (output_bfd, outrel.r_addend,
+			bfd_put_32 (info->output_bfd, outrel.r_addend,
 				    htab->elf.sgot->contents + cur_off);
 			if (loc)
-			  bfd_elf32_swap_reloca_out (output_bfd,
+			  bfd_elf32_swap_reloca_out (info->output_bfd,
 						     &outrel, loc);
 			loc += sizeof (Elf32_External_Rela);
 			htab->elf.srelgot->reloc_count++;
 			if (indx == 0)
-			  bfd_put_32 (output_bfd,
+			  bfd_put_32 (info->output_bfd,
 				      relocation - dtpoff_base (info),
 				      (htab->elf.sgot->contents
 				       + cur_off + 4));
@@ -5051,14 +5050,14 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 			    outrel.r_info
 			      = ELF32_R_INFO (indx, R_CKCORE_TLS_DTPOFF32);
 			    outrel.r_offset += 4;
-			    bfd_put_32 (output_bfd, outrel.r_addend,
+			    bfd_put_32 (info->output_bfd, outrel.r_addend,
 					(htab->elf.sgot->contents
 					 + cur_off + 4));
 			    outrel.r_info =
 			      ELF32_R_INFO (indx,
 					    R_CKCORE_TLS_DTPOFF32);
 			    if (loc)
-			      bfd_elf32_swap_reloca_out (output_bfd,
+			      bfd_elf32_swap_reloca_out (info->output_bfd,
 							 &outrel,
 							 loc);
 			    htab->elf.srelgot->reloc_count++;
@@ -5073,9 +5072,9 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 			   static link or an executable link with the
 			   symbol binding locally.  Mark it as belonging
 			   to module 1, the executable.  */
-			bfd_put_32 (output_bfd, 1,
+			bfd_put_32 (info->output_bfd, 1,
 				    htab->elf.sgot->contents + cur_off);
-			bfd_put_32 (output_bfd,
+			bfd_put_32 (info->output_bfd,
 				    relocation - dtpoff_base (info),
 				    htab->elf.sgot->contents
 				    + cur_off + 4);
@@ -5096,16 +5095,16 @@ csky_elf_relocate_section (bfd *                  output_bfd,
 			outrel.r_info
 			  = ELF32_R_INFO (indx, R_CKCORE_TLS_TPOFF32);
 
-			bfd_put_32 (output_bfd, outrel.r_addend,
+			bfd_put_32 (info->output_bfd, outrel.r_addend,
 				    htab->elf.sgot->contents + cur_off);
 			if (loc)
-			  bfd_elf32_swap_reloca_out (output_bfd,
+			  bfd_elf32_swap_reloca_out (info->output_bfd,
 						     &outrel, loc);
 			htab->elf.srelgot->reloc_count++;
 			loc += sizeof (Elf32_External_Rela);
 		      }
 		    else
-		      bfd_put_32 (output_bfd, tpoff (info, relocation),
+		      bfd_put_32 (info->output_bfd, tpoff (info, relocation),
 				  htab->elf.sgot->contents + cur_off);
 		  }
 		if (h != NULL)
@@ -5256,7 +5255,7 @@ csky_elf_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
    string or both.  */
 
 static int
-elf32_csky_obj_attrs_arg_type (int tag)
+elf32_csky_obj_attrs_arg_type (obj_attr_tag_t tag)
 {
   switch (tag)
     {
@@ -5301,6 +5300,7 @@ elf32_csky_obj_attrs_handle_unknown (bfd *abfd ATTRIBUTE_UNUSED,
 #define TARGET_LITTLE_SYM                     csky_elf32_le_vec
 #define TARGET_LITTLE_NAME                    "elf32-csky-little"
 #define ELF_ARCH                              bfd_arch_csky
+#define ELF_TARGET_ID			      CSKY_ELF_DATA
 #define ELF_MACHINE_CODE                      EM_CSKY
 #define ELF_MACHINE_ALT1		      EM_CSKY_OLD
 #define ELF_MAXPAGESIZE                       0x1000
@@ -5333,7 +5333,7 @@ elf32_csky_obj_attrs_handle_unknown (bfd *abfd ATTRIBUTE_UNUSED,
 /* Dynamic relocate related API.  */
 #define elf_backend_create_dynamic_sections   _bfd_elf_create_dynamic_sections
 #define elf_backend_adjust_dynamic_symbol     csky_elf_adjust_dynamic_symbol
-#define elf_backend_size_dynamic_sections     csky_elf_size_dynamic_sections
+#define elf_backend_late_size_sections        csky_elf_late_size_sections
 #define elf_backend_finish_dynamic_symbol     csky_elf_finish_dynamic_symbol
 #define elf_backend_finish_dynamic_sections   csky_elf_finish_dynamic_sections
 #define elf_backend_rela_normal               1

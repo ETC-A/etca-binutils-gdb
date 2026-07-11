@@ -1,6 +1,6 @@
 
 /* YACC parser for Fortran expressions, for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    Contributed by Motorola.  Adapted from the C parser by Farooq Butt
    (fmbutt@engage.sps.mot.com).
@@ -20,8 +20,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-/* This was blantantly ripped off the C expression parser, please 
-   be aware of that as you look at its basic structure -FMB */ 
+/* This was blantantly ripped off the C expression parser, please
+   be aware of that as you look at its basic structure -FMB */
 
 /* Parse a F77 expression from text in a string,
    and return the result as a  struct expression  pointer.
@@ -39,17 +39,15 @@
    with include files (<malloc.h> and <stdlib.h> for example) just became
    too messy, particularly when such includes can be inserted at random
    times by the parser generator.  */
-   
+
 %{
 
-#include "defs.h"
 #include "expression.h"
 #include "value.h"
 #include "parser-defs.h"
 #include "language.h"
 #include "f-lang.h"
 #include "block.h"
-#include <ctype.h>
 #include <algorithm>
 #include "type-stack.h"
 #include "f-exp.h"
@@ -136,7 +134,7 @@ static int parse_number (struct parser_state *, const char *, int,
 			 int, YYSTYPE *);
 %}
 
-%type <voidval> exp  type_exp start variable 
+%type <voidval> exp  type_exp start variable
 %type <tval> type typebase
 %type <tvec> nonempty_typelist
 /* %type <bval> block */
@@ -158,7 +156,7 @@ static int parse_number (struct parser_state *, const char *, int,
 
 %token <sval> STRING_LITERAL
 %token <lval> BOOLEAN_LITERAL
-%token <ssym> NAME 
+%token <ssym> NAME
 %token <tsym> TYPENAME
 %token <voidval> COMPLETE
 %type <sval> name
@@ -169,7 +167,7 @@ static int parse_number (struct parser_state *, const char *, int,
    E.g. "c" when input_radix==16.  Depending on the parse, it will be
    turned into a name or into a number.  */
 
-%token <ssym> NAME_OR_INT 
+%token <ssym> NAME_OR_INT
 
 %token SIZEOF KIND
 %token ERROR
@@ -182,9 +180,9 @@ static int parse_number (struct parser_state *, const char *, int,
 %token REAL_KEYWORD REAL_S4_KEYWORD REAL_S8_KEYWORD REAL_S16_KEYWORD
 %token COMPLEX_KEYWORD COMPLEX_S4_KEYWORD COMPLEX_S8_KEYWORD
 %token COMPLEX_S16_KEYWORD
-%token BOOL_AND BOOL_OR BOOL_NOT   
+%token BOOL_AND BOOL_OR BOOL_NOT
 %token SINGLE DOUBLE PRECISION
-%token <lval> CHARACTER 
+%token <lval> CHARACTER
 
 %token <sval> DOLLAR_VARIABLE
 
@@ -210,7 +208,7 @@ static int parse_number (struct parser_state *, const char *, int,
 %left '*' '/'
 %right STARSTAR
 %right '%'
-%right UNARY 
+%right UNARY
 %right '('
 
 
@@ -257,14 +255,14 @@ exp	:	KIND '(' exp ')'       %prec UNARY
 			{ pstate->wrap<fortran_kind_operation> (); }
 	;
 
-/* No more explicit array operators, we treat everything in F77 as 
-   a function call.  The disambiguation as to whether we are 
-   doing a subscript operation or a function call is done 
+/* No more explicit array operators, we treat everything in F77 as
+   a function call.  The disambiguation as to whether we are
+   doing a subscript operation or a function call is done
    later in eval.c.  */
 
-exp	:	exp '(' 
+exp	:	exp '('
 			{ pstate->start_arglist (); }
-		arglist ')'	
+		arglist ')'
 			{
 			  std::vector<operation_up> args
 			    = pstate->pop_vector (pstate->end_arglist ());
@@ -339,7 +337,7 @@ arglist	:	exp
 arglist :	subrange
 			{ pstate->arglist_len = 1; }
 	;
-   
+
 arglist	:	arglist ',' exp   %prec ABOVE_COMMA
 			{ pstate->arglist_len++; }
 	;
@@ -437,8 +435,8 @@ subrange:	':' ':' exp	%prec ABOVE_COMMA
 			}
 	;
 
-complexnum:     exp ',' exp 
-			{ }                          
+complexnum:     exp ',' exp
+			{ }
 	;
 
 exp	:	'(' complexnum ')'
@@ -649,7 +647,7 @@ ptype	:	typebase
 		  int array_size;
 		  struct type *follow_type = $1;
 		  struct type *range_type;
-		  
+
 		  while (!done)
 		    switch (type_stack->pop ())
 		      {
@@ -736,9 +734,9 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 			{ $$ = parse_f_type (pstate)->builtin_integer; }
 	|	INT_S8_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_integer_s8; }
-	|	CHARACTER 
+	|	CHARACTER
 			{ $$ = parse_f_type (pstate)->builtin_character; }
-	|	LOGICAL_S1_KEYWORD 
+	|	LOGICAL_S1_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_logical_s1; }
 	|	LOGICAL_S2_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_logical_s2; }
@@ -748,22 +746,30 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 			{ $$ = parse_f_type (pstate)->builtin_logical; }
 	|	LOGICAL_S8_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_logical_s8; }
-	|	REAL_KEYWORD 
+	|	REAL_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_real; }
 	|	REAL_S4_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_real; }
 	|       REAL_S8_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_real_s8; }
 	|	REAL_S16_KEYWORD
-			{ $$ = parse_f_type (pstate)->builtin_real_s16; }
+			{ $$ = parse_f_type (pstate)->builtin_real_s16;
+			  if ($$->code () == TYPE_CODE_ERROR)
+			    error (_("unsupported type %s"),
+				   $$->safe_name ());
+			}
 	|	COMPLEX_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_complex; }
 	|	COMPLEX_S4_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_complex; }
 	|	COMPLEX_S8_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_complex_s8; }
-	|	COMPLEX_S16_KEYWORD 
-			{ $$ = parse_f_type (pstate)->builtin_complex_s16; }
+	|	COMPLEX_S16_KEYWORD
+			{ $$ = parse_f_type (pstate)->builtin_complex_s16;
+			  if ($$->code () == TYPE_CODE_ERROR)
+			    error (_("unsupported type %s"),
+				   $$->safe_name ());
+			}
 	|	SINGLE PRECISION
 			{ $$ = parse_f_type (pstate)->builtin_real;}
 	|	DOUBLE PRECISION
@@ -800,7 +806,7 @@ name_not_typename :	NAME
    the parser can't tell whether NAME_OR_INT is a name_not_typename (=variable,
    =exp) or just an exp.  If name_not_typename was ever used in an lvalue
    context where only a name could occur, this might be useful.
-  	|	NAME_OR_INT
+	|	NAME_OR_INT
    */
 	;
 
@@ -1033,7 +1039,7 @@ parse_number (struct parser_state *par_state,
 	    len -= 2;
 	  }
 	break;
-	
+
       case 't':
       case 'T':
       case 'd':
@@ -1045,17 +1051,17 @@ parse_number (struct parser_state *par_state,
 	    len -= 2;
 	  }
 	break;
-	
+
       default:
 	base = 8;
 	break;
       }
-  
+
   while (len-- > 0)
     {
       c = *p++;
-      if (isupper (c))
-	c = tolower (c);
+      if (c_isupper (c))
+	c = c_tolower (c);
       if (len == 0 && c == 'l')
 	long_p = 1;
       else if (len == 0 && c == 'u')
@@ -1081,12 +1087,12 @@ parse_number (struct parser_state *par_state,
 	range_error (_("Overflow on numeric constant."));
       prevn = n;
     }
-  
+
   /* If the number is too big to be an int, or it's got an l suffix
      then it's a long.  Work out if this has to be a long by
      shifting right and seeing if anything remains, and the
      target int size is different to the target long size.
-     
+
      In the expression below, we could have tested
      (n >> gdbarch_int_bit (parse_gdbarch))
      to see if it was zero,
@@ -1106,28 +1112,28 @@ parse_number (struct parser_state *par_state,
       unsigned_type = parse_type (par_state)->builtin_unsigned_long;
       signed_type = parse_type (par_state)->builtin_long;
   }
-  else 
+  else
     {
       bits_available = gdbarch_int_bit (par_state->gdbarch ());
       unsigned_type = parse_type (par_state)->builtin_unsigned_int;
       signed_type = parse_type (par_state)->builtin_int;
-    }    
+    }
   high_bit = ((ULONGEST)1) << (bits_available - 1);
-  
+
   if (RANGE_CHECK
       && ((n >> 2) >> (bits_available - 2)))
     range_error (_("Overflow on numeric constant."));
 
   putithere->typed_val.val = n;
-  
+
   /* If the high bit of the worked out type is set then this number
      has to be unsigned.  */
-  
-  if (unsigned_p || (n & high_bit)) 
+
+  if (unsigned_p || (n & high_bit))
     putithere->typed_val.type = unsigned_type;
-  else 
+  else
     putithere->typed_val.type = signed_type;
-  
+
   return INT;
 }
 
@@ -1153,16 +1159,12 @@ push_kind_type (LONGEST val, struct type *type)
       ival = static_cast <int> (val);
     }
 
-  type_stack->push (ival);
-  type_stack->push (tp_kind);
+  type_stack->push (tp_kind, ival);
 }
 
-/* Called when a type has a '(kind=N)' modifier after it, for example
-   'character(kind=1)'.  The BASETYPE is the type described by 'character'
-   in our example, and KIND is the integer '1'.  This function returns a
-   new type that represents the basetype of a specific kind.  */
+/* Helper function for convert_to_kind_type.  */
 static struct type *
-convert_to_kind_type (struct type *basetype, int kind)
+convert_to_kind_type_1 (struct type *basetype, int kind)
 {
   if (basetype == parse_f_type (pstate)->builtin_character)
     {
@@ -1212,14 +1214,26 @@ convert_to_kind_type (struct type *basetype, int kind)
 	return parse_f_type (pstate)->builtin_integer_s8;
     }
 
-  error (_("unsupported kind %d for type %s"),
-	 kind, TYPE_SAFE_NAME (basetype));
-
-  /* Should never get here.  */
   return nullptr;
 }
 
-struct token
+/* Called when a type has a '(kind=N)' modifier after it, for example
+   'character(kind=1)'.  The BASETYPE is the type described by 'character'
+   in our example, and KIND is the integer '1'.  This function returns a
+   new type that represents the basetype of a specific kind.  */
+static struct type *
+convert_to_kind_type (struct type *basetype, int kind)
+{
+  struct type *res = convert_to_kind_type_1 (basetype, kind);
+
+  if (res == nullptr || res->code () == TYPE_CODE_ERROR)
+    error (_("unsupported kind %d for type %s"),
+	   kind, basetype->safe_name ());
+
+  return res;
+}
+
+struct f_token
 {
   /* The string to match against.  */
   const char *oper;
@@ -1237,7 +1251,7 @@ struct token
 
 /* List of Fortran operators.  */
 
-static const struct token fortran_operators[] =
+static const struct f_token fortran_operators[] =
 {
   { ".and.", BOOL_AND, OP_NULL, false },
   { ".or.", BOOL_OR, OP_NULL, false },
@@ -1278,7 +1292,29 @@ static const struct f77_boolean_val boolean_values[]  =
   { ".false.", 0 }
 };
 
-static const token f_keywords[] =
+static const struct f_token f_intrinsics[] =
+{
+  /* The following correspond to actual functions in Fortran and are case
+     insensitive.  */
+  { "kind", KIND, OP_NULL, false },
+  { "abs", UNOP_INTRINSIC, UNOP_ABS, false },
+  { "mod", BINOP_INTRINSIC, BINOP_MOD, false },
+  { "floor", UNOP_OR_BINOP_INTRINSIC, FORTRAN_FLOOR, false },
+  { "ceiling", UNOP_OR_BINOP_INTRINSIC, FORTRAN_CEILING, false },
+  { "modulo", BINOP_INTRINSIC, BINOP_FORTRAN_MODULO, false },
+  { "cmplx", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_CMPLX, false },
+  { "lbound", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_LBOUND, false },
+  { "ubound", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_UBOUND, false },
+  { "allocated", UNOP_INTRINSIC, UNOP_FORTRAN_ALLOCATED, false },
+  { "associated", UNOP_OR_BINOP_INTRINSIC, FORTRAN_ASSOCIATED, false },
+  { "rank", UNOP_INTRINSIC, UNOP_FORTRAN_RANK, false },
+  { "size", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_ARRAY_SIZE, false },
+  { "shape", UNOP_INTRINSIC, UNOP_FORTRAN_SHAPE, false },
+  { "loc", UNOP_INTRINSIC, UNOP_FORTRAN_LOC, false },
+  { "sizeof", SIZEOF, OP_NULL, false },
+};
+
+static const f_token f_keywords[] =
 {
   /* Historically these have always been lowercase only in GDB.  */
   { "character", CHARACTER, OP_NULL, true },
@@ -1300,32 +1336,14 @@ static const token f_keywords[] =
   { "real_4", REAL_S4_KEYWORD, OP_NULL, true },
   { "real_8", REAL_S8_KEYWORD, OP_NULL, true },
   { "real_16", REAL_S16_KEYWORD, OP_NULL, true },
-  { "sizeof", SIZEOF, OP_NULL, true },
   { "single", SINGLE, OP_NULL, true },
   { "double", DOUBLE, OP_NULL, true },
   { "precision", PRECISION, OP_NULL, true },
-  /* The following correspond to actual functions in Fortran and are case
-     insensitive.  */
-  { "kind", KIND, OP_NULL, false },
-  { "abs", UNOP_INTRINSIC, UNOP_ABS, false },
-  { "mod", BINOP_INTRINSIC, BINOP_MOD, false },
-  { "floor", UNOP_OR_BINOP_INTRINSIC, FORTRAN_FLOOR, false },
-  { "ceiling", UNOP_OR_BINOP_INTRINSIC, FORTRAN_CEILING, false },
-  { "modulo", BINOP_INTRINSIC, BINOP_FORTRAN_MODULO, false },
-  { "cmplx", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_CMPLX, false },
-  { "lbound", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_LBOUND, false },
-  { "ubound", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_UBOUND, false },
-  { "allocated", UNOP_INTRINSIC, UNOP_FORTRAN_ALLOCATED, false },
-  { "associated", UNOP_OR_BINOP_INTRINSIC, FORTRAN_ASSOCIATED, false },
-  { "rank", UNOP_INTRINSIC, UNOP_FORTRAN_RANK, false },
-  { "size", UNOP_OR_BINOP_OR_TERNOP_INTRINSIC, FORTRAN_ARRAY_SIZE, false },
-  { "shape", UNOP_INTRINSIC, UNOP_FORTRAN_SHAPE, false },
-  { "loc", UNOP_INTRINSIC, UNOP_FORTRAN_LOC, false },
 };
 
 /* Implementation of a dynamically expandable buffer for processing input
    characters acquired through lexptr and building a value to return in
-   yylval.  Ripped off from ch-exp.y */ 
+   yylval.  Ripped off from ch-exp.y */
 
 static char *tempbuf;		/* Current buffer contents */
 static int tempbufsize;		/* Size of allocated buffer */
@@ -1358,9 +1376,9 @@ growbuf_by_size (int count)
     tempbuf = (char *) realloc (tempbuf, tempbufsize);
 }
 
-/* Blatantly ripped off from ch-exp.y. This routine recognizes F77 
+/* Blatantly ripped off from ch-exp.y. This routine recognizes F77
    string-literals.
-   
+
    Recognize a string literal.  A string literal is a nonzero sequence
    of characters enclosed in matching single quotes, except that
    a single character inside single quotes is a character literal, which
@@ -1420,9 +1438,9 @@ yylex (void)
   last_was_structop = false;
 
  retry:
- 
+
   pstate->prev_lexptr = pstate->lexptr;
- 
+
   tokstart = pstate->lexptr;
 
   /* First of all, let us make sure we are not dealing with the
@@ -1464,43 +1482,43 @@ yylex (void)
       else if (pstate->parse_completion && saw_structop)
 	return COMPLETE;
       return 0;
-      
+
     case ' ':
     case '\t':
     case '\n':
       pstate->lexptr++;
       goto retry;
-      
+
     case '\'':
       token = match_string_literal ();
       if (token != 0)
 	return (token);
       break;
-      
+
     case '(':
       paren_depth++;
       pstate->lexptr++;
       return c;
-      
+
     case ')':
       if (paren_depth == 0)
 	return 0;
       paren_depth--;
       pstate->lexptr++;
       return c;
-      
+
     case ',':
       if (pstate->comma_terminates && paren_depth == 0)
 	return 0;
       pstate->lexptr++;
       return c;
-      
+
     case '.':
       /* Might be a floating point number.  */
       if (pstate->lexptr[1] < '0' || pstate->lexptr[1] > '9')
 	goto symbol;		/* Nope, must be a symbol.  */
-      /* FALL THRU.  */
-      
+      [[fallthrough]];
+
     case '0':
     case '1':
     case '2':
@@ -1516,7 +1534,7 @@ yylex (void)
 	int got_dot = 0, got_e = 0, got_d = 0, toktype;
 	const char *p = tokstart;
 	int hex = input_radix > 10;
-	
+
 	if (c == '0' && (p[1] == 'x' || p[1] == 'X'))
 	  {
 	    p += 2;
@@ -1528,7 +1546,7 @@ yylex (void)
 	    p += 2;
 	    hex = 0;
 	  }
-	
+
 	for (;; ++p)
 	  {
 	    if (!hex && !got_e && (*p == 'e' || *p == 'E'))
@@ -1554,20 +1572,15 @@ yylex (void)
 				got_dot|got_e|got_d,
 				&yylval);
 	if (toktype == ERROR)
-	  {
-	    char *err_copy = (char *) alloca (p - tokstart + 1);
-	    
-	    memcpy (err_copy, tokstart, p - tokstart);
-	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
-	  }
+	  error (_("Invalid number \"%.*s\"."), (int) (p - tokstart),
+		 tokstart);
 	pstate->lexptr = p;
 	return toktype;
       }
 
     case '%':
       last_was_structop = true;
-      /* Fall through.  */
+      [[fallthrough]];
     case '+':
     case '-':
     case '*':
@@ -1591,26 +1604,26 @@ yylex (void)
       pstate->lexptr++;
       return c;
     }
-  
+
   if (!(c == '_' || c == '$' || c ==':'
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
     /* We must have come across a bad character (e.g. ';').  */
     error (_("Invalid character '%c' in expression."), c);
-  
+
   namelen = 0;
   for (c = tokstart[namelen];
        (c == '_' || c == '$' || c == ':' || (c >= '0' && c <= '9')
-	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')); 
+	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
        c = tokstart[++namelen]);
-  
-  /* The token "if" terminates the expression and is NOT 
+
+  /* The token "if" terminates the expression and is NOT
      removed from the input stream.  */
-  
+
   if (namelen == 2 && tokstart[0] == 'i' && tokstart[1] == 'f')
     return 0;
-  
+
   pstate->lexptr += namelen;
-  
+
   /* Catch specific keywords.  */
 
   for (const auto &keyword : f_keywords)
@@ -1626,7 +1639,7 @@ yylex (void)
 
   yylval.sval.ptr = tokstart;
   yylval.sval.length = namelen;
-  
+
   if (*tokstart == '$')
     return DOLLAR_VARIABLE;
 
@@ -1636,11 +1649,11 @@ yylex (void)
   {
     std::string tmp = copy_name (yylval.sval);
     struct block_symbol result;
-    const domain_enum lookup_domains[] =
+    const domain_search_flags lookup_domains[] =
     {
-      STRUCT_DOMAIN,
-      VAR_DOMAIN,
-      MODULE_DOMAIN
+      SEARCH_VFT,
+      SEARCH_STRUCT_DOMAIN,
+      SEARCH_MODULE_DOMAIN
     };
     int hextype;
 
@@ -1648,7 +1661,7 @@ yylex (void)
       {
 	result = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
 				domain, NULL);
-	if (result.symbol && result.symbol->aclass () == LOC_TYPEDEF)
+	if (result.symbol && result.symbol->loc_class () == LOC_TYPEDEF)
 	  {
 	    yylval.tsym.type = result.symbol->type ();
 	    return TYPENAME;
@@ -1663,7 +1676,22 @@ yylex (void)
 					pstate->gdbarch (), tmp.c_str ());
     if (yylval.tsym.type != NULL)
       return TYPENAME;
-    
+
+    /* This is post the symbol search as symbols can hide intrinsics.  Also,
+       give Fortran intrinsics priority over C symbols.  This prevents
+       non-Fortran symbols from hiding intrinsics, for example abs.  */
+    if (!result.symbol || result.symbol->language () != language_fortran)
+      for (const auto &intrinsic : f_intrinsics)
+	{
+	  gdb_assert (!intrinsic.case_sensitive);
+	  if (strlen (intrinsic.oper) == namelen
+	      && strncasecmp (tokstart, intrinsic.oper, namelen) == 0)
+	    {
+	      yylval.opcode = intrinsic.opcode;
+	      return intrinsic.token;
+	    }
+	}
+
     /* Input names that aren't symbols but ARE valid hex numbers,
        when the input radix permits them, can be names or numbers
        depending on the parse.  Note we support radixes > 16 here.  */
@@ -1671,7 +1699,7 @@ yylex (void)
 	&& ((tokstart[0] >= 'a' && tokstart[0] < 'a' + input_radix - 10)
 	    || (tokstart[0] >= 'A' && tokstart[0] < 'A' + input_radix - 10)))
       {
- 	YYSTYPE newlval;	/* Its value is ignored.  */
+	YYSTYPE newlval;	/* Its value is ignored.  */
 	hextype = parse_number (pstate, tokstart, namelen, 0, &newlval);
 	if (hextype == INT)
 	  {
@@ -1717,8 +1745,5 @@ f_language::parser (struct parser_state *par_state) const
 static void
 yyerror (const char *msg)
 {
-  if (pstate->prev_lexptr)
-    pstate->lexptr = pstate->prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), msg, pstate->lexptr);
+  pstate->parse_error (msg);
 }

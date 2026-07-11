@@ -1,5 +1,5 @@
 /* General utility routines for the remote server for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 
 #ifdef IN_PROCESS_AGENT
 #  define PREFIX "ipa: "
@@ -32,7 +31,7 @@
    the filesystem of small embedded targets with core files.  If in
    development mode however, abort, producing core files to help with
    debugging GDBserver.  */
-static void ATTRIBUTE_NORETURN
+[[noreturn]] static void
 abort_or_exit ()
 {
 #ifdef DEVELOPMENT
@@ -100,8 +99,20 @@ internal_vwarning (const char *file, int line, const char *fmt, va_list args)
 /* Convert a CORE_ADDR into a HEX string, like %lx.
    The result is stored in a circular static buffer, NUMCELLS deep.  */
 
-char *
+const char *
 paddress (CORE_ADDR addr)
 {
-  return phex_nz (addr, sizeof (CORE_ADDR));
+  return phex_nz (addr);
 }
+
+#ifndef IN_PROCESS_AGENT
+
+/* See common-exceptions.h.  */
+
+std::string
+vformat_exception (const char *fmt, va_list args)
+{
+  return string_vprintf (fmt, args);
+}
+
+#endif /* IN_PROCESS_AGENT */

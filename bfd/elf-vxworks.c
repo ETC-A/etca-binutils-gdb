@@ -1,5 +1,5 @@
 /* VxWorks support for ELF
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -81,7 +81,7 @@ elf_vxworks_create_dynamic_sections (bfd *dynobj, struct bfd_link_info *info,
 				     asection **srelplt2_out)
 {
   struct elf_link_hash_table *htab;
-  const struct elf_backend_data *bed;
+  elf_backend_data *bed;
   asection *s;
 
   htab = elf_hash_table (info);
@@ -153,7 +153,7 @@ elf_vxworks_emit_relocs (bfd *output_bfd,
 			 Elf_Internal_Rela *internal_relocs,
 			 struct elf_link_hash_entry **rel_hash)
 {
-  const struct elf_backend_data *bed;
+  elf_backend_data *bed;
   int j;
 
   bed = get_elf_backend_data (output_bfd);
@@ -172,35 +172,39 @@ elf_vxworks_emit_relocs (bfd *output_bfd,
 	   irela += bed->s->int_rels_per_ext_rel,
 	     hash_ptr++)
 	{
-	  if (*hash_ptr
-	      && (*hash_ptr)->def_dynamic
-	      && !(*hash_ptr)->def_regular
-	      && ((*hash_ptr)->root.type == bfd_link_hash_defined
-		  || (*hash_ptr)->root.type == bfd_link_hash_defweak)
-	      && (*hash_ptr)->root.u.def.section->output_section != NULL)
+	  if (*hash_ptr)
 	    {
-	      /* This is a relocation from an executable or shared
-		 library against a symbol in a different shared
-		 library.  We are creating a definition in the output
-		 file but it does not come from any of our normal (.o)
-		 files. ie. a PLT stub.  Normally this would be a
-		 relocation against against SHN_UNDEF with the VMA of
-		 the PLT stub.  This upsets the VxWorks loader.
-		 Convert it to a section-relative relocation.  This
-		 gets some other symbols (for instance .dynbss), but
-		 is conservatively correct.  */
-	      for (j = 0; j < bed->s->int_rels_per_ext_rel; j++)
+	      (*hash_ptr)->has_reloc = 1;
+	      if ((*hash_ptr)->def_dynamic
+		  && !(*hash_ptr)->def_regular
+		  && ((*hash_ptr)->root.type == bfd_link_hash_defined
+		      || (*hash_ptr)->root.type == bfd_link_hash_defweak)
+		  && (*hash_ptr)->root.u.def.section->output_section != NULL)
 		{
-		  asection *sec = (*hash_ptr)->root.u.def.section;
-		  int this_idx = sec->output_section->target_index;
+		  /* This is a relocation from an executable or shared
+		     library against a symbol in a different shared
+		     library.  We are creating a definition in the output
+		     file but it does not come from any of our normal (.o)
+		     files. ie. a PLT stub.  Normally this would be a
+		     relocation against SHN_UNDEF with the VMA of
+		     the PLT stub.  This upsets the VxWorks loader.
+		     Convert it to a section-relative relocation.  This
+		     gets some other symbols (for instance .dynbss), but
+		     is conservatively correct.  */
+		  for (j = 0; j < bed->s->int_rels_per_ext_rel; j++)
+		    {
+		      asection *sec = (*hash_ptr)->root.u.def.section;
+		      int this_idx = sec->output_section->target_index;
 
-		  irela[j].r_info
-		    = ELF32_R_INFO (this_idx, ELF32_R_TYPE (irela[j].r_info));
-		  irela[j].r_addend += (*hash_ptr)->root.u.def.value;
-		  irela[j].r_addend += sec->output_offset;
+		      irela[j].r_info
+			= ELF32_R_INFO (this_idx,
+					ELF32_R_TYPE (irela[j].r_info));
+		      irela[j].r_addend += (*hash_ptr)->root.u.def.value;
+		      irela[j].r_addend += sec->output_offset;
+		    }
+		  /* Stop the generic routine adjusting this entry.  */
+		  *hash_ptr = NULL;
 		}
-	      /* Stop the generic routine adjusting this entry.  */
-	      *hash_ptr = NULL;
 	    }
 	}
     }
@@ -236,16 +240,16 @@ elf_vxworks_final_write_processing (bfd *abfd)
    tls sections.  */
 
 bool
-elf_vxworks_add_dynamic_entries (bfd *output_bfd, struct bfd_link_info *info)
+elf_vxworks_add_dynamic_entries (struct bfd_link_info *info)
 {
-  if (bfd_get_section_by_name (output_bfd, ".tls_data"))
+  if (bfd_get_section_by_name (info->output_bfd, ".tls_data"))
     {
       if (!_bfd_elf_add_dynamic_entry (info, DT_VX_WRS_TLS_DATA_START, 0)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_VX_WRS_TLS_DATA_SIZE, 0)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_VX_WRS_TLS_DATA_ALIGN, 0))
 	return false;
     }
-  if (bfd_get_section_by_name (output_bfd, ".tls_vars"))
+  if (bfd_get_section_by_name (info->output_bfd, ".tls_vars"))
     {
       if (!_bfd_elf_add_dynamic_entry (info, DT_VX_WRS_TLS_VARS_START, 0)
 	  || !_bfd_elf_add_dynamic_entry (info, DT_VX_WRS_TLS_VARS_SIZE, 0))
@@ -298,14 +302,12 @@ elf_vxworks_finish_dynamic_entry (bfd *output_bfd, Elf_Internal_Dyn *dyn)
 /* Add dynamic tags.  */
 
 bool
-_bfd_elf_maybe_vxworks_add_dynamic_tags (bfd *output_bfd,
-					 struct bfd_link_info *info,
+_bfd_elf_maybe_vxworks_add_dynamic_tags (struct bfd_link_info *info,
 					 bool need_dynamic_reloc)
 {
   struct elf_link_hash_table *htab = elf_hash_table (info);
-  return (_bfd_elf_add_dynamic_tags (output_bfd, info,
-				     need_dynamic_reloc)
+  return (_bfd_elf_add_dynamic_tags (info, need_dynamic_reloc)
 	  && (!htab->dynamic_sections_created
 	      || htab->target_os != is_vxworks
-	      || elf_vxworks_add_dynamic_entries (output_bfd, info)));
+	      || elf_vxworks_add_dynamic_entries (info)));
 }

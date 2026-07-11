@@ -1,5 +1,5 @@
 /* Helper routines for C++ support in GDB.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
    Namespace support contributed by David Carlton.
@@ -19,13 +19,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef CP_SUPPORT_H
-#define CP_SUPPORT_H
-
-/* We need this for 'domain_enum', alas...  */
+#ifndef GDB_CP_SUPPORT_H
+#define GDB_CP_SUPPORT_H
 
 #include "symtab.h"
-#include "gdbsupport/gdb_vecs.h"
 #include "gdbsupport/gdb_obstack.h"
 #include "gdbsupport/array-view.h"
 #include <vector>
@@ -60,18 +57,19 @@ struct using_direct;
 
 struct demangle_parse_info
 {
-  demangle_parse_info ();
-
-  ~demangle_parse_info ();
-
-  /* The memory used during the parse.  */
-  struct demangle_info *info;
-
   /* The result of the parse.  */
-  struct demangle_component *tree;
+  struct demangle_component *tree = nullptr;
 
-  /* Any temporary memory used during typedef replacement.  */
-  struct obstack obstack;
+  /* Any memory used during processing.  */
+  auto_obstack obstack;
+
+  /* True if the parser had to add a dummy '()' at the end of the
+     input text to make it parse.  */
+  bool added_parens = false;
+
+  /* Any other objects referred to by this object, and whose storage
+     lifetime must be linked.  */
+  std::vector<std::unique_ptr<demangle_parse_info>> infos;
 };
 
 
@@ -143,27 +141,25 @@ extern struct block_symbol cp_lookup_symbol_nonlocal
      (const struct language_defn *langdef,
       const char *name,
       const struct block *block,
-      const domain_enum domain);
+      const domain_search_flags domain);
 
 extern struct block_symbol
   cp_lookup_symbol_namespace (const char *the_namespace,
 			      const char *name,
 			      const struct block *block,
-			      const domain_enum domain);
+			      const domain_search_flags domain);
 
-extern struct block_symbol cp_lookup_symbol_imports_or_template
+extern struct block_symbol cp_lookup_symbol_imports
      (const char *scope,
       const char *name,
       const struct block *block,
-      const domain_enum domain);
+      const domain_search_flags domain);
 
 extern struct block_symbol
   cp_lookup_nested_symbol (struct type *parent_type,
 			   const char *nested_name,
 			   const struct block *block,
-			   const domain_enum domain);
-
-struct type *cp_lookup_transparent_type (const char *name);
+			   const domain_search_flags domain);
 
 /* See description in cp-namespace.c.  */
 
@@ -183,7 +179,7 @@ extern gdb::unique_xmalloc_ptr<char> cp_comp_to_string
 
 extern void cp_merge_demangle_parse_infos (struct demangle_parse_info *,
 					   struct demangle_component *,
-					   struct demangle_parse_info *);
+					   std::unique_ptr<demangle_parse_info>);
 
 /* The list of "maint cplus" commands.  */
 
@@ -213,4 +209,4 @@ extern char *gdb_cplus_demangle_print (int options,
 
 extern const char *find_toplevel_char (const char *s, char c);
 
-#endif /* CP_SUPPORT_H */
+#endif /* GDB_CP_SUPPORT_H */

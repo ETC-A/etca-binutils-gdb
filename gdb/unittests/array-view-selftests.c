@@ -1,6 +1,6 @@
 /* Self tests for array_view for GDB, the GNU debugger.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbsupport/selftest.h"
 #include "gdbsupport/array-view.h"
 #include <array>
@@ -30,14 +29,10 @@ namespace array_view_tests {
 #define CHECK_TRAIT(TRAIT)			\
   static_assert (std::TRAIT<gdb::array_view<gdb_byte>>::value, "")
 
-#if HAVE_IS_TRIVIALLY_COPYABLE
-
 CHECK_TRAIT (is_trivially_copyable);
 CHECK_TRAIT (is_trivially_move_assignable);
 CHECK_TRAIT (is_trivially_move_constructible);
 CHECK_TRAIT (is_trivially_destructible);
-
-#endif
 
 #undef CHECK_TRAIT
 
@@ -369,6 +364,39 @@ check_range_for ()
   SELF_CHECK (sum == 1 + 2 + 3 + 4);
 }
 
+template<typename T>
+static void
+check_iterator ()
+{
+  T data[] = {1, 2, 3, 4};
+  gdb::array_view<T> view (data);
+
+  typename std::decay<T>::type sum = 0;
+  for (typename gdb::array_view<T>::iterator it = view.begin ();
+       it != view.end (); it++)
+    {
+      *it *= 2;
+      sum += *it;
+    }
+
+  SELF_CHECK (sum == 2 + 4 + 6 + 8);
+}
+
+template<typename T>
+static void
+check_const_iterator ()
+{
+  T data[] = {1, 2, 3, 4};
+  gdb::array_view<T> view (data);
+
+  typename std::decay<T>::type sum = 0;
+  for (typename gdb::array_view<T>::const_iterator it = view.cbegin ();
+       it != view.cend (); it++)
+    sum += *it;
+
+  SELF_CHECK (sum == 1 + 2 + 3 + 4);
+}
+
 /* Entry point.  */
 
 static void
@@ -495,6 +523,9 @@ run_tests ()
 
   check_range_for<gdb_byte> ();
   check_range_for<const gdb_byte> ();
+  check_iterator<gdb_byte> ();
+  check_const_iterator<gdb_byte> ();
+  check_const_iterator<const gdb_byte> ();
 
   /* Check that the right ctor overloads are taken when the element is
      a container.  */
@@ -520,6 +551,19 @@ run_tests ()
     SELF_CHECK (view.size () == len);
 
     for (size_t i = 0; i < len; i++)
+      SELF_CHECK (view[i] == data[i]);
+  }
+
+  /* gdb::make_array_view with an array.  */
+  {
+    const gdb_byte data[] = {0x55, 0x66, 0x77, 0x88};
+    const auto len = sizeof (data) / sizeof (data[0]);
+    const auto view = gdb::make_array_view (data);
+
+    SELF_CHECK (view.data () == data);
+    SELF_CHECK (view.size () == len);
+
+    for (std::size_t i = 0; i < len; ++i)
       SELF_CHECK (view[i] == data[i]);
   }
 
@@ -651,9 +695,7 @@ run_copy_tests ()
 } /* namespace array_view_tests */
 } /* namespace selftests */
 
-void _initialize_array_view_selftests ();
-void
-_initialize_array_view_selftests ()
+INIT_GDB_FILE (array_view_selftests)
 {
   selftests::register_test ("array_view",
 			    selftests::array_view_tests::run_tests);

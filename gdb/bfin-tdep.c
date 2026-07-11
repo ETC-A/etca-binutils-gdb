@@ -1,6 +1,6 @@
 /* Target-dependent code for Analog Devices Blackfin processor, for GDB.
 
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    Contributed by Analog Devices, Inc.
 
@@ -19,7 +19,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "inferior.h"
 #include "gdbcore.h"
 #include "arch-utils.h"
@@ -108,10 +108,12 @@
 #define P_RTS				0x0010
 /* MNOP  */
 #define P_MNOP				0xC803
+/* codespell:ignore-begin.  Ignore EXCPT.  */
 /* EXCPT, 16-bit, min  */
 #define P_EXCPT_MIN			0x00A0
 /* EXCPT, 16-bit, max  */
 #define P_EXCPT_MAX			0x00AF
+/* codespell:ignore-end.  */
 /* multi instruction mask 1, 16-bit  */
 #define P_BIT_MULTI_INS_1		0xC000
 /* multi instruction mask 2, 16-bit  */
@@ -265,10 +267,9 @@ struct bfin_frame_cache
 static struct bfin_frame_cache *
 bfin_alloc_frame_cache (void)
 {
-  struct bfin_frame_cache *cache;
   int i;
 
-  cache = FRAME_OBSTACK_ZALLOC (struct bfin_frame_cache);
+  auto *cache = frame_obstack_zalloc<bfin_frame_cache> ();
 
   /* Base address.  */
   cache->base = 0;
@@ -288,7 +289,7 @@ bfin_alloc_frame_cache (void)
 }
 
 static struct bfin_frame_cache *
-bfin_frame_cache (frame_info_ptr this_frame, void **this_cache)
+bfin_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct bfin_frame_cache *cache;
   int i;
@@ -340,7 +341,7 @@ bfin_frame_cache (frame_info_ptr this_frame, void **this_cache)
 }
 
 static void
-bfin_frame_this_id (frame_info_ptr this_frame,
+bfin_frame_this_id (const frame_info_ptr &this_frame,
 		    void **this_cache,
 		    struct frame_id *this_id)
 {
@@ -355,7 +356,7 @@ bfin_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-bfin_frame_prev_register (frame_info_ptr this_frame,
+bfin_frame_prev_register (const frame_info_ptr &this_frame,
 			  void **this_cache,
 			  int regnum)
 {
@@ -372,16 +373,16 @@ bfin_frame_prev_register (frame_info_ptr this_frame,
   return frame_unwind_got_register (this_frame, regnum, regnum);
 }
 
-static const struct frame_unwind bfin_frame_unwind =
-{
+static const struct frame_unwind_legacy bfin_frame_unwind (
   "bfin prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   bfin_frame_this_id,
   bfin_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 /* Check for "[--SP] = <reg>;" insns.  These are appear in function
    prologues to save misc registers onto the stack.  */
@@ -465,7 +466,7 @@ bfin_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
    /* TODO:
       Dwarf2 uses entry point value AFTER some register initializations.
-      We should perhaps skip such asssignments as well (R6 = R1, ...).  */
+      We should perhaps skip such assignments as well (R6 = R1, ...).  */
 
   return pc;
 }
@@ -598,7 +599,7 @@ bfin_sw_breakpoint_from_kind (struct gdbarch *gdbarch, int kind, int *size)
 
   *size = kind;
 
-  if (strcmp (target_shortname (), "sim") == 0)
+  if (streq (target_shortname (), "sim"))
     return bfin_sim_breakpoint;
   else
     return bfin_breakpoint;
@@ -724,7 +725,7 @@ bfin_pseudo_register_write (struct gdbarch *gdbarch, struct regcache *regcache,
 }
 
 static CORE_ADDR
-bfin_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+bfin_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct bfin_frame_cache *cache = bfin_frame_cache (this_frame, this_cache);
 
@@ -732,7 +733,7 @@ bfin_frame_base_address (frame_info_ptr this_frame, void **this_cache)
 }
 
 static CORE_ADDR
-bfin_frame_local_address (frame_info_ptr this_frame, void **this_cache)
+bfin_frame_local_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct bfin_frame_cache *cache = bfin_frame_cache (this_frame, this_cache);
 
@@ -740,7 +741,7 @@ bfin_frame_local_address (frame_info_ptr this_frame, void **this_cache)
 }
 
 static CORE_ADDR
-bfin_frame_args_address (frame_info_ptr this_frame, void **this_cache)
+bfin_frame_args_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct bfin_frame_cache *cache = bfin_frame_cache (this_frame, this_cache);
 
@@ -769,7 +770,7 @@ bfin_abi (struct gdbarch *gdbarch)
 }
 
 /* Initialize the current architecture based on INFO.  If possible,
-   re-use an architecture from ARCHES, which is a list of
+   reuse an architecture from ARCHES, which is a list of
    architectures already created during this debugging session.
 
    Called e.g. at program startup, when reading a core file, and when
@@ -805,7 +806,8 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   set_gdbarch_num_regs (gdbarch, BFIN_NUM_REGS);
   set_gdbarch_pseudo_register_read (gdbarch, bfin_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (gdbarch, bfin_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (gdbarch,
+						bfin_pseudo_register_write);
   set_gdbarch_num_pseudo_regs (gdbarch, BFIN_NUM_PSEUDO_REGS);
   set_gdbarch_sp_regnum (gdbarch, BFIN_SP_REGNUM);
   set_gdbarch_pc_regnum (gdbarch, BFIN_PC_REGNUM);
@@ -814,7 +816,6 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_register_name (gdbarch, bfin_register_name);
   set_gdbarch_register_type (gdbarch, bfin_register_type);
   set_gdbarch_push_dummy_call (gdbarch, bfin_push_dummy_call);
-  set_gdbarch_believe_pcc_promotion (gdbarch, 1);
   set_gdbarch_return_value (gdbarch, bfin_return_value);
   set_gdbarch_skip_prologue (gdbarch, bfin_skip_prologue);
   set_gdbarch_inner_than (gdbarch, core_addr_lessthan);
@@ -836,9 +837,7 @@ bfin_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_bfin_tdep ();
-void
-_initialize_bfin_tdep ()
+INIT_GDB_FILE (bfin_tdep)
 {
   gdbarch_register (bfd_arch_bfin, bfin_gdbarch_init);
 }

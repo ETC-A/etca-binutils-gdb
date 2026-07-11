@@ -1,6 +1,6 @@
 // symtab.cc -- the gold symbol table
 
-// Copyright (C) 2006-2023 Free Software Foundation, Inc.
+// Copyright (C) 2006-2026 Free Software Foundation, Inc.
 // Written by Ian Lance Taylor <iant@google.com>.
 
 // This file is part of gold.
@@ -450,7 +450,16 @@ Symbol::final_value_is_known() const
        || parameters->options().relocatable())
       && !(this->type() == elfcpp::STT_TLS
            && parameters->options().pie()))
-    return false;
+    {
+      // Non-default weak undefined symbols in executable and shared
+      // library are always resolved to 0 at runtime.
+      if (this->visibility() != elfcpp::STV_DEFAULT
+	  && this->is_weak_undefined()
+	  && !parameters->options().relocatable())
+	return true;
+
+      return false;
+    }
 
   // If the symbol is not from an object file, and is not undefined,
   // then it is defined, and known.
@@ -998,12 +1007,64 @@ Symbol_table::add_from_object(Object* object,
       ret = this->get_sized_symbol<size>(ins.first->second);
       gold_assert(ret != NULL);
 
+      bool ret_is_ordinary;
+      const unsigned int ret_shndx = ret->shndx(&ret_is_ordinary);
+
       was_undefined_in_reg = ret->is_undefined() && ret->in_reg();
       // Commons from plugins are just placeholders.
       was_common = ret->is_common() && ret->object()->pluginobj() == NULL;
 
-      this->resolve(ret, sym, st_shndx, is_ordinary, orig_st_shndx, object,
-		    version, is_default_version);
+      // It's possible for a symbol to be defined in an object file
+      // using .symver to give it a version, and for there to also be
+      // a linker script giving that symbol the same version.  We
+      // don't want to give a multiple-definition error for this
+      // harmless redefinition.
+      bool check_version = false;
+      bool erase_default_version = false;
+      bool no_default_version = false;
+      if (ret->source() == Symbol::FROM_OBJECT
+	  && is_ordinary
+	  && ret_shndx == st_shndx)
+	{
+	  if (ret->object() == object)
+	    check_version = true;
+
+	  if (version != NULL && version == ret->version())
+	    {
+	      // Don't give a multiple-definition error if the hidden
+	      // version from .symver is the same as the default version
+	      // from the unversioned symbol.
+	      if (is_default_version && !ret->is_default ())
+		{
+		  no_default_version = true;
+		  if (insdefault.second)
+		    {
+		      // Don't make the unversioned symbol the default
+		      // version.
+		      is_default_version = false;
+		      erase_default_version = true;
+		      check_version = true;
+		    }
+		}
+	      else if (!is_default_version && ret->is_default ())
+		{
+		  // Don't make the unversioned symbol the default
+		  // version.
+		  ret->set_is_not_default();
+		  no_default_version = true;
+		  check_version = true;
+		}
+	    }
+	}
+
+      if (!(check_version
+	    && ret->is_defined()
+	    && ret_is_ordinary
+	    && (no_default_version
+		|| ret->value() == sym.get_st_value())))
+	this->resolve(ret, sym, st_shndx, is_ordinary, orig_st_shndx,
+		      object, version, is_default_version);
+
       if (parameters->options().gc_sections())
         this->gc_mark_dyn_syms(ret);
 
@@ -1012,13 +1073,7 @@ Symbol_table::add_from_object(Object* object,
 						       insdefault.first);
       else
 	{
-	  bool dummy;
-	  if (version != NULL
-	      && ret->source() == Symbol::FROM_OBJECT
-	      && ret->object() == object
-	      && is_ordinary
-	      && ret->shndx(&dummy) == st_shndx
-	      && ret->is_default())
+	  if (version != NULL && check_version)
 	    {
 	      // We have seen NAME/VERSION already, and marked it as the
 	      // default version, but now we see a definition for
@@ -1032,9 +1087,17 @@ Symbol_table::add_from_object(Object* object,
 	      // In any other case, the two symbols should have generated
 	      // a multiple definition error.
 	      // (See PR gold/18703.)
-	      ret->set_is_not_default();
+	      // If the hidden version from .symver is the same as the
+	      // default version from the unversioned symbol, don't make
+	      // the unversioned symbol the default versioned symbol.
 	      const Stringpool::Key vnull_key = 0;
-	      this->table_.erase(std::make_pair(name_key, vnull_key));
+	      if (erase_default_version)
+		this->table_.erase(std::make_pair(name_key, vnull_key));
+	      else if (ret->object() == object)
+		{
+		  ret->set_is_not_default();
+		  this->table_.erase(std::make_pair(name_key, vnull_key));
+		}
 	    }
 	}
     }
@@ -1569,24 +1632,15 @@ Symbol_table::add_from_dynobj(
 	  bool hidden = (v & elfcpp::VERSYM_HIDDEN) != 0;
 	  v &= elfcpp::VERSYM_VERSION;
 
-	  // The Sun documentation says that V can be VER_NDX_LOCAL,
-	  // or VER_NDX_GLOBAL, or a version index.  The meaning of
-	  // VER_NDX_LOCAL is defined as "Symbol has local scope."
-	  // The old GNU linker will happily generate VER_NDX_LOCAL
-	  // for an undefined symbol.  I don't know what the Sun
-	  // linker will generate.
-
-	  if (v == static_cast<unsigned int>(elfcpp::VER_NDX_LOCAL)
-	      && st_shndx != elfcpp::SHN_UNDEF)
-	    {
-	      // This symbol should not be visible outside the object.
-	      continue;
-	    }
-
 	  // At this point we are definitely going to add this symbol.
 	  Stringpool::Key name_key;
 	  name = this->namepool_.add(name, true, &name_key);
 
+	  // The Sun documentation says that V can be VER_NDX_LOCAL,
+	  // or VER_NDX_GLOBAL, or a version index.  The meaning of
+	  // VER_NDX_LOCAL means that symbol is a local dynamic symbol
+	  // or an unversioned global/weak symbol which is defined or
+	  // undefined.
 	  if (v == static_cast<unsigned int>(elfcpp::VER_NDX_LOCAL)
 	      || v == static_cast<unsigned int>(elfcpp::VER_NDX_GLOBAL))
 	    {

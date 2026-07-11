@@ -1,6 +1,6 @@
 /* Self tests for GDB command definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,12 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "cli/cli-cmds.h"
 #include "cli/cli-decode.h"
 #include "gdbsupport/selftest.h"
-
-#include <map>
+#include "gdbsupport/unordered_map.h"
 
 namespace selftests {
 
@@ -74,10 +72,33 @@ check_doc (struct cmd_list_element *commandlist, const char *prefix)
 	   "first line is not terminated with a '.' character");
 
       /* Checks the doc is not terminated with a new line.  */
-      if (c->doc[strlen (c->doc) - 1] == '\n')
+      if (c_isspace (c->doc[strlen (c->doc) - 1]))
 	broken_doc_invariant
 	  (prefix, c->name,
-	   "has a superfluous trailing end of line");
+	   "has superfluous trailing whitespace");
+
+      const char *prev_start = c->doc;
+      for (const char *nl = strchr (c->doc, '\n');
+	   nl != nullptr;
+	   nl = strchr (prev_start, '\n'))
+	{
+	  if (nl == c->doc)
+	    broken_doc_invariant (prefix, c->name, "has a leading newline");
+	  else
+	    {
+	      /* \n\n is ok, so we check that explicitly here.  */
+	      if (c_isspace (nl[-1]) && nl[-1] != '\n')
+		broken_doc_invariant (prefix, c->name,
+				      "has whitespace before a newline");
+	    }
+
+	  if (nl - prev_start > cli_help_line_length)
+	    broken_doc_invariant (prefix, c->name, "has over-long line");
+	  prev_start = nl + 1;
+	}
+
+      if (strlen (prev_start) > cli_help_line_length)
+	broken_doc_invariant (prefix, c->name, "has over-long line");
 
       /* Check if this command has subcommands and is not an
 	 abbreviation.  We skip checking subcommands of abbreviations
@@ -112,7 +133,7 @@ static unsigned int nr_invalid_prefixcmd = 0;
 
 /* A map associating a list with the prefix leading to it.  */
 
-static std::map<cmd_list_element **, const char *> lists;
+static gdb::unordered_map<cmd_list_element **, const char *> lists;
 
 /* Store each command list in lists, associated with the prefix to reach it.  A
    list must only be found once.
@@ -196,11 +217,32 @@ command_structure_invariants_tests ()
 
 }
 
+namespace essential_command_tests {
+
+/* The maximum number of commands that can be considered
+   essential by GDB.  This value was chosen arbitrarily,
+   but it must be kept low, so as to not overwhelm new
+   users.  */
+static constexpr int max_essential_cmds = 20;
+
+static void
+essential_command_count_tests ()
+{
+  int nr_essential_cmds = 0;
+
+  for (struct cmd_list_element *c = cmdlist; c != nullptr; c = c->next)
+    {
+      if (c->is_essential ())
+	nr_essential_cmds ++;
+    }
+
+  SELF_CHECK (nr_essential_cmds <= max_essential_cmds);
+}
+}
+
 } /* namespace selftests */
 
-void _initialize_command_def_selftests ();
-void
-_initialize_command_def_selftests ()
+INIT_GDB_FILE (command_def_selftests)
 {
   selftests::register_test
     ("help_doc_invariants",
@@ -209,4 +251,8 @@ _initialize_command_def_selftests ()
   selftests::register_test
     ("command_structure_invariants",
      selftests::command_structure_tests::command_structure_invariants_tests);
+
+  selftests::register_test
+    ("essential_command_count",
+     selftests::essential_command_tests::essential_command_count_tests);
 }

@@ -1,6 +1,6 @@
 /* Virtual tail call frames unwinder for GDB.
 
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "exceptions.h"
 #include "frame.h"
 #include "dwarf2/frame-tailcall.h"
 #include "dwarf2/loc.h"
 #include "frame-unwind.h"
-#include "block.h"
 #include "hashtab.h"
-#include "gdbtypes.h"
 #include "regcache.h"
 #include "value.h"
 #include "dwarf2/frame.h"
@@ -90,7 +88,7 @@ cache_eq (const void *arg1, const void *arg2)
    tailcall_cache.  */
 
 static struct tailcall_cache *
-cache_new_ref1 (frame_info_ptr next_bottom_frame)
+cache_new_ref1 (const frame_info_ptr &next_bottom_frame)
 {
   struct tailcall_cache *cache = XCNEW (struct tailcall_cache);
   void **slot;
@@ -133,11 +131,11 @@ cache_unref (struct tailcall_cache *cache)
     }
 }
 
-/* Return 1 if FI is a non-bottom (not the callee) tail call frame.  Otherwise
-   return 0.  */
+/* Return true if FI is a non-bottom (not the callee) tail call frame.
+   Otherwise return false.  */
 
-static int
-frame_is_tailcall (frame_info_ptr fi)
+static bool
+frame_is_tailcall (const frame_info_ptr &fi)
 {
   return frame_unwinder_is (fi, &dwarf2_tailcall_frame_unwind);
 }
@@ -146,12 +144,13 @@ frame_is_tailcall (frame_info_ptr fi)
    call chain.  Otherwise return NULL.  No new reference is created.  */
 
 static struct tailcall_cache *
-cache_find (frame_info_ptr fi)
+cache_find (const frame_info_ptr &initial_fi)
 {
   struct tailcall_cache *cache;
   struct tailcall_cache search;
   void **slot;
 
+  frame_info_ptr fi = initial_fi;
   while (frame_is_tailcall (fi))
     {
       fi = get_next_frame (fi);
@@ -173,7 +172,7 @@ cache_find (frame_info_ptr fi)
    If THIS_FRAME is CACHE-> NEXT_BOTTOM_FRAME return -1.  */
 
 static int
-existing_next_levels (frame_info_ptr this_frame,
+existing_next_levels (const frame_info_ptr &this_frame,
 		      struct tailcall_cache *cache)
 {
   int retval = (frame_relative_level (this_frame)
@@ -210,7 +209,7 @@ pretended_chain_levels (struct call_site_chain *chain)
    Specific virtual tail call frames are tracked by INLINE_DEPTH.  */
 
 static void
-tailcall_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+tailcall_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 			struct frame_id *this_id)
 {
   struct tailcall_cache *cache = (struct tailcall_cache *) *this_cache;
@@ -232,7 +231,7 @@ tailcall_frame_this_id (frame_info_ptr this_frame, void **this_cache,
    CACHE.  */
 
 static CORE_ADDR
-pretend_pc (frame_info_ptr this_frame, struct tailcall_cache *cache)
+pretend_pc (const frame_info_ptr &this_frame, struct tailcall_cache *cache)
 {
   int next_levels = existing_next_levels (this_frame, cache);
   struct call_site_chain *chain = cache->chain;
@@ -264,7 +263,7 @@ pretend_pc (frame_info_ptr this_frame, struct tailcall_cache *cache)
    frames unwind the NULL case differently.  */
 
 struct value *
-dwarf2_tailcall_prev_register_first (frame_info_ptr this_frame,
+dwarf2_tailcall_prev_register_first (const frame_info_ptr &this_frame,
 				     void **tailcall_cachep, int regnum)
 {
   struct gdbarch *this_gdbarch = get_frame_arch (this_frame);
@@ -294,7 +293,7 @@ dwarf2_tailcall_prev_register_first (frame_info_ptr this_frame,
    dwarf2_tailcall_prev_register_first.  */
 
 static struct value *
-tailcall_frame_prev_register (frame_info_ptr this_frame,
+tailcall_frame_prev_register (const frame_info_ptr &this_frame,
 			       void **this_cache, int regnum)
 {
   struct tailcall_cache *cache = (struct tailcall_cache *) *this_cache;
@@ -316,14 +315,11 @@ tailcall_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 tailcall_frame_sniffer (const struct frame_unwind *self,
-			 frame_info_ptr this_frame, void **this_cache)
+			 const frame_info_ptr &this_frame, void **this_cache)
 {
   frame_info_ptr next_frame;
   int next_levels;
   struct tailcall_cache *cache;
-
-  if (!dwarf2_frame_unwinders_enabled_p)
-    return 0;
 
   /* Inner tail call element does not make sense for a sentinel frame.  */
   next_frame = get_next_frame (this_frame);
@@ -356,14 +352,14 @@ tailcall_frame_sniffer (const struct frame_unwind *self,
    chain to create.  Keep TAILCALL_CACHEP NULL if it did not find any chain,
    initialize it otherwise.  No tail call chain is created if there are no
    unambiguous virtual tail call frames to report.
-   
+
    ENTRY_CFA_SP_OFFSETP is NULL if no special SP handling is possible,
    otherwise *ENTRY_CFA_SP_OFFSETP is the number of bytes to subtract from tail
    call frames frame base to get the SP value there - to simulate return
    address pushed on the stack.  */
 
 void
-dwarf2_tailcall_sniffer_first (frame_info_ptr this_frame,
+dwarf2_tailcall_sniffer_first (const frame_info_ptr &this_frame,
 			       void **tailcall_cachep,
 			       const LONGEST *entry_cfa_sp_offsetp)
 {
@@ -458,7 +454,7 @@ tailcall_frame_dealloc_cache (frame_info *self, void *this_cache)
    call frames have gdbarch of the bottom (callee) frame.  */
 
 static struct gdbarch *
-tailcall_frame_prev_arch (frame_info_ptr this_frame,
+tailcall_frame_prev_arch (const frame_info_ptr &this_frame,
 			  void **this_prologue_cache)
 {
   struct tailcall_cache *cache = (struct tailcall_cache *) *this_prologue_cache;
@@ -469,10 +465,10 @@ tailcall_frame_prev_arch (frame_info_ptr this_frame,
 /* Virtual tail call frame unwinder if dwarf2_tailcall_sniffer_first finds
    a chain to create.  */
 
-const struct frame_unwind dwarf2_tailcall_frame_unwind =
-{
+const struct frame_unwind_legacy dwarf2_tailcall_frame_unwind (
   "dwarf2 tailcall",
   TAILCALL_FRAME,
+  FRAME_UNWIND_DEBUGINFO,
   default_frame_unwind_stop_reason,
   tailcall_frame_this_id,
   tailcall_frame_prev_register,
@@ -480,11 +476,9 @@ const struct frame_unwind dwarf2_tailcall_frame_unwind =
   tailcall_frame_sniffer,
   tailcall_frame_dealloc_cache,
   tailcall_frame_prev_arch
-};
+);
 
-void _initialize_tailcall_frame ();
-void
-_initialize_tailcall_frame ()
+INIT_GDB_FILE (tailcall_frame)
 {
   cache_htab = htab_create_alloc (50, cache_hash, cache_eq, NULL, xcalloc,
 				  xfree);

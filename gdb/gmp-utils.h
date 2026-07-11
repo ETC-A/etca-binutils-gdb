@@ -1,6 +1,6 @@
 /* Miscellaneous routines making it easier to use GMP within GDB's framework.
 
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef GMP_UTILS_H
-#define GMP_UTILS_H
+#ifndef GDB_GMP_UTILS_H
+#define GDB_GMP_UTILS_H
 
 /* Include <stdio.h> and <stdarg.h> ahead of <gmp.h>, so as to get
    access to GMP's various formatting functions.  */
@@ -70,7 +70,7 @@ struct gdb_mpz
     mpz_swap (m_val, from.m_val);
   }
 
-  
+
   gdb_mpz &operator= (const gdb_mpz &from)
   {
     mpz_set (m_val, from.m_val);
@@ -225,11 +225,30 @@ struct gdb_mpz
     return *this;
   }
 
-  gdb_mpz operator+ (const gdb_mpz &other) const
+  gdb_mpz operator+ (const gdb_mpz &other) const &
   {
     gdb_mpz result;
     mpz_add (result.m_val, m_val, other.m_val);
     return result;
+  }
+
+  gdb_mpz operator+ (const gdb_mpz &other) &&
+  {
+    mpz_add (m_val, m_val, other.m_val);
+    return *this;
+  }
+
+  gdb_mpz operator+ (unsigned long val) const &
+  {
+    gdb_mpz result;
+    mpz_add_ui (result.m_val, m_val, val);
+    return result;
+  }
+
+  gdb_mpz operator+ (unsigned long val) &&
+  {
+    mpz_add_ui (m_val, m_val, val);
+    return *this;
   }
 
   gdb_mpz &operator-= (unsigned long other)
@@ -251,29 +270,42 @@ struct gdb_mpz
     return result;
   }
 
+  gdb_mpz operator- () const
+  {
+    gdb_mpz result;
+    mpz_neg (result.m_val, m_val);
+    return result;
+  }
+
   gdb_mpz &operator<<= (unsigned long nbits)
   {
     mpz_mul_2exp (m_val, m_val, nbits);
     return *this;
   }
 
-  gdb_mpz operator<< (unsigned long nbits) const
+  gdb_mpz operator<< (unsigned long nbits) const &
   {
     gdb_mpz result;
     mpz_mul_2exp (result.m_val, m_val, nbits);
     return result;
   }
 
+  gdb_mpz operator<< (unsigned long nbits) &&
+  {
+    mpz_mul_2exp (m_val, m_val, nbits);
+    return *this;
+  }
+
   gdb_mpz operator>> (unsigned long nbits) const
   {
     gdb_mpz result;
-    mpz_tdiv_q_2exp (result.m_val, m_val, nbits);
+    mpz_fdiv_q_2exp (result.m_val, m_val, nbits);
     return result;
   }
 
   gdb_mpz &operator>>= (unsigned long nbits)
   {
-    mpz_tdiv_q_2exp (m_val, m_val, nbits);
+    mpz_fdiv_q_2exp (m_val, m_val, nbits);
     return *this;
   }
 
@@ -650,4 +682,4 @@ gdb_mpz::as_integer_truncate () const
   return result;
 }
 
-#endif
+#endif /* GDB_GMP_UTILS_H */

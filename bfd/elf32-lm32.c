@@ -1,5 +1,5 @@
 /* Lattice Mico32-specific support for 32-bit ELF
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
    Contributed by Jon Beniston <jon@beniston.com>
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -98,8 +98,7 @@ lm32_elf_link_hash_table_create (bfd *abfd)
 
   if (!_bfd_elf_link_hash_table_init (&ret->root, abfd,
 				      _bfd_elf_link_hash_newfunc,
-				      sizeof (struct elf_link_hash_entry),
-				      LM32_ELF_DATA))
+				      sizeof (struct elf_link_hash_entry)))
     {
       free (ret);
       return NULL;
@@ -443,12 +442,12 @@ static const struct lm32_reloc_map lm32_reloc_map[] =
   { BFD_RELOC_VTABLE_INHERIT,	R_LM32_GNU_VTINHERIT },
   { BFD_RELOC_VTABLE_ENTRY,	R_LM32_GNU_VTENTRY },
   { BFD_RELOC_LM32_16_GOT,	R_LM32_16_GOT },
-  { BFD_RELOC_LM32_GOTOFF_HI16, R_LM32_GOTOFF_HI16 },
-  { BFD_RELOC_LM32_GOTOFF_LO16, R_LM32_GOTOFF_LO16 },
-  { BFD_RELOC_LM32_COPY,	R_LM32_COPY },
-  { BFD_RELOC_LM32_GLOB_DAT,	R_LM32_GLOB_DAT },
-  { BFD_RELOC_LM32_JMP_SLOT,	R_LM32_JMP_SLOT },
-  { BFD_RELOC_LM32_RELATIVE,	R_LM32_RELATIVE },
+  { BFD_RELOC_HI16_GOTOFF,	R_LM32_GOTOFF_HI16 },
+  { BFD_RELOC_LO16_GOTOFF,	R_LM32_GOTOFF_LO16 },
+  { BFD_RELOC_COPY,		R_LM32_COPY },
+  { BFD_RELOC_GLOB_DAT,		R_LM32_GLOB_DAT },
+  { BFD_RELOC_JMP_SLOT,		R_LM32_JMP_SLOT },
+  { BFD_RELOC_RELATIVE,		R_LM32_RELATIVE },
 };
 
 static reloc_howto_type *
@@ -716,8 +715,7 @@ _lm32fdpic_osec_readonly_p (bfd *output_bfd, asection *osec)
 /* Relocate a section */
 
 static int
-lm32_elf_relocate_section (bfd *output_bfd,
-			   struct bfd_link_info *info,
+lm32_elf_relocate_section (struct bfd_link_info *info,
 			   bfd *input_bfd,
 			   asection *input_section,
 			   bfd_byte *contents,
@@ -725,7 +723,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 			   Elf_Internal_Sym *local_syms,
 			   asection **local_sections)
 {
-  Elf_Internal_Shdr *symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
+  Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (input_bfd);
   struct elf_link_hash_entry **sym_hashes = elf_sym_hashes (input_bfd);
   Elf_Internal_Rela *rel, *relend;
   struct elf_lm32_link_hash_table *htab = lm32_elf_hash_table (info);
@@ -739,7 +737,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 
   sgot = htab->root.sgot;
 
-  symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
+  symtab_hdr = &elf_symtab_hdr (input_bfd);
   sym_hashes = elf_sym_hashes (input_bfd);
 
   rel = relocs;
@@ -775,7 +773,8 @@ lm32_elf_relocate_section (bfd *output_bfd,
 	  /* It's a local symbol.  */
 	  sym = local_syms + r_symndx;
 	  sec = local_sections[r_symndx];
-	  relocation = _bfd_elf_rela_local_sym (output_bfd, sym, &sec, rel);
+	  relocation = _bfd_elf_rela_local_sym (info->output_bfd,
+						sym, &sec, rel);
 	  name = bfd_elf_string_from_elf_section
 	    (input_bfd, symtab_hdr->sh_link, sym->st_name);
 	  name = name == NULL ? bfd_section_name (sec) : name;
@@ -795,7 +794,8 @@ lm32_elf_relocate_section (bfd *output_bfd,
 
       if (sec != NULL && discarded_section (sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					 rel, 1, relend, howto, 0, contents);
+					 rel, 1, relend, R_LM32_NONE,
+					 howto, 0, contents);
 
       if (bfd_link_relocatable (info))
 	{
@@ -820,7 +820,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 	  switch (howto->type)
 	    {
 	    case R_LM32_GPREL16:
-	      if (!lm32_elf_assign_gp (output_bfd, &gp))
+	      if (!lm32_elf_assign_gp (info->output_bfd, &gp))
 		r = bfd_reloc_dangerous;
 	      else
 		{
@@ -876,12 +876,13 @@ lm32_elf_relocate_section (bfd *output_bfd,
 		      else
 			{
 			  /* Write entry in GOT */
-			  bfd_put_32 (output_bfd, relocation,
+			  bfd_put_32 (info->output_bfd, relocation,
 				      sgot->contents + off);
 			  /* Create entry in .rofixup pointing to GOT entry.  */
-			   if (IS_FDPIC (output_bfd) && h->root.type != bfd_link_hash_undefweak)
+			   if (IS_FDPIC (info->output_bfd)
+			       && h->root.type != bfd_link_hash_undefweak)
 			     {
-			       _lm32fdpic_add_rofixup (output_bfd,
+			       _lm32fdpic_add_rofixup (info->output_bfd,
 						       lm32fdpic_fixup32_section
 							(info),
 						       sgot->output_section->vma
@@ -914,11 +915,12 @@ lm32_elf_relocate_section (bfd *output_bfd,
 		  else
 		    {
 		      /* Write entry in GOT.  */
-		      bfd_put_32 (output_bfd, relocation, sgot->contents + off);
+		      bfd_put_32 (info->output_bfd, relocation,
+				  sgot->contents + off);
 		      /* Create entry in .rofixup pointing to GOT entry.  */
-		      if (IS_FDPIC (output_bfd))
+		      if (IS_FDPIC (info->output_bfd))
 			{
-			  _lm32fdpic_add_rofixup (output_bfd,
+			  _lm32fdpic_add_rofixup (info->output_bfd,
 						  lm32fdpic_fixup32_section
 						   (info),
 						  sgot->output_section->vma
@@ -943,7 +945,8 @@ lm32_elf_relocate_section (bfd *output_bfd,
 			  outrel.r_addend = relocation;
 			  loc = srelgot->contents;
 			  loc += srelgot->reloc_count * sizeof (Elf32_External_Rela);
-			  bfd_elf32_swap_reloca_out (output_bfd, &outrel,loc);
+			  bfd_elf32_swap_reloca_out (info->output_bfd,
+						     &outrel,loc);
 			  ++srelgot->reloc_count;
 			}
 
@@ -988,7 +991,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 	      break;
 
 	    case R_LM32_32:
-	      if (IS_FDPIC (output_bfd))
+	      if (IS_FDPIC (info->output_bfd))
 		{
 		  if ((!h) || (h && h->root.type != bfd_link_hash_undefweak))
 		    {
@@ -998,7 +1001,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 
 			{
 			  /* Check address to be modified is writable.  */
-			  if (_lm32fdpic_osec_readonly_p (output_bfd,
+			  if (_lm32fdpic_osec_readonly_p (info->output_bfd,
 							  input_section
 							   ->output_section))
 			    {
@@ -1009,7 +1012,7 @@ lm32_elf_relocate_section (bfd *output_bfd,
 			       return false;
 			    }
 			  /* Create entry in .rofixup section.  */
-			  _lm32fdpic_add_rofixup (output_bfd,
+			  _lm32fdpic_add_rofixup (info->output_bfd,
 						  lm32fdpic_fixup32_section (info),
 						  input_section->output_section->vma
 						   + input_section->output_offset
@@ -1096,19 +1099,19 @@ lm32_elf_relocate_section (bfd *output_bfd,
 static asection *
 lm32_elf_gc_mark_hook (asection *sec,
 		       struct bfd_link_info *info,
-		       Elf_Internal_Rela *rel,
+		       struct elf_reloc_cookie *cookie,
 		       struct elf_link_hash_entry *h,
-		       Elf_Internal_Sym *sym)
+		       unsigned int symndx)
 {
   if (h != NULL)
-    switch (ELF32_R_TYPE (rel->r_info))
+    switch (ELF32_R_TYPE (cookie->rel->r_info))
       {
       case R_LM32_GNU_VTINHERIT:
       case R_LM32_GNU_VTENTRY:
 	return NULL;
       }
 
-  return _bfd_elf_gc_mark_hook (sec, info, rel, h, sym);
+  return _bfd_elf_gc_mark_hook (sec, info, cookie, h, symndx);
 }
 
 /* Look through the relocs for a section during the first phase.  */
@@ -1129,7 +1132,7 @@ lm32_elf_check_relocs (bfd *abfd,
   if (bfd_link_relocatable (info))
     return true;
 
-  symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
+  symtab_hdr = &elf_symtab_hdr (abfd);
   sym_hashes = elf_sym_hashes (abfd);
 
   htab = lm32_elf_hash_table (info);
@@ -1256,8 +1259,8 @@ lm32_elf_check_relocs (bfd *abfd,
 /* Finish up the dynamic sections.  */
 
 static bool
-lm32_elf_finish_dynamic_sections (bfd *output_bfd,
-				  struct bfd_link_info *info)
+lm32_elf_finish_dynamic_sections (struct bfd_link_info *info,
+				  bfd_byte *buf ATTRIBUTE_UNUSED)
 {
   struct elf_lm32_link_hash_table *htab;
   bfd *dynobj;
@@ -1302,13 +1305,13 @@ lm32_elf_finish_dynamic_sections (bfd *output_bfd,
 	      s = htab->root.srelplt;
 	    get_vma:
 	      dyn.d_un.d_ptr = s->output_section->vma + s->output_offset;
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	      break;
 
 	    case DT_PLTRELSZ:
 	      s = htab->root.srelplt;
 	      dyn.d_un.d_val = s->size;
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	      break;
 	    }
 	}
@@ -1319,26 +1322,34 @@ lm32_elf_finish_dynamic_sections (bfd *output_bfd,
 	{
 	  if (bfd_link_pic (info))
 	    {
-	      bfd_put_32 (output_bfd, PLT0_PIC_ENTRY_WORD0, splt->contents);
-	      bfd_put_32 (output_bfd, PLT0_PIC_ENTRY_WORD1, splt->contents + 4);
-	      bfd_put_32 (output_bfd, PLT0_PIC_ENTRY_WORD2, splt->contents + 8);
-	      bfd_put_32 (output_bfd, PLT0_PIC_ENTRY_WORD3, splt->contents + 12);
-	      bfd_put_32 (output_bfd, PLT0_PIC_ENTRY_WORD4, splt->contents + 16);
+	      bfd_put_32 (info->output_bfd, PLT0_PIC_ENTRY_WORD0,
+			  splt->contents);
+	      bfd_put_32 (info->output_bfd, PLT0_PIC_ENTRY_WORD1,
+			  splt->contents + 4);
+	      bfd_put_32 (info->output_bfd, PLT0_PIC_ENTRY_WORD2,
+			  splt->contents + 8);
+	      bfd_put_32 (info->output_bfd, PLT0_PIC_ENTRY_WORD3,
+			  splt->contents + 12);
+	      bfd_put_32 (info->output_bfd, PLT0_PIC_ENTRY_WORD4,
+			  splt->contents + 16);
 	    }
 	  else
 	    {
 	      unsigned long addr;
 	      /* addr = .got + 4 */
 	      addr = sgot->output_section->vma + sgot->output_offset + 4;
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  PLT0_ENTRY_WORD0 | ((addr >> 16) & 0xffff),
 			  splt->contents);
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  PLT0_ENTRY_WORD1 | (addr & 0xffff),
 			  splt->contents + 4);
-	      bfd_put_32 (output_bfd, PLT0_ENTRY_WORD2, splt->contents + 8);
-	      bfd_put_32 (output_bfd, PLT0_ENTRY_WORD3, splt->contents + 12);
-	      bfd_put_32 (output_bfd, PLT0_ENTRY_WORD4, splt->contents + 16);
+	      bfd_put_32 (info->output_bfd, PLT0_ENTRY_WORD2,
+			  splt->contents + 8);
+	      bfd_put_32 (info->output_bfd, PLT0_ENTRY_WORD3,
+			  splt->contents + 12);
+	      bfd_put_32 (info->output_bfd, PLT0_ENTRY_WORD4,
+			  splt->contents + 16);
 	    }
 
 	  elf_section_data (splt->output_section)->this_hdr.sh_entsize =
@@ -1350,13 +1361,13 @@ lm32_elf_finish_dynamic_sections (bfd *output_bfd,
   if (sgot && sgot->size > 0)
     {
       if (sdyn == NULL)
-	bfd_put_32 (output_bfd, (bfd_vma) 0, sgot->contents);
+	bfd_put_32 (info->output_bfd, 0, sgot->contents);
       else
-	bfd_put_32 (output_bfd,
+	bfd_put_32 (info->output_bfd,
 		    sdyn->output_section->vma + sdyn->output_offset,
 		    sgot->contents);
-      bfd_put_32 (output_bfd, (bfd_vma) 0, sgot->contents + 4);
-      bfd_put_32 (output_bfd, (bfd_vma) 0, sgot->contents + 8);
+      bfd_put_32 (info->output_bfd, 0, sgot->contents + 4);
+      bfd_put_32 (info->output_bfd, 0, sgot->contents + 8);
 
       /* FIXME:  This can be null if create_dynamic_sections wasn't called. */
       if (elf_section_data (sgot->output_section) != NULL)
@@ -1372,7 +1383,7 @@ lm32_elf_finish_dynamic_sections (bfd *output_bfd,
       struct bfd_link_hash_entry *hend;
 
       /* Last entry is pointer to GOT.  */
-      _lm32fdpic_add_rofixup (output_bfd, lm32fdpic_fixup32_section (info), got_value);
+      _lm32fdpic_add_rofixup (info->output_bfd, lm32fdpic_fixup32_section (info), got_value);
 
       /* Check we wrote enough entries.  */
       if (lm32fdpic_fixup32_section (info)->size
@@ -1418,8 +1429,7 @@ lm32_elf_finish_dynamic_sections (bfd *output_bfd,
    dynamic sections here.  */
 
 static bool
-lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
-				struct bfd_link_info *info,
+lm32_elf_finish_dynamic_symbol (struct bfd_link_info *info,
 				struct elf_link_hash_entry *h,
 				Elf_Internal_Sym *sym)
 {
@@ -1427,8 +1437,6 @@ lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
   bfd_byte *loc;
 
   htab = lm32_elf_hash_table (info);
-  if (htab == NULL)
-    return false;
 
   if (h->plt.offset != (bfd_vma) -1)
     {
@@ -1471,7 +1479,7 @@ lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
 	}
 
       /* Fill in the entry in the global offset table.  */
-      bfd_put_32 (output_bfd,
+      bfd_put_32 (info->output_bfd,
 		  (splt->output_section->vma
 		   + splt->output_offset
 		   + h->plt.offset
@@ -1486,7 +1494,7 @@ lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
       rela.r_addend = 0;
       loc = srela->contents;
       loc += plt_index * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rela, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rela, loc);
 
       if (!h->def_regular)
 	{
@@ -1532,14 +1540,14 @@ lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
       else
 	{
 	  BFD_ASSERT ((h->got.offset & 1) == 0);
-	  bfd_put_32 (output_bfd, (bfd_vma) 0, sgot->contents + h->got.offset);
+	  bfd_put_32 (info->output_bfd, 0, sgot->contents + h->got.offset);
 	  rela.r_info = ELF32_R_INFO (h->dynindx, R_LM32_GLOB_DAT);
 	  rela.r_addend = 0;
 	}
 
       loc = srela->contents;
       loc += srela->reloc_count * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rela, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rela, loc);
       ++srela->reloc_count;
     }
 
@@ -1563,7 +1571,7 @@ lm32_elf_finish_dynamic_symbol (bfd *output_bfd,
       rela.r_addend = 0;
       loc = s->contents;
       loc += s->reloc_count * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rela, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rela, loc);
       ++s->reloc_count;
     }
 
@@ -1906,8 +1914,7 @@ allocate_dynrelocs (struct elf_link_hash_entry *h, void * inf)
 /* Set the sizes of the dynamic sections.  */
 
 static bool
-lm32_elf_size_dynamic_sections (bfd *output_bfd,
-				struct bfd_link_info *info)
+lm32_elf_late_size_sections (struct bfd_link_info *info)
 {
   struct elf_lm32_link_hash_table *htab;
   bfd *dynobj;
@@ -1920,17 +1927,19 @@ lm32_elf_size_dynamic_sections (bfd *output_bfd,
     return false;
 
   dynobj = htab->root.dynobj;
-  BFD_ASSERT (dynobj != NULL);
+  if (dynobj == NULL)
+    return true;
 
   if (htab->root.dynamic_sections_created)
     {
       /* Set the contents of the .interp section to the interpreter.  */
       if (bfd_link_executable (info) && !info->nointerp)
 	{
-	  s = bfd_get_linker_section (dynobj, ".interp");
+	  s = htab->root.interp;
 	  BFD_ASSERT (s != NULL);
 	  s->size = sizeof ELF_DYNAMIC_INTERPRETER;
 	  s->contents = (unsigned char *) ELF_DYNAMIC_INTERPRETER;
+	  s->alloced = 1;
 	}
     }
 
@@ -1978,7 +1987,7 @@ lm32_elf_size_dynamic_sections (bfd *output_bfd,
       if (!local_got)
 	continue;
 
-      symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+      symtab_hdr = &elf_symtab_hdr (ibfd);
       locsymcount = symtab_hdr->sh_info;
       end_local_got = local_got + locsymcount;
       s = htab->root.sgot;
@@ -2056,13 +2065,14 @@ lm32_elf_size_dynamic_sections (bfd *output_bfd,
       s->contents = bfd_zalloc (dynobj, s->size);
       if (s->contents == NULL)
 	return false;
+      s->alloced = 1;
     }
 
-  if (!_bfd_elf_add_dynamic_tags (output_bfd, info, relocs))
+  if (!_bfd_elf_add_dynamic_tags (info, relocs))
     return false;
 
   /* Allocate .rofixup section.  */
-  if (IS_FDPIC (output_bfd))
+  if (IS_FDPIC (info->output_bfd))
     {
       struct weak_symbol_list *list_start = NULL, *list_end = NULL;
       int rgot_weak_count = 0;
@@ -2085,12 +2095,12 @@ lm32_elf_size_dynamic_sections (bfd *output_bfd,
 		      end = internal_relocs + s->reloc_count;
 		      while (internal_relocs < end)
 			{
-			  Elf_Internal_Shdr *symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
-			  struct elf_link_hash_entry **sym_hashes = elf_sym_hashes (ibfd);
+			  Elf_Internal_Shdr *symtab_hdr;
+			  struct elf_link_hash_entry **sym_hashes;
 			  unsigned long r_symndx;
 			  struct elf_link_hash_entry *h;
 
-			  symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+			  symtab_hdr = &elf_symtab_hdr (ibfd);
 			  sym_hashes = elf_sym_hashes (ibfd);
 			  r_symndx = ELF32_R_SYM (internal_relocs->r_info);
 			  h = NULL;
@@ -2184,6 +2194,7 @@ lm32_elf_size_dynamic_sections (bfd *output_bfd,
 	     bfd_zalloc (dynobj, lm32fdpic_fixup32_section (info)->size);
 	  if (lm32fdpic_fixup32_section (info)->contents == NULL)
 	    return false;
+	  lm32fdpic_fixup32_section (info)->alloced = 1;
 	}
     }
 
@@ -2198,17 +2209,13 @@ lm32_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
   struct elf_lm32_link_hash_table *htab;
   flagword flags, pltflags;
   asection *s;
-  const struct elf_backend_data *bed = get_elf_backend_data (abfd);
+  elf_backend_data *bed = get_elf_backend_data (abfd);
   int ptralign = 2; /* 32bit */
 
   htab = lm32_elf_hash_table (info);
   if (htab == NULL)
     return false;
 
-  /* Make sure we have a GOT - For the case where we have a dynamic object
-     but none of the relocs in check_relocs */
-  if (!_bfd_elf_create_got_section (abfd, info))
-    return false;
   if (IS_FDPIC (abfd) && (htab->sfixup32 == NULL))
     {
       if (! create_rofixup_section (abfd, info))
@@ -2309,15 +2316,14 @@ lm32_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 }
 
 static bool
-lm32_elf_always_size_sections (bfd *output_bfd, struct bfd_link_info *info)
+lm32_elf_early_size_sections (struct bfd_link_info *info)
 {
   if (!bfd_link_relocatable (info))
     {
-      if (!bfd_elf_stack_segment_size (output_bfd, info,
-				       "__stacksize", DEFAULT_STACK_SIZE))
+      if (!bfd_elf_stack_segment_size (info, "__stacksize", DEFAULT_STACK_SIZE))
 	return false;
 
-      asection *sec = bfd_get_section_by_name (output_bfd, ".stack");
+      asection *sec = bfd_get_section_by_name (info->output_bfd, ".stack");
       if (sec)
 	sec->size = info->stacksize >= 0 ? info->stacksize : 0;
     }
@@ -2330,15 +2336,13 @@ lm32_elf_fdpic_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
 {
   unsigned i;
 
-  if (bfd_get_flavour (ibfd) != bfd_target_elf_flavour
-      || bfd_get_flavour (obfd) != bfd_target_elf_flavour)
+  if (bfd_get_flavour (ibfd) != bfd_target_elf_flavour)
     return true;
 
   if (! _bfd_elf_copy_private_bfd_data (ibfd, obfd))
     return false;
 
-  if (! elf_tdata (ibfd) || ! elf_tdata (ibfd)->phdr
-      || ! elf_tdata (obfd) || ! elf_tdata (obfd)->phdr)
+  if (! elf_tdata (ibfd)->phdr || ! elf_tdata (obfd)->phdr)
     return true;
 
   /* Copy the stack size.  */
@@ -2395,7 +2399,7 @@ lm32_elf_fdpic_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
 #define bfd_elf32_bfd_link_hash_table_create	lm32_elf_link_hash_table_create
 #define elf_backend_check_relocs		lm32_elf_check_relocs
 #define elf_backend_reloc_type_class		lm32_elf_reloc_type_class
-#define elf_backend_size_dynamic_sections	lm32_elf_size_dynamic_sections
+#define elf_backend_late_size_sections		lm32_elf_late_size_sections
 #define elf_backend_omit_section_dynsym		_bfd_elf_omit_section_dynsym_all
 #define elf_backend_create_dynamic_sections	lm32_elf_create_dynamic_sections
 #define elf_backend_finish_dynamic_sections	lm32_elf_finish_dynamic_sections
@@ -2416,8 +2420,8 @@ lm32_elf_fdpic_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
 #undef	elf32_bed
 #define	elf32_bed		elf32_lm32fdpic_bed
 
-#undef	elf_backend_always_size_sections
-#define elf_backend_always_size_sections	lm32_elf_always_size_sections
+#undef	elf_backend_early_size_sections
+#define elf_backend_early_size_sections		lm32_elf_early_size_sections
 #undef	bfd_elf32_bfd_copy_private_bfd_data
 #define bfd_elf32_bfd_copy_private_bfd_data	lm32_elf_fdpic_copy_private_bfd_data
 

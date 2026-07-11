@@ -1,5 +1,5 @@
 /* Interface GDB to the GNU Hurd.
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -49,9 +49,7 @@ extern "C"
 #include <portinfo.h>
 }
 
-#include "defs.h"
 
-#include <ctype.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <sys/ptrace.h>
@@ -65,7 +63,7 @@ extern "C"
 #include "target.h"
 #include "gdbsupport/gdb_wait.h"
 #include "gdbarch.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "gdbthread.h"
 #include "gdbsupport/gdb_obstack.h"
@@ -134,7 +132,8 @@ static struct inf *make_inf ();
 struct exc_state
   {
     int exception;		/* The exception code.  */
-    int code, subcode;
+    int code;
+    long subcode;
     mach_port_t handler;	/* The real exception port to handle this.  */
     mach_port_t reply;		/* The reply port from the exception call.  */
   };
@@ -389,7 +388,7 @@ gnu_nat_target::proc_get_exception_port (struct proc * proc, mach_port_t * port)
 kern_return_t
 gnu_nat_target::proc_set_exception_port (struct proc * proc, mach_port_t port)
 {
-  proc_debug (proc, "setting exception port: %lu", port);
+  proc_debug (proc, "setting exception port: %u", port);
   if (proc_is_task (proc))
     return task_set_exception_port (proc->port, port);
   else
@@ -429,7 +428,7 @@ gnu_nat_target::proc_steal_exc_port (struct proc *proc, mach_port_t exc_port)
     {
       kern_return_t err = 0;
 
-      proc_debug (proc, "inserting exception port: %lu", exc_port);
+      proc_debug (proc, "inserting exception port: %u", exc_port);
 
       if (cur_exc_port != exc_port)
 	/* Put in our exception port.  */
@@ -450,7 +449,7 @@ gnu_nat_target::proc_steal_exc_port (struct proc *proc, mach_port_t exc_port)
 	  proc->saved_exc_port = cur_exc_port;
 	}
 
-      proc_debug (proc, "saved exception port: %lu", proc->saved_exc_port);
+      proc_debug (proc, "saved exception port: %u", proc->saved_exc_port);
 
       if (!err)
 	proc->exc_port = exc_port;
@@ -562,11 +561,11 @@ gnu_nat_target::make_proc (struct inf *inf, mach_port_t port, int tid)
 				    MACH_MSG_TYPE_MAKE_SEND_ONCE,
 				    &prev_port);
   if (err)
-    warning (_("Couldn't request notification for port %lu: %s"),
+    warning (_("Couldn't request notification for port %u: %s"),
 	     port, safe_strerror (err));
   else
     {
-      proc_debug (proc, "notifications to: %lu", inf->event_port);
+      proc_debug (proc, "notifications to: %u", inf->event_port);
       if (prev_port != MACH_PORT_NULL)
 	mach_port_deallocate (mach_task_self (), prev_port);
     }
@@ -585,7 +584,7 @@ gnu_nat_target::make_proc (struct inf *inf, mach_port_t port, int tid)
   return proc;
 }
 
-/* Frees PROC and any resources it uses, and returns the value of PROC's 
+/* Frees PROC and any resources it uses, and returns the value of PROC's
    next field.  */
 struct proc *
 gnu_nat_target::_proc_free (struct proc *proc)
@@ -741,7 +740,7 @@ gnu_nat_target::inf_set_pid (struct inf *inf, pid_t pid)
 	       pid, safe_strerror (err));
     }
 
-  inf_debug (inf, "setting task: %lu", task_port);
+  inf_debug (inf, "setting task: %u", task_port);
 
   if (inf->pause_sc)
     task_suspend (task_port);
@@ -859,7 +858,7 @@ gnu_nat_target::inf_set_traced (struct inf *inf, int on)
 {
   if (on == inf->traced)
     return;
-  
+
   if (inf->task && !inf->task->dead)
     /* Make it take effect immediately.  */
     {
@@ -1016,14 +1015,15 @@ gnu_nat_target::inf_validate_procs (struct inf *inf)
   {
     /* Make things normally linear.  */
     mach_msg_type_number_t search_start = 0;
-    /* Which thread in PROCS corresponds to each task thread, & the task.  */
-    struct proc *matched[num_threads + 1];
+
+    /* Which thread in PROCS corresponds to each task thread.  */
+    std::vector<struct proc *> matched (num_threads);
+
     /* The last thread in INF->threads, so we can add to the end.  */
     struct proc *last = 0;
+
     /* The current thread we're considering.  */
     struct proc *thread = inf->threads;
-
-    memset (matched, 0, sizeof (matched));
 
     while (thread)
       {
@@ -1072,7 +1072,7 @@ gnu_nat_target::inf_validate_procs (struct inf *inf)
 	    else
 	      inf->threads = thread;
 	    last = thread;
-	    proc_debug (thread, "new thread: %lu", threads[i]);
+	    proc_debug (thread, "new thread: %u", threads[i]);
 
 	    ptid = ptid_t (inf->pid, thread->tid, 0);
 
@@ -1221,7 +1221,7 @@ inf_update_signal_thread (struct inf *inf)
 }
 
 
-/* Detachs from INF's inferior task, letting it run once again...  */
+/* Detach from INF's inferior task, letting it run once again...  */
 void
 gnu_nat_target::inf_detach (struct inf *inf)
 {
@@ -1337,8 +1337,8 @@ gnu_nat_target::inf_signal (struct inf *inf, enum gdb_signal sig)
 	  struct exc_state *e = &w->exc;
 
 	  inf_debug (inf, "passing through exception:"
-		     " task = %lu, thread = %lu, exc = %d"
-		     ", code = %d, subcode = %d",
+		     " task = %u, thread = %u, exc = %d"
+		     ", code = %d, subcode = %ld",
 		     w->thread->port, inf->task->port,
 		     e->exception, e->code, e->subcode);
 	  err =
@@ -1631,13 +1631,13 @@ rewait:
 kern_return_t
 S_exception_raise_request (mach_port_t port, mach_port_t reply_port,
 			   thread_t thread_port, task_t task_port,
-			   int exception, int code, int subcode)
+			   int exception, int code, long subcode)
 {
   struct inf *inf = waiting_inf;
   struct proc *thread = inf_port_to_thread (inf, thread_port);
 
   inf_debug (waiting_inf,
-	     "thread = %lu, task = %lu, exc = %d, code = %d, subcode = %d",
+	     "thread = %u, task = %u, exc = %d, code = %d, subcode = %ld",
 	     thread_port, task_port, exception, code, subcode);
 
   if (!thread)
@@ -1671,13 +1671,13 @@ S_exception_raise_request (mach_port_t port, mach_port_t reply_port,
 	{
 	  if (thread->exc_port == port)
 	    {
-	      inf_debug (waiting_inf, "Handler is thread exception port <%lu>",
+	      inf_debug (waiting_inf, "Handler is thread exception port <%u>",
 			 thread->saved_exc_port);
 	      inf->wait.exc.handler = thread->saved_exc_port;
 	    }
 	  else
 	    {
-	      inf_debug (waiting_inf, "Handler is task exception port <%lu>",
+	      inf_debug (waiting_inf, "Handler is task exception port <%u>",
 			 inf->task->saved_exc_port);
 	      inf->wait.exc.handler = inf->task->saved_exc_port;
 	      gdb_assert (inf->task->exc_port == port);
@@ -1727,7 +1727,7 @@ do_mach_notify_dead_name (mach_port_t notify, mach_port_t dead_port)
 {
   struct inf *inf = waiting_inf;
 
-  inf_debug (waiting_inf, "port = %lu", dead_port);
+  inf_debug (waiting_inf, "port = %u", dead_port);
 
   if (inf->task && inf->task->port == dead_port)
     {
@@ -2104,6 +2104,9 @@ gnu_nat_target::create_inferior (const char *exec_file,
 				 char **env,
 				 int from_tty)
 {
+  if (exec_file == nullptr)
+    no_executable_specified_error ();
+
   struct inf *inf = cur_inf ();
   inferior *inferior = current_inferior ();
   int pid;
@@ -2143,7 +2146,7 @@ gnu_nat_target::create_inferior (const char *exec_file,
 
   inf->pending_execs = 0;
   /* Get rid of the old shell threads.  */
-  prune_threads ();
+  prune_threads (this);
 
   inf_validate_procinfo (inf);
   inf_update_signal_thread (inf);
@@ -2169,7 +2172,7 @@ gnu_nat_target::attach (const char *args, int from_tty)
 
   pid = parse_pid_to_attach (args);
 
-  if (pid == getpid ())		/* Trying to masturbate?  */
+  if (pid == getpid ())
     error (_("I refuse to debug myself!"));
 
   target_announce_attach (from_tty, pid);
@@ -2357,7 +2360,7 @@ gnu_write_inferior (task_t task, CORE_ADDR addr,
 	/* Check for holes in memory.  */
 	if (old_address != region_address)
 	  {
-	    warning (_("No memory at 0x%lx. Nothing written"),
+	    warning (_("No memory at 0x%zx. Nothing written"),
 		     old_address);
 	    err = KERN_SUCCESS;
 	    length = 0;
@@ -2366,7 +2369,7 @@ gnu_write_inferior (task_t task, CORE_ADDR addr,
 
 	if (!(max_protection & VM_PROT_WRITE))
 	  {
-	    warning (_("Memory at address 0x%lx is unwritable. "
+	    warning (_("Memory at address 0x%zx is unwritable. "
 		       "Nothing written"),
 		     old_address);
 	    err = KERN_SUCCESS;
@@ -2467,14 +2470,14 @@ gnu_xfer_memory (gdb_byte *readbuf, const gdb_byte *writebuf,
   if (writebuf != NULL)
     {
       inf_debug (gnu_current_inf, "writing %s[%s] <-- %s",
-		 paddress (target_gdbarch (), memaddr), pulongest (len),
+		 paddress (current_inferior ()->arch (), memaddr), pulongest (len),
 		 host_address_to_string (writebuf));
       res = gnu_write_inferior (task, memaddr, writebuf, len);
     }
   else
     {
       inf_debug (gnu_current_inf, "reading %s[%s] --> %s",
-		 paddress (target_gdbarch (), memaddr), pulongest (len),
+		 paddress (current_inferior ()->arch (), memaddr), pulongest (len),
 		 host_address_to_string (readbuf));
       res = gnu_read_inferior (task, memaddr, readbuf, len);
     }
@@ -2529,7 +2532,7 @@ gnu_xfer_auxv (gdb_byte *readbuf, const gdb_byte *writebuf,
   auxv[1].a_un.a_val = 0;
 
   inf_debug (gnu_current_inf, "reading auxv %s[%s] --> %s",
-	     paddress (target_gdbarch (), memaddr), pulongest (len),
+	     paddress (current_inferior ()->arch (), memaddr), pulongest (len),
 	     host_address_to_string (readbuf));
 
   if (memaddr + len > sizeof (auxv))
@@ -2562,9 +2565,8 @@ gnu_nat_target::xfer_partial (enum target_object object,
 
 /* Call FUNC on each memory region in the task.  */
 
-int
-gnu_nat_target::find_memory_regions (find_memory_region_ftype func,
-				     void *data)
+bool
+gnu_nat_target::find_memory_regions (find_memory_region_ftype func)
 {
   kern_return_t err;
   task_t task;
@@ -2572,10 +2574,10 @@ gnu_nat_target::find_memory_regions (find_memory_region_ftype func,
   vm_prot_t last_protection;
 
   if (gnu_current_inf == 0 || gnu_current_inf->task == 0)
-    return 0;
+    return true;
   task = gnu_current_inf->task->port;
   if (task == MACH_PORT_NULL)
-    return 0;
+    return true;
 
   region_address = last_region_address = last_region_end = VM_MIN_ADDRESS;
   last_protection = VM_PROT_NONE;
@@ -2603,7 +2605,7 @@ gnu_nat_target::find_memory_regions (find_memory_region_ftype func,
       if (err != KERN_SUCCESS)
 	{
 	  warning (_("vm_region failed: %s"), mach_error_string (err));
-	  return -1;
+	  return false;
 	}
 
       if (protection == last_protection && region_address == last_region_end)
@@ -2615,14 +2617,14 @@ gnu_nat_target::find_memory_regions (find_memory_region_ftype func,
 	  /* This region is distinct from the last one we saw, so report
 	     that previous one.  */
 	  if (last_protection != VM_PROT_NONE)
-	    (*func) (last_region_address,
+	    func (last_region_address,
 		     last_region_end - last_region_address,
 		     last_protection & VM_PROT_READ,
 		     last_protection & VM_PROT_WRITE,
 		     last_protection & VM_PROT_EXECUTE,
-		     1, /* MODIFIED is unknown, pass it as true.  */
+		     true, /* MODIFIED is unknown, pass it as true.  */
 		     false, /* No memory tags in the object file.  */
-		     data);
+		     false /* Not known to be all zeroes.  */);
 	  last_region_address = region_address;
 	  last_region_end = region_address += region_length;
 	  last_protection = protection;
@@ -2631,15 +2633,15 @@ gnu_nat_target::find_memory_regions (find_memory_region_ftype func,
 
   /* Report the final region.  */
   if (last_region_end > last_region_address && last_protection != VM_PROT_NONE)
-    (*func) (last_region_address, last_region_end - last_region_address,
-	     last_protection & VM_PROT_READ,
-	     last_protection & VM_PROT_WRITE,
-	     last_protection & VM_PROT_EXECUTE,
-	     1, /* MODIFIED is unknown, pass it as true.  */
-	     false, /* No memory tags in the object file.  */
-	     data);
+    func (last_region_address, last_region_end - last_region_address,
+	  last_protection & VM_PROT_READ,
+	  last_protection & VM_PROT_WRITE,
+	  last_protection & VM_PROT_EXECUTE,
+	  true, /* MODIFIED is unknown, pass it as true.  */
+	  false, /* No memory tags in the object file.  */
+	  false /* Not known to be all zeroes.  */);
 
-  return 0;
+  return true;
 }
 
 
@@ -2705,9 +2707,9 @@ static int
 _parse_bool_arg (const char *args, const char *t_val, const char *f_val,
 		 const char *cmd_prefix)
 {
-  if (!args || strcmp (args, t_val) == 0)
+  if (!args || streq (args, t_val))
     return 1;
-  else if (strcmp (args, f_val) == 0)
+  else if (streq (args, f_val))
     return 0;
   else
     error (_("Illegal argument for \"%s\" command, "
@@ -2870,7 +2872,7 @@ gnu_nat_target::steal_exc_port (struct proc *proc, mach_port_t name)
 				 name, MACH_MSG_TYPE_COPY_SEND,
 				 &port, &port_type);
   if (err)
-    error (_("Couldn't extract send right %lu from inferior: %s"),
+    error (_("Couldn't extract send right %u from inferior: %s"),
 	   name, safe_strerror (err));
 
   if (proc->saved_exc_port)
@@ -2922,11 +2924,11 @@ set_sig_thread_cmd (const char *args, int from_tty)
 {
   struct inf *inf = cur_inf ();
 
-  if (!args || (!isdigit (*args) && strcmp (args, "none") != 0))
+  if (!args || (!c_isdigit (*args) && !streq (args, "none")))
     error (_("Illegal argument to \"set signal-thread\" command.\n"
 	     "Should be a thread ID, or \"none\"."));
 
-  if (strcmp (args, "none") == 0)
+  if (streq (args, "none"))
     inf->signal_thread = 0;
   else
     {
@@ -3131,14 +3133,14 @@ The default value is \"off\"."),
   add_cmd ("pause", no_class, show_thread_default_pause_cmd, _("\
 Show whether new threads are suspended while gdb has control."),
 	   &show_thread_default_cmd_list);
-  
+
   add_cmd ("run", class_run, set_thread_default_run_cmd, _("\
 Set whether new threads are allowed to run (once gdb has noticed them)."),
 	   &set_thread_default_cmd_list);
   add_cmd ("run", no_class, show_thread_default_run_cmd, _("\
 Show whether new threads are allowed to run (once gdb has noticed them)."),
 	   &show_thread_default_cmd_list);
-  
+
   add_cmd ("detach-suspend-count", class_run, set_thread_default_detach_sc_cmd,
 	   _("Set the default detach-suspend-count value for new threads."),
 	   &set_thread_default_cmd_list);
@@ -3430,9 +3432,7 @@ to the thread's initial suspend-count when gdb notices the threads."),
 	   &thread_cmd_list);
 }
 
-void _initialize_gnu_nat ();
-void
-_initialize_gnu_nat ()
+INIT_GDB_FILE (gnu_nat)
 {
   proc_server = getproc ();
 

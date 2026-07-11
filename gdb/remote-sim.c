@@ -1,6 +1,6 @@
 /* Generic remote debugging interface for simulators.
 
-   Copyright (C) 1993-2023 Free Software Foundation, Inc.
+   Copyright (C) 1993-2026 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
    Steve Chamberlain (sac@cygnus.com).
@@ -20,12 +20,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "event-top.h"
 #include "gdb_bfd.h"
 #include "inferior.h"
 #include "infrun.h"
 #include "value.h"
-#include <ctype.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <setjmp.h>
@@ -70,7 +69,7 @@ static void gdb_os_vprintf_filtered (host_callback *, const char *, va_list);
 static void gdb_os_evprintf_filtered (host_callback *, const char *, va_list);
 
 static void gdb_os_error (host_callback *, const char *, ...)
-     ATTRIBUTE_NORETURN;
+  ATTRIBUTE_NORETURN;
 
 /* Naming convention:
 
@@ -248,7 +247,7 @@ _("Inferior %d and inferior %d would have identical simulator state.\n"
 
   if (sim_data == NULL)
     {
-      sim_data = sim_inferior_data_key.emplace (inf, sim_desc);
+      sim_data = &sim_inferior_data_key.emplace (inf, sim_desc);
     }
   else if (sim_desc)
     {
@@ -380,7 +379,7 @@ gdb_os_write_stderr (host_callback *p, const char *buf, int len)
     {
       b[0] = buf[i];
       b[1] = 0;
-      gdb_stdtargerr->puts (b);
+      gdb_stdtarg->puts (b);
     }
   return len;
 }
@@ -390,7 +389,7 @@ gdb_os_write_stderr (host_callback *p, const char *buf, int len)
 static void
 gdb_os_flush_stderr (host_callback *p)
 {
-  gdb_stdtargerr->flush ();
+  gdb_stdtarg->flush ();
 }
 
 /* GDB version of gdb_printf callback.  */
@@ -1053,7 +1052,7 @@ gdbsim_xfer_memory (struct target_ops *target,
 		"memaddr %s, len %s\n",
 		host_address_to_string (readbuf),
 		host_address_to_string (writebuf),
-		paddress (target_gdbarch (), memaddr),
+		paddress (current_inferior ()->arch (), memaddr),
 		pulongest (len));
 
   if (writebuf)
@@ -1284,9 +1283,7 @@ gdbsim_target::memory_map ()
   return result;
 }
 
-void _initialize_remote_sim ();
-void
-_initialize_remote_sim ()
+INIT_GDB_FILE (remote_sim)
 {
   struct cmd_list_element *c;
 

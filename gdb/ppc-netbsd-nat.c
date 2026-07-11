@@ -1,6 +1,6 @@
 /* Native-dependent code for NetBSD/powerpc.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by Wasabi Systems, Inc.
 
@@ -21,7 +21,6 @@
 
 /* We define this to get types like register_t.  */
 #define _KERNTYPES
-#include "defs.h"
 
 #include <sys/types.h>
 #include <sys/ptrace.h>
@@ -184,9 +183,7 @@ ppcnbsd_supply_pcb (struct regcache *regcache, struct pcb *pcb)
   return 1;
 }
 
-void _initialize_ppcnbsd_nat ();
-void
-_initialize_ppcnbsd_nat ()
+INIT_GDB_FILE (ppcnbsd_nat)
 {
   /* Support debugging kernel virtual memory images.  */
   bsd_kvm_add_target (ppcnbsd_supply_pcb);

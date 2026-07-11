@@ -1,5 +1,5 @@
 /* Target-dependent code for the S12Z, for the GDB.
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,14 +18,13 @@
 
 /* Much of this file is shamelessly copied from or1k-tdep.c and others.  */
 
-#include "defs.h"
 
 #include "arch-utils.h"
 #include "dwarf2/frame.h"
 #include "gdbsupport/errors.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "inferior.h"
 #include "opcode/s12z.h"
 #include "trad-frame.h"
@@ -241,7 +240,7 @@ push_pull_get_stack_adjustment (int n_operands,
 /* Initialize a prologue cache.  */
 
 static struct trad_frame_cache *
-s12z_frame_cache (frame_info_ptr this_frame, void **prologue_cache)
+s12z_frame_cache (const frame_info_ptr &this_frame, void **prologue_cache)
 {
   struct trad_frame_cache *info;
 
@@ -420,7 +419,7 @@ s12z_frame_cache (frame_info_ptr this_frame, void **prologue_cache)
 
 /* Implement the this_id function for the stub unwinder.  */
 static void
-s12z_frame_this_id (frame_info_ptr this_frame,
+s12z_frame_this_id (const frame_info_ptr &this_frame,
 		    void **prologue_cache, struct frame_id *this_id)
 {
   struct trad_frame_cache *info = s12z_frame_cache (this_frame,
@@ -432,7 +431,7 @@ s12z_frame_this_id (frame_info_ptr this_frame,
 
 /* Implement the prev_register function for the stub unwinder.  */
 static struct value *
-s12z_frame_prev_register (frame_info_ptr this_frame,
+s12z_frame_prev_register (const frame_info_ptr &this_frame,
 			  void **prologue_cache, int regnum)
 {
   struct trad_frame_cache *info = s12z_frame_cache (this_frame,
@@ -442,21 +441,22 @@ s12z_frame_prev_register (frame_info_ptr this_frame,
 }
 
 /* Data structures for the normal prologue-analysis-based unwinder.  */
-static const struct frame_unwind s12z_frame_unwind = {
+static const struct frame_unwind_legacy s12z_frame_unwind (
   "s12z prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   s12z_frame_this_id,
   s12z_frame_prev_register,
   NULL,
   default_frame_sniffer,
-  NULL,
-};
+  NULL
+);
 
 
 constexpr gdb_byte s12z_break_insn[] = {0x00};
 
-typedef BP_MANIPULATION (s12z_break_insn) s12z_breakpoint;
+using s12z_breakpoint = BP_MANIPULATION (s12z_break_insn);
 
 struct s12z_gdbarch_tdep : gdbarch_tdep_base
 {
@@ -491,10 +491,10 @@ static const char ccw_bits[] =
 static void
 s12z_print_ccw_info (struct gdbarch *gdbarch,
 		     struct ui_file *file,
-		     frame_info_ptr frame,
+		     const frame_info_ptr &frame,
 		     int reg)
 {
-  struct value *v = value_of_register (reg, frame);
+  value *v = value_of_register (reg, get_next_frame_sentinel_okay (frame));
   const char *name = gdbarch_register_name (gdbarch, reg);
   uint32_t ccw = value_as_long (v);
   gdb_puts (name, file);
@@ -516,7 +516,7 @@ s12z_print_ccw_info (struct gdbarch *gdbarch,
 	    gdb_putc (ccw_bits[b], file);
 	}
       else
-	gdb_putc (tolower (ccw_bits[b]), file);
+	gdb_putc (c_tolower (ccw_bits[b]), file);
     }
   gdb_putc ('\n', file);
 }
@@ -524,8 +524,8 @@ s12z_print_ccw_info (struct gdbarch *gdbarch,
 static void
 s12z_print_registers_info (struct gdbarch *gdbarch,
 			    struct ui_file *file,
-			    frame_info_ptr frame,
-			    int regnum, int print_all)
+			    const frame_info_ptr &frame,
+			    int regnum, bool print_all)
 {
   const int numregs = (gdbarch_num_regs (gdbarch)
 		       + gdbarch_num_pseudo_regs (gdbarch));
@@ -630,7 +630,7 @@ s12z_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_long_long_bit (gdbarch, 32);
   set_gdbarch_ptr_bit (gdbarch, 24);
   set_gdbarch_addr_bit (gdbarch, 24);
-  set_gdbarch_char_signed (gdbarch, 0);
+  set_gdbarch_char_signed (gdbarch, false);
 
   set_gdbarch_ps_regnum (gdbarch, REG_CCW);
   set_gdbarch_pc_regnum (gdbarch, REG_P);
@@ -662,9 +662,7 @@ s12z_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_s12z_tdep ();
-void
-_initialize_s12z_tdep ()
+INIT_GDB_FILE (s12z_tdep)
 {
   gdbarch_register (bfd_arch_s12z, s12z_gdbarch_init, NULL);
 }

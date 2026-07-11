@@ -1,5 +1,5 @@
 /* OpenCL language support for GDB, the GNU debugger.
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
    Contributed by Ken Werner <ken.werner@de.ibm.com>.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbtypes.h"
 #include "symtab.h"
 #include "expression.h"
@@ -293,7 +292,7 @@ create_value (struct gdbarch *gdbarch, struct value *val, enum noside noside,
       if (dst_type == NULL)
 	dst_type = init_vector_type (elm_type, n);
 
-      make_cv_type (TYPE_CONST (type), TYPE_VOLATILE (type), dst_type, NULL);
+      make_cv_type (TYPE_CONST (type), TYPE_VOLATILE (type), dst_type);
 
       if (noside == EVAL_AVOID_SIDE_EFFECTS)
 	ret = value::allocate (dst_type);
@@ -347,28 +346,28 @@ opencl_component_ref (struct expression *exp, struct value *val,
       && src_len != 16)
     error (_("Invalid OpenCL vector size"));
 
-  if (strcmp (comps, "lo") == 0 )
+  if (streq (comps, "lo"))
     {
       dst_len = (src_len == 3) ? 2 : src_len / 2;
 
       for (i = 0; i < dst_len; i++)
 	indices[i] = i;
     }
-  else if (strcmp (comps, "hi") == 0)
+  else if (streq (comps, "hi"))
     {
       dst_len = (src_len == 3) ? 2 : src_len / 2;
 
       for (i = 0; i < dst_len; i++)
 	indices[i] = dst_len + i;
     }
-  else if (strcmp (comps, "even") == 0)
+  else if (streq (comps, "even"))
     {
       dst_len = (src_len == 3) ? 2 : src_len / 2;
 
       for (i = 0; i < dst_len; i++)
 	indices[i] = i*2;
     }
-  else if (strcmp (comps, "odd") == 0)
+  else if (streq (comps, "odd"))
     {
       dst_len = (src_len == 3) ? 2 : src_len / 2;
 
@@ -582,7 +581,7 @@ vector_relop (struct expression *exp, struct value *val1, struct value *val2,
 
 /* Perform a cast of ARG into TYPE.  There's sadly a lot of duplication in
    here from valops.c:value_cast, opencl is different only in the
-   behaviour of scalar to vector casting.  As far as possibly we're going
+   behavior of scalar to vector casting.  As far as possibly we're going
    to try and delegate back to the standard value_cast function. */
 
 struct value *

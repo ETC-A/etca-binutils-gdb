@@ -1,6 +1,6 @@
 /* Native-dependent code for FreeBSD x86.
 
-   Copyright (C) 2022-2023 Free Software Foundation, Inc.
+   Copyright (C) 2022-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,14 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef X86_FBSD_NAT_H
-#define X86_FBSD_NAT_H
+#ifndef GDB_X86_FBSD_NAT_H
+#define GDB_X86_FBSD_NAT_H
 
+#include <sys/ptrace.h>
+
+#ifdef PT_GETXSTATE_INFO
+#include "gdbsupport/x86-xstate.h"
+#endif
 #include "fbsd-nat.h"
 #include "x86-bsd-nat.h"
 
@@ -32,6 +37,20 @@ public:
   { return true; }
 
   void low_new_fork (ptid_t parent, pid_t child) override;
+
+#ifdef PT_GETXSTATE_INFO
+  x86_xsave_layout fetch_x86_xsave_layout () override
+  { return m_xsave_layout; }
+
+protected:
+  void probe_xsave_layout (pid_t pid);
+
+  struct ptrace_xstate_info m_xsave_info;
+  x86_xsave_layout m_xsave_layout;
+
+private:
+  bool m_xsave_probed;
+#endif
 };
 
-#endif /* x86-bsd-nat.h */
+#endif /* GDB_X86_FBSD_NAT_H */

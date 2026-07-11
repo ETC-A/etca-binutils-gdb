@@ -1,6 +1,6 @@
 /* Python interface to inferiors.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "python-internal.h"
 #include "process-stratum-target.h"
 #include "inferior.h"
@@ -28,15 +27,12 @@
 #include "arch-utils.h"
 #include "remote.h"
 #include "charset.h"
-
-#include <map>
+#include "gdbsupport/unordered_map.h"
 
 /* The Python object that represents a connection.  */
 
-struct connection_object
+struct connection_object : public PyObject
 {
-  PyObject_HEAD
-
   /* The process target that represents this connection.   When a
      connection_object is created this field will always point at a valid
      target.  Later, if GDB stops using this target (the target is popped
@@ -46,11 +42,11 @@ struct connection_object
   struct process_stratum_target *target;
 };
 
-extern PyTypeObject connection_object_type
-  CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("connection_object");
+static_assert (gdb::is_python_allocatable_v<connection_object>);
 
-extern PyTypeObject remote_connection_object_type
-  CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("remote_connection_object");
+extern PyTypeObject connection_object_type;
+
+extern PyTypeObject remote_connection_object_type;
 
 /* Require that CONNECTION be valid.  */
 #define CONNPY_REQUIRE_VALID(connection)			\
@@ -66,8 +62,8 @@ extern PyTypeObject remote_connection_object_type
 /* A map between process_stratum targets and the Python object representing
    them.  We actually hold a gdbpy_ref around the Python object so that
    reference counts are handled correctly when entries are deleted.  */
-static std::map<process_stratum_target *,
-		gdbpy_ref<connection_object>> all_connection_objects;
+static gdb::unordered_map<process_stratum_target *,
+			  gdbpy_ref<connection_object>> all_connection_objects;
 
 /* Return a reference to a gdb.TargetConnection object for TARGET.  If
    TARGET is nullptr then a reference to None is returned.
@@ -80,7 +76,7 @@ gdbpy_ref<>
 target_to_connection_object (process_stratum_target *target)
 {
   if (target == nullptr)
-    return gdbpy_ref<>::new_reference (Py_None);
+    return py_none ();
 
   gdbpy_ref <connection_object> conn_obj;
   auto conn_obj_iter = all_connection_objects.find (target);
@@ -105,7 +101,7 @@ target_to_connection_object (process_stratum_target *target)
   gdb_assert (conn_obj != nullptr);
 
   /* Repackage the result as a PyObject reference.  */
-  return gdbpy_ref<> ((PyObject *) conn_obj.release ());
+  return conn_obj;
 }
 
 /* Return a list of gdb.TargetConnection objects, one for each currently
@@ -204,10 +200,10 @@ connpy_repr (PyObject *obj)
   process_stratum_target *target = self->target;
 
   if (target == nullptr)
-    return PyUnicode_FromFormat ("<%s (invalid)>", Py_TYPE (obj)->tp_name);
+    return gdb_py_invalid_object_repr (obj);
 
   return PyUnicode_FromFormat ("<%s num=%d, what=\"%s\">",
-			       Py_TYPE (obj)->tp_name,
+			       gdbpy_py_obj_tp_name (obj).c_str (),
 			       target->connection_number,
 			       make_target_connection_string (target).c_str ());
 }
@@ -222,9 +218,9 @@ connpy_is_valid (PyObject *self, PyObject *args)
   connection_object *conn = (connection_object *) self;
 
   if (conn->target == nullptr)
-    Py_RETURN_FALSE;
+    return py_false ().release ();
 
-  Py_RETURN_TRUE;
+  return py_true ().release ();
 }
 
 /* Return the id number of this connection.  */
@@ -280,26 +276,18 @@ connpy_get_connection_details (PyObject *self, void *closure)
   if (details != nullptr)
     return host_string_to_python_string (details).release ();
   else
-    Py_RETURN_NONE;
+    return py_none ().release ();
 }
 
 /* Python specific initialization for this file.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_connection (void)
+static int
+gdbpy_initialize_connection ()
 {
-  if (PyType_Ready (&connection_object_type) < 0)
+  if (gdbpy_type_ready (&connection_object_type) < 0)
     return -1;
 
-  if (gdb_pymodule_addobject (gdb_module, "TargetConnection",
-			      (PyObject *) &connection_object_type) < 0)
-    return -1;
-
-  if (PyType_Ready (&remote_connection_object_type) < 0)
-    return -1;
-
-  if (gdb_pymodule_addobject (gdb_module, "RemoteTargetConnection",
-			      (PyObject *) &remote_connection_object_type) < 0)
+  if (gdbpy_type_ready (&remote_connection_object_type) < 0)
     return -1;
 
   return 0;
@@ -335,8 +323,7 @@ struct py_send_packet_callbacks : public send_remote_packet_callbacks
     else
       {
 	/* We didn't get back any result data; set the result to None.  */
-	Py_INCREF (Py_None);
-	m_result.reset (Py_None);
+	m_result = py_none ();
       }
   }
 
@@ -351,7 +338,7 @@ struct py_send_packet_callbacks : public send_remote_packet_callbacks
      It is important that the result is inspected immediately after sending
      a packet to the remote, and any error fetched,  calling any other
      Python functions that might clear the error state, or rely on an error
-     not being set will cause undefined behaviour.  */
+     not being set will cause undefined behavior.  */
 
   gdbpy_ref<> result () const
   {
@@ -432,16 +419,13 @@ connpy_send_packet (PyObject *self, PyObject *args, PyObject *kw)
     }
   catch (const gdb_exception &except)
     {
-      gdbpy_convert_exception (except);
-      return nullptr;
+      return gdbpy_handle_gdb_exception (nullptr, except);
     }
 }
 
 /* Global initialization for this file.  */
 
-void _initialize_py_connection ();
-void
-_initialize_py_connection ()
+INIT_GDB_FILE (py_connection)
 {
   gdb::observers::connection_removed.attach (connpy_connection_removed,
 					     "py-connection");

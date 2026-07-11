@@ -1,4 +1,4 @@
-# Copyright 2023 Free Software Foundation, Inc.
+# Copyright 2023-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -13,33 +13,33 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import gdb
-
 # This is deprecated in 3.9, but required in older versions.
 from typing import Optional
 
-from .server import request
-from .startup import in_gdb_thread, send_gdb_with_response
+from .server import capability, export_line, import_line, request
+from .sources import decode_source
+from .startup import exec_mi_and_log
 
 
-@in_gdb_thread
-def _find_lines(filename, start_line, end_line):
-    lines = set()
-    for entry in gdb.execute_mi("-symbol-list-lines", filename)["lines"]:
-        line = entry["line"]
-        if line >= start_line and line <= end_line:
-            lines.add(line)
-    return {"breakpoints": [{"line": x} for x in sorted(lines)]}
-
-
-@request("breakpointLocations")
+# Note that the spec says that the arguments to this are optional.
+# However, calling this without arguments is nonsensical.  This is
+# discussed in:
+#   https://github.com/microsoft/debug-adapter-protocol/issues/266
+# This points out that fixing this would be an incompatibility but
+# goes on to propose "if arguments property is missing, debug adapters
+# should return an error".
+@request("breakpointLocations", expect_stopped=False)
+@capability("supportsBreakpointLocationsRequest")
 def breakpoint_locations(*, source, line: int, endLine: Optional[int] = None, **extra):
+    line = import_line(line)
     if endLine is None:
         endLine = line
-    if "path" in source:
-        filename = source["path"]
-    elif "name" in source:
-        filename = source["name"]
     else:
-        raise Exception("")
-    return send_gdb_with_response(lambda: _find_lines(filename, line, endLine))
+        endLine = import_line(endLine)
+    filename = decode_source(source)
+    lines = set()
+    for entry in exec_mi_and_log("-symbol-list-lines", filename)["lines"]:
+        this_line = entry["line"]
+        if this_line >= line and this_line <= endLine:
+            lines.add(export_line(this_line))
+    return {"breakpoints": [{"line": x} for x in sorted(lines)]}

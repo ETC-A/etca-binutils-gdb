@@ -1,6 +1,6 @@
 /* Native-dependent code for SPARC.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 #include "target.h"
@@ -51,11 +50,11 @@
 
 #ifdef HAVE_MACHINE_REG_H
 #ifdef HAVE_STRUCT_REG
-typedef struct reg gregset_t;
-typedef struct fpreg fpregset_t;
-#else 
-typedef struct regs gregset_t;
-typedef struct fp_status fpregset_t;
+using gregset_t = struct reg;
+using fpregset_t = struct fpreg;
+#else
+using gregset_t = struct regs;
+using fpregset_t = struct fp_status;
 #endif
 #endif
 
@@ -155,9 +154,7 @@ sparc_fetch_inferior_registers (process_stratum_target *proc_target,
 
   if (regnum == SPARC_G0_REGNUM)
     {
-      gdb_byte zero[8] = { 0 };
-
-      regcache->raw_supply (SPARC_G0_REGNUM, &zero);
+      regcache->raw_supply_zeroed (SPARC_G0_REGNUM);
       return;
     }
 
@@ -312,9 +309,7 @@ sparc_xfer_wcookie (enum target_object object,
 }
 
 
-void _initialize_sparc_nat ();
-void
-_initialize_sparc_nat ()
+INIT_GDB_FILE (sparc_nat)
 {
   /* Default to using SunOS 4 register sets.  */
   if (sparc_gregmap == NULL)

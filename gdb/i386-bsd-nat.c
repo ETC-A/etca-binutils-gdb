@@ -1,6 +1,6 @@
 /* Native-dependent code for modern i386 BSD's.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
 
@@ -238,9 +237,7 @@ i386bsd_store_inferior_registers (struct regcache *regcache, int regnum)
     }
 }
 
-void _initialize_i386bsd_nat ();
-void
-_initialize_i386bsd_nat ()
+INIT_GDB_FILE (i386bsd_nat)
 {
   /* To support the recognition of signal handlers, i386-bsd-tdep.c
      hardcodes some constants.  Inclusion of this file means that we
@@ -272,7 +269,7 @@ _initialize_i386bsd_nat ()
     {
       warning (_("\
 offsetof (struct sigcontext, sc_pc) yields %d instead of %d.\n\
-Please report this to <bug-gdb@gnu.org>."), 
+Please report this to <bug-gdb@gnu.org>."),
 	       offset, SC_PC_OFFSET);
     }
 

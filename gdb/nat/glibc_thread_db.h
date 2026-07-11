@@ -16,8 +16,8 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#ifndef NAT_GLIBC_THREAD_DB_H
-#define NAT_GLIBC_THREAD_DB_H
+#ifndef GDB_NAT_GLIBC_THREAD_DB_H
+#define GDB_NAT_GLIBC_THREAD_DB_H
 
 /* This is the debugger interface for the NPTL library.  It is
    modelled closely after the interface with same names in Solaris
@@ -86,7 +86,7 @@ typedef enum
 /* Types of the debugging library.  */
 
 /* Handle for a process.  This type is opaque.  */
-typedef struct td_thragent td_thragent_t;
+using td_thragent_t = struct td_thragent;
 
 /* The actual thread handle type.  This is also opaque.  */
 typedef struct td_thrhandle
@@ -239,8 +239,8 @@ typedef struct td_ta_stats
 
 /* Since Sun's library is based on Solaris threads we have to define a few
    types to map them to POSIX threads.  */
-typedef pthread_t thread_t;
-typedef pthread_key_t thread_key_t;
+using thread_t = pthread_t;
+using thread_key_t = pthread_key_t;
 
 
 /* Callback for iteration over threads.  */
@@ -455,4 +455,4 @@ extern td_err_e td_thr_dbsuspend (const td_thrhandle_t *__th);
 /* Resume execution of thread TH.  */
 extern td_err_e td_thr_dbresume (const td_thrhandle_t *__th);
 
-#endif /* NAT_GLIBC_THREAD_DB_H */
+#endif /* GDB_NAT_GLIBC_THREAD_DB_H */

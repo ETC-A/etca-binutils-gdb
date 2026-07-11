@@ -1,5 +1,5 @@
 /* Main simulator entry points specific to the CRIS.
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
    Contributed by Axis Communications.
 
 This file is part of the GNU simulators.
@@ -231,13 +231,13 @@ cris_option_handler (SIM_DESC sd, sim_cpu *cpu ATTRIBUTE_UNUSED, int opt,
    the program headers themeselves are also loaded.  The caller is
    responsible for asserting that ABFD is an ELF file.  */
 
-static bfd_boolean
+static bool
 cris_load_elf_file (SIM_DESC sd, struct bfd *abfd, sim_write_fn do_write)
 {
   Elf_Internal_Phdr *phdr;
   int n_hdrs;
   int i;
-  bfd_boolean verbose = STATE_OPEN_KIND (sd) == SIM_OPEN_DEBUG;
+  bool verbose = STATE_OPEN_KIND (sd) == SIM_OPEN_DEBUG;
 
   phdr = elf_tdata (abfd)->phdr;
   n_hdrs = elf_elfheader (abfd)->e_phnum;
@@ -262,7 +262,7 @@ cris_load_elf_file (SIM_DESC sd, struct bfd *abfd, sim_write_fn do_write)
 		       (uint64_t) lma, (uint64_t) phdr[i].p_filesz);
 
       if (bfd_seek (abfd, phdr[i].p_offset, SEEK_SET) != 0
-	  || (bfd_bread (buf, phdr[i].p_filesz, abfd) != phdr[i].p_filesz))
+	  || (bfd_read (buf, phdr[i].p_filesz, abfd) != phdr[i].p_filesz))
 	{
 	  sim_io_eprintf (sd,
 			  "%s: could not read segment at 0x%" PRIx64 ", "
@@ -270,7 +270,7 @@ cris_load_elf_file (SIM_DESC sd, struct bfd *abfd, sim_write_fn do_write)
 			  STATE_MY_NAME (sd), (uint64_t) lma,
 			  (uint64_t) phdr[i].p_filesz);
 	  free (buf);
-	  return FALSE;
+	  return false;
 	}
 
       if (do_write (sd, lma, buf, phdr[i].p_filesz) != phdr[i].p_filesz)
@@ -281,13 +281,13 @@ cris_load_elf_file (SIM_DESC sd, struct bfd *abfd, sim_write_fn do_write)
 			  STATE_MY_NAME (sd), (uint64_t) lma,
 			  (uint64_t) phdr[i].p_filesz);
 	  free (buf);
-	  return FALSE;
+	  return false;
 	}
 
       free (buf);
     }
 
-  return TRUE;
+  return true;
 }
 
 /* Cover function of sim_state_free to free the cpu buffers as well.  */
@@ -337,9 +337,7 @@ cris_set_section_offset_iterator (bfd *abfd, asection *s, void *vp)
 static void
 cris_offset_sections (SIM_DESC sd, int offset)
 {
-  bfd_boolean ret;
   struct bfd *abfd = STATE_PROG_BFD (sd);
-  asection *text;
   struct offsetinfo oi;
 
   /* Only happens for usage error.  */
@@ -350,7 +348,7 @@ cris_offset_sections (SIM_DESC sd, int offset)
   oi.offset = offset;
 
   bfd_map_over_sections (abfd, cris_set_section_offset_iterator, &oi);
-  ret = bfd_set_start_address (abfd, bfd_get_start_address (abfd) + offset);
+  bfd_set_start_address (abfd, bfd_get_start_address (abfd) + offset);
 
   STATE_START_ADDR (sd) = bfd_get_start_address (abfd);
 }
@@ -496,18 +494,17 @@ cris_write_interp (SIM_DESC sd, uint64_t mem, const void *buf, uint64_t length)
    everything went fine, including an interpreter being absent and
    the program being in a non-ELF format.  */
 
-static bfd_boolean
+static bool
 cris_handle_interpreter (SIM_DESC sd, struct bfd *abfd)
 {
   int i, n_hdrs;
-  bfd_byte buf[4];
   char *interp = NULL;
   struct bfd *ibfd;
-  bfd_boolean ok = FALSE;
+  bool ok = false;
   Elf_Internal_Phdr *phdr;
 
   if (bfd_get_flavour (abfd) != bfd_target_elf_flavour)
-    return TRUE;
+    return true;
 
   phdr = elf_tdata (abfd)->phdr;
   n_hdrs = aux_ent_phnum (abfd);
@@ -516,7 +513,7 @@ cris_handle_interpreter (SIM_DESC sd, struct bfd *abfd)
   for (i = 0; i < n_hdrs; i++)
     {
       int interplen;
-      bfd_size_type interpsiz, interp_filesiz;
+      bfd_size_type interpsiz;
       struct progbounds interp_bounds;
 
       if (phdr[i].p_type != PT_INTERP)
@@ -530,7 +527,7 @@ cris_handle_interpreter (SIM_DESC sd, struct bfd *abfd)
 
       /* Read in the name.  */
       if (bfd_seek (abfd, phdr[i].p_offset, SEEK_SET) != 0
-	  || (bfd_bread (interp + strlen (simulator_sysroot), interplen, abfd)
+	  || (bfd_read (interp + strlen (simulator_sysroot), interplen, abfd)
 	      != interplen))
 	goto interpname_failed;
 
@@ -563,7 +560,7 @@ cris_handle_interpreter (SIM_DESC sd, struct bfd *abfd)
 	 perhaps should.  */
       interp_load_addr = 0x40000;
       interpsiz = interp_bounds.endmem - interp_bounds.startmem;
-      interp_filesiz = interp_bounds.end_loadmem - interp_bounds.startmem;
+      /* interp_filesiz = interp_bounds.end_loadmem - interp_bounds.startmem; */
 
       /* If we have a non-DSO or interpreter starting at the wrong
 	 address, bail.  */
@@ -596,10 +593,10 @@ cris_handle_interpreter (SIM_DESC sd, struct bfd *abfd)
 
   /* Register R10 should hold 0 at static start (no finifunc), but
      that's the default, so don't bother.  */
-  return TRUE;
+  return true;
 
  all_done:
-  ok = TRUE;
+  ok = true;
 
  interp_failed:
   bfd_close (ibfd);
@@ -764,7 +761,6 @@ sim_open (SIM_OPEN_KIND kind, host_callback *callback, struct bfd *abfd,
       int len = strlen (name) + 1;
       USI epp, epp0;
       USI stacklen;
-      int i;
       char **prog_argv = STATE_PROG_ARGV (sd);
       int my_argc = 0;
       USI csp;

@@ -1,6 +1,6 @@
 /* Platform independent shared object routines for GDB.
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef GDB_DLFCN_H
-#define GDB_DLFCN_H
+#ifndef GDBSUPPORT_GDB_DLFCN_H
+#define GDBSUPPORT_GDB_DLFCN_H
 
 /* A deleter that closes an open dynamic library.  */
 
@@ -29,7 +29,7 @@ struct dlclose_deleter
 
 /* A unique pointer that points to a dynamic library.  */
 
-typedef std::unique_ptr<void, dlclose_deleter> gdb_dlhandle_up;
+using gdb_dlhandle_up = std::unique_ptr<void, dlclose_deleter>;
 
 /* Load the dynamic library file named FILENAME, and return a handle
    for that dynamic library.  Throw an error if the loading fails for
@@ -48,4 +48,4 @@ void *gdb_dlsym (const gdb_dlhandle_up &handle, const char *symbol);
 
 int is_dl_available(void);
 
-#endif /* GDB_DLFCN_H */
+#endif /* GDBSUPPORT_GDB_DLFCN_H */

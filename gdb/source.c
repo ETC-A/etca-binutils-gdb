@@ -1,5 +1,5 @@
 /* List lines of source files for GDB, the GNU debugger.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,31 +16,29 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "gdbsupport/gdb_vecs.h"
 #include "symtab.h"
 #include "expression.h"
 #include "language.h"
 #include "command.h"
 #include "source.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "frame.h"
 #include "value.h"
 #include "gdbsupport/filestuff.h"
 
+#include <list>
 #include <sys/types.h>
 #include <fcntl.h>
-#include "gdbcore.h"
-#include "gdbsupport/gdb_regex.h"
 #include "symfile.h"
 #include "objfiles.h"
 #include "annotate.h"
 #include "gdbtypes.h"
 #include "linespec.h"
-#include "filenames.h"		/* for DOSish file names */
+#include "filenames.h"
 #include "completer.h"
 #include "ui-out.h"
-#include "readline/tilde.h"
 #include "gdbsupport/enum-flags.h"
 #include "gdbsupport/scoped_fd.h"
 #include <algorithm>
@@ -225,28 +223,23 @@ get_lines_to_list (void)
 static current_source_location *
 get_source_location (program_space *pspace)
 {
-  current_source_location *loc
-    = current_source_key.get (pspace);
-  if (loc == nullptr)
-    loc = current_source_key.emplace (pspace);
-  return loc;
+  return &current_source_key.try_emplace (pspace);
 }
 
-/* Return the current source file for listing and next line to list.
-   NOTE: The returned sal pc and end fields are not valid.  */
-   
-struct symtab_and_line
-get_current_source_symtab_and_line (void)
+/* See source.h.  */
+
+symtab_and_line
+get_current_source_symtab_and_line (program_space *pspace)
 {
   symtab_and_line cursal;
-  current_source_location *loc = get_source_location (current_program_space);
+  current_source_location *loc = get_source_location (pspace);
 
-  cursal.pspace = current_program_space;
+  cursal.pspace = pspace;
   cursal.symtab = loc->symtab ();
   cursal.line = loc->line ();
   cursal.pc = 0;
   cursal.end = 0;
-  
+
   return cursal;
 }
 
@@ -257,12 +250,14 @@ get_current_source_symtab_and_line (void)
    process of determining a new default may call the caller!
    Use get_current_source_symtab_and_line only to get whatever
    we have without erroring out or trying to get a default.  */
-   
+
 void
 set_default_source_symtab_and_line (void)
 {
-  if (!have_full_symbols () && !have_partial_symbols ())
-    error (_("No symbol table is loaded.  Use the \"file\" command."));
+  if (!current_program_space->has_full_symbols ()
+      && !current_program_space->has_partial_symbols ())
+    error (_("No symbol table is loaded.  Use the \"%ps\" command."),
+	   styled_string (command_style.style (), "file"));
 
   /* Pull in a current source symtab if necessary.  */
   current_source_location *loc = get_source_location (current_program_space);
@@ -270,39 +265,42 @@ set_default_source_symtab_and_line (void)
     select_source_symtab ();
 }
 
-/* Return the current default file for listing and next line to list
-   (the returned sal pc and end fields are not valid.)
-   and set the current default to whatever is in SAL.
-   NOTE: The returned sal pc and end fields are not valid.  */
-   
-struct symtab_and_line
+/* See source.h.  */
+
+void
 set_current_source_symtab_and_line (const symtab_and_line &sal)
 {
-  symtab_and_line cursal;
-
-  current_source_location *loc = get_source_location (sal.pspace);
-
-  cursal.pspace = sal.pspace;
-  cursal.symtab = loc->symtab ();
-  cursal.line = loc->line ();
-  cursal.pc = 0;
-  cursal.end = 0;
-
-  loc->set (sal.symtab, sal.line);
+  get_source_location (sal.pspace)->set (sal.symtab, sal.line);
 
   /* Force the next "list" to center around the current line.  */
   clear_lines_listed_range ();
-
-  return cursal;
 }
 
 /* Reset any information stored about a default file and line to print.  */
 
 void
-clear_current_source_symtab_and_line (void)
+clear_current_source_symtab_and_line (program_space *pspace)
 {
-  current_source_location *loc = get_source_location (current_program_space);
+  current_source_location *loc = current_source_key.get (pspace);
+  if (loc == nullptr)
+    return;
+
   loc->set (nullptr, 0);
+}
+
+/* Reset any information stored about a default file and line to print, if it's
+   owned by OBJFILE.  */
+
+void
+clear_current_source_symtab_and_line (objfile *objfile)
+{
+  current_source_location *loc = current_source_key.get (objfile->pspace ());
+  if (loc == nullptr)
+    return;
+
+  if (loc->symtab () != nullptr
+      && loc->symtab ()->compunit ().objfile () == objfile)
+    clear_current_source_symtab_and_line (objfile->pspace ());
 }
 
 /* See source.h.  */
@@ -316,16 +314,17 @@ select_source_symtab ()
 
   /* Make the default place to list be the function `main'
      if one exists.  */
-  block_symbol bsym = lookup_symbol (main_name (), 0, VAR_DOMAIN, 0);
-  if (bsym.symbol != nullptr && bsym.symbol->aclass () == LOC_BLOCK)
+  block_symbol bsym = lookup_symbol (main_name (), nullptr,
+				     SEARCH_FUNCTION_DOMAIN, nullptr);
+  if (bsym.symbol != nullptr)
     {
-      symtab_and_line sal = find_function_start_sal (bsym.symbol, true);
+      symtab_and_line sal = find_function_start_sal (bsym.symbol, false);
       if (sal.symtab == NULL)
 	/* We couldn't find the location of `main', possibly due to missing
 	   line number info, fall back to line 1 in the corresponding file.  */
 	loc->set (bsym.symbol->symtab (), 1);
       else
-	loc->set (sal.symtab, std::max (sal.line - (lines_to_list - 1), 1));
+	loc->set (sal.symtab, sal.line);
       return;
     }
 
@@ -334,17 +333,17 @@ select_source_symtab ()
 
   struct symtab *new_symtab = nullptr;
 
-  for (objfile *ofp : current_program_space->objfiles ())
+  for (objfile &ofp : current_program_space->objfiles ())
     {
-      for (compunit_symtab *cu : ofp->compunits ())
+      for (compunit_symtab &cu : ofp.compunits ())
 	{
-	  for (symtab *symtab : cu->filetabs ())
+	  for (symtab *symtab : cu.filetabs ())
 	    {
-	      const char *name = symtab->filename;
+	      const char *name = symtab->filename ();
 	      int len = strlen (name);
 
-	      if (!(len > 2 && (strcmp (&name[len - 2], ".h") == 0
-				|| strcmp (name, "<<C++-namespaces>>") == 0)))
+	      if (!(len > 2 && (streq (&name[len - 2], ".h")
+				|| streq (name, "<<C++-namespaces>>"))))
 		new_symtab = symtab;
 	    }
 	}
@@ -354,9 +353,9 @@ select_source_symtab ()
   if (new_symtab != nullptr)
     return;
 
-  for (objfile *objfile : current_program_space->objfiles ())
+  for (objfile &objfile : current_program_space->objfiles ())
     {
-      symtab *s = objfile->find_last_source_symtab ();
+      symtab *s = objfile.find_last_source_symtab ();
       if (s)
 	new_symtab = s;
     }
@@ -417,8 +416,8 @@ void
 forget_cached_source_info (void)
 {
   for (struct program_space *pspace : program_spaces)
-    for (objfile *objfile : pspace->objfiles ())
-      objfile->forget_cached_source_info ();
+    for (objfile &objfile : pspace->objfiles ())
+      objfile.forget_cached_source_info ();
 
   g_source_cache.clear ();
   last_source_visited = NULL;
@@ -561,8 +560,7 @@ add_path (const char *dirname, char **which_path, int parse_separators)
       if (name[0] == '\0')
 	goto skip_dup;
       if (name[0] == '~')
-	new_name_holder
-	  = gdb::unique_xmalloc_ptr<char[]> (tilde_expand (name)).get ();
+	new_name_holder = gdb_rl_tilde_expand (name).get ();
 #ifdef HAVE_DOS_BASED_FILE_SYSTEM
       else if (IS_ABSOLUTE_PATH (name) && p == name + 2) /* "d:" => "d:." */
 	new_name_holder = std::string (name) + ".";
@@ -587,14 +585,10 @@ add_path (const char *dirname, char **which_path, int parse_separators)
 	     a directory/etc, then having them in the path should be
 	     harmless.  */
 	  if (stat (name, &st) < 0)
-	    {
-	      int save_errno = errno;
-
-	      gdb_printf (gdb_stderr, "Warning: ");
-	      print_sys_errmsg (name, save_errno);
-	    }
+	    warning_filename_and_errno (name, errno);
 	  else if ((st.st_mode & S_IFMT) != S_IFDIR)
-	    warning (_("%s is not a directory."), name);
+	    warning (_("%ps is not a directory."),
+		     styled_string (file_name_style.style (), name));
 	}
 
     append:
@@ -677,7 +671,6 @@ info_source_command (const char *ignore, int from_tty)
   current_source_location *loc
     = get_source_location (current_program_space);
   struct symtab *s = loc->symtab ();
-  struct compunit_symtab *cust;
 
   if (!s)
     {
@@ -685,26 +678,27 @@ info_source_command (const char *ignore, int from_tty)
       return;
     }
 
-  cust = s->compunit ();
-  gdb_printf (_("Current source file is %s\n"), s->filename);
-  if (s->compunit ()->dirname () != NULL)
-    gdb_printf (_("Compilation directory is %s\n"), s->compunit ()->dirname ());
-  if (s->fullname)
-    gdb_printf (_("Located in %s\n"), s->fullname);
-  const std::vector<off_t> *offsets;
-  if (g_source_cache.get_line_charpos (s, &offsets))
-    gdb_printf (_("Contains %d line%s.\n"), (int) offsets->size (),
-		offsets->size () == 1 ? "" : "s");
+  compunit_symtab &cust = s->compunit ();
+
+  gdb_printf (_("Current source file is %s\n"), s->filename ());
+  if (s->compunit ().dirname () != NULL)
+    gdb_printf (_("Compilation directory is %s\n"), s->compunit ().dirname ());
+  if (s->fullname () != nullptr)
+    gdb_printf (_("Located in %s\n"), s->fullname ());
+  if (std::optional<int> last_lineno = last_symtab_line (s);
+      last_lineno.has_value ())
+    gdb_printf (_("Contains %d line%s.\n"), last_lineno.value (),
+		last_lineno.value () == 1 ? "" : "s");
 
   gdb_printf (_("Source language is %s.\n"),
 	      language_str (s->language ()));
   gdb_printf (_("Producer is %s.\n"),
-	      (cust->producer ()) != nullptr
-	      ? cust->producer () : _("unknown"));
+	      (cust.producer ()) != nullptr
+	      ? cust.producer () : _("unknown"));
   gdb_printf (_("Compiled with %s debugging format.\n"),
-	      cust->debugformat ());
+	      cust.debugformat ());
   gdb_printf (_("%s preprocessor macro info.\n"),
-	      (cust->macro_table () != nullptr
+	      (cust.macro_table () != nullptr
 	       ? "Includes" : "Does not include"));
 }
 
@@ -743,7 +737,7 @@ prepare_path_for_appending (const char *path)
    using mode MODE in the calls to open.  You cannot use this function to
    create files (O_CREAT).
 
-   OPTS specifies the function behaviour in specific cases.
+   OPTS specifies the function behavior in specific cases.
 
    If OPF_TRY_CWD_FIRST, try to open ./STRING before searching PATH.
    (ie pretend the first element of PATH is ".").  This also indicates
@@ -758,9 +752,9 @@ prepare_path_for_appending (const char *path)
 
    If FILENAME_OPENED is non-null, set it to a newly allocated string naming
    the actual file opened (this string will always start with a "/").  We
-   have to take special pains to avoid doubling the "/" between the directory
-   and the file, sigh!  Emacs gets confuzzed by this when we print the
-   source file name!!! 
+   have to ensure that we avoid doubling the "/" between the directory and the
+   file, because Emacs has special treatment of double slashes.
+   See "(emacs) Minibuffer File".
 
    If OPTS has OPF_RETURN_REALPATH set return FILENAME_OPENED resolved by
    gdb_realpath.  Even without OPF_RETURN_REALPATH this function still returns
@@ -774,11 +768,11 @@ prepare_path_for_appending (const char *path)
     >>>>  eg executable, non-directory.  */
 int
 openp (const char *path, openp_flags opts, const char *string,
-       int mode, gdb::unique_xmalloc_ptr<char> *filename_opened)
+       int mode, gdb::unique_xmalloc_ptr<char> *filename_opened,
+       const char *cwd)
 {
   int fd;
-  char *filename;
-  int alloclen;
+  std::string filename;
   /* The errno set for the last name we tried to open (and
      failed).  */
   int last_errno = 0;
@@ -812,16 +806,14 @@ openp (const char *path, openp_flags opts, const char *string,
 
       if (is_regular_file (string, &reg_file_errno))
 	{
-	  filename = (char *) alloca (strlen (string) + 1);
-	  strcpy (filename, string);
-	  fd = gdb_open_cloexec (filename, mode, 0).release ();
+	  filename = string;
+	  fd = gdb_open_cloexec (filename.c_str (), mode, 0).release ();
 	  if (fd >= 0)
 	    goto done;
 	  last_errno = errno;
 	}
       else
 	{
-	  filename = NULL;
 	  fd = -1;
 	  last_errno = reg_file_errno;
 	}
@@ -835,9 +827,6 @@ openp (const char *path, openp_flags opts, const char *string,
   /* Remove characters from the start of PATH that we don't need when PATH
      is appended to a directory name.  */
   string = prepare_path_for_appending (string);
-
-  alloclen = strlen (path) + strlen (string) + 2;
-  filename = (char *) alloca (alloclen);
   fd = -1;
   last_errno = ENOENT;
 
@@ -846,46 +835,20 @@ openp (const char *path, openp_flags opts, const char *string,
   for (const gdb::unique_xmalloc_ptr<char> &dir_up : dir_vec)
     {
       char *dir = dir_up.get ();
-      size_t len = strlen (dir);
       int reg_file_errno;
 
-      if (strcmp (dir, "$cwd") == 0)
+      if (streq (dir, "$cwd"))
 	{
 	  /* Name is $cwd -- insert current directory name instead.  */
-	  int newlen;
-
-	  /* First, realloc the filename buffer if too short.  */
-	  len = strlen (current_directory);
-	  newlen = len + strlen (string) + 2;
-	  if (newlen > alloclen)
-	    {
-	      alloclen = newlen;
-	      filename = (char *) alloca (alloclen);
-	    }
-	  strcpy (filename, current_directory);
+	  filename = cwd;
 	}
-      else if (strchr(dir, '~'))
+      else if (strchr (dir, '~'))
 	{
-	 /* See whether we need to expand the tilde.  */
-	  int newlen;
-
-	  gdb::unique_xmalloc_ptr<char> tilde_expanded (tilde_expand (dir));
-
-	  /* First, realloc the filename buffer if too short.  */
-	  len = strlen (tilde_expanded.get ());
-	  newlen = len + strlen (string) + 2;
-	  if (newlen > alloclen)
-	    {
-	      alloclen = newlen;
-	      filename = (char *) alloca (alloclen);
-	    }
-	  strcpy (filename, tilde_expanded.get ());
+	  /* See whether we need to expand the tilde.  */
+	  filename = gdb_rl_tilde_expand (dir).get ();
 	}
       else
 	{
-	  /* Normal file name in path -- just use it.  */
-	  strcpy (filename, dir);
-
 	  /* Don't search $cdir.  It's also a magic path like $cwd, but we
 	     don't have enough information to expand it.  The user *could*
 	     have an actual directory named '$cdir' but handling that would
@@ -893,18 +856,21 @@ openp (const char *path, openp_flags opts, const char *string,
 	     contexts.  If the user really has '$cdir' one can use './$cdir'.
 	     We can get $cdir when loading scripts.  When loading source files
 	     $cdir must have already been expanded to the correct value.  */
-	  if (strcmp (dir, "$cdir") == 0)
+	  if (streq (dir, "$cdir"))
 	    continue;
+
+	  /* Normal file name in path -- just use it.  */
+	  filename = dir;
 	}
 
       /* Remove trailing slashes.  */
-      while (len > 0 && IS_DIR_SEPARATOR (filename[len - 1]))
-	filename[--len] = 0;
+      while (!filename.empty () && IS_DIR_SEPARATOR (filename.back ()))
+	filename.pop_back ();
 
-      strcat (filename + len, SLASH_STRING);
-      strcat (filename, string);
+      filename += SLASH_STRING;
+      filename += string;
 
-      if (is_regular_file (filename, &reg_file_errno))
+      if (is_regular_file (filename.c_str (), &reg_file_errno))
 	{
 	  fd = gdb_open_cloexec (filename, mode, 0).release ();
 	  if (fd >= 0)
@@ -922,10 +888,10 @@ done:
       if (fd < 0)
 	filename_opened->reset (NULL);
       else if ((opts & OPF_RETURN_REALPATH) != 0)
-	*filename_opened = gdb_realpath (filename);
+	*filename_opened = gdb_realpath (filename.c_str ());
       else
 	*filename_opened
-	  = make_unique_xstrdup (gdb_abspath (filename).c_str ());
+	  = make_unique_xstrdup (gdb_abspath (filename.c_str (), cwd).c_str ());
     }
 
   errno = last_errno;
@@ -933,7 +899,7 @@ done:
 }
 
 
-/* This is essentially a convenience, for clients that want the behaviour
+/* This is essentially a convenience, for clients that want the behavior
    of openp, using source_path, but that really don't want the file to be
    opened but want instead just to know what the full pathname is (as
    qualified against source_path).
@@ -1140,7 +1106,7 @@ find_and_open_source (const char *filename,
 
 /* Open a source file given a symtab S.  Returns a file descriptor or
    negative errno for error.
-   
+
    This function is a convenience function to find_and_open_source.  */
 
 scoped_fd
@@ -1149,51 +1115,48 @@ open_source_file (struct symtab *s)
   if (!s)
     return scoped_fd (-EINVAL);
 
-  gdb::unique_xmalloc_ptr<char> fullname (s->fullname);
-  s->fullname = NULL;
-  scoped_fd fd = find_and_open_source (s->filename, s->compunit ()->dirname (),
+  gdb::unique_xmalloc_ptr<char> fullname = s->release_fullname ();
+  scoped_fd fd = find_and_open_source (s->filename (),
+				       s->compunit ().dirname (),
 				       &fullname);
 
   if (fd.get () < 0)
     {
-      if (s->compunit () != nullptr)
+      const objfile *ofp = s->compunit ().objfile ();
+
+      std::string srcpath;
+      if (IS_ABSOLUTE_PATH (s->filename ()))
+	srcpath = s->filename ();
+      else if (s->compunit ().dirname () != nullptr)
 	{
-	  const objfile *ofp = s->compunit ()->objfile ();
+	  srcpath = s->compunit ().dirname ();
+	  srcpath += SLASH_STRING;
+	  srcpath += s->filename ();
+	}
 
-	  std::string srcpath;
-	  if (IS_ABSOLUTE_PATH (s->filename))
-	    srcpath = s->filename;
-	  else if (s->compunit ()->dirname () != nullptr)
+      const struct bfd_build_id *build_id
+	= build_id_bfd_get (ofp->obfd.get ());
+
+      /* Query debuginfod for the source file.  */
+      if (build_id != nullptr && !srcpath.empty ())
+	{
+	  scoped_fd query_fd
+	    = debuginfod_source_query (build_id->data,
+				       build_id->size,
+				       srcpath.c_str (),
+				       &fullname);
+
+	  /* Don't return a negative errno from debuginfod_source_query.
+	     It handles the reporting of its own errors.  */
+	  if (query_fd.get () >= 0)
 	    {
-	      srcpath = s->compunit ()->dirname ();
-	      srcpath += SLASH_STRING;
-	      srcpath += s->filename;
-	    }
-
-	  const struct bfd_build_id *build_id
-	    = build_id_bfd_get (ofp->obfd.get ());
-
-	  /* Query debuginfod for the source file.  */
-	  if (build_id != nullptr && !srcpath.empty ())
-	    {
-	      scoped_fd query_fd
-		= debuginfod_source_query (build_id->data,
-					   build_id->size,
-					   srcpath.c_str (),
-					   &fullname);
-
-	      /* Don't return a negative errno from debuginfod_source_query.
-		 It handles the reporting of its own errors.  */
-	      if (query_fd.get () >= 0)
-		{
-		  s->fullname = fullname.release ();
-		  return query_fd;
-		}
+	      s->set_fullname (std::move (fullname));
+	      return query_fd;
 	    }
 	}
     }
 
-  s->fullname = fullname.release ();
+  s->set_fullname (std::move (fullname));
   return fd;
 }
 
@@ -1211,7 +1174,7 @@ find_source_or_rewrite (const char *filename, const char *dirname)
 	 should report the pathname where GDB tried to find the file.  */
 
       if (dirname == nullptr || IS_ABSOLUTE_PATH (filename))
-	fullname.reset (xstrdup (filename));
+	fullname = make_unique_xstrdup (filename);
       else
 	fullname.reset (concat (dirname, SLASH_STRING,
 				filename, (char *) nullptr));
@@ -1240,7 +1203,7 @@ symtab_to_fullname (struct symtab *s)
   /* Use cached copy if we have it.
      We rely on forget_cached_source_info being called appropriately
      to handle cases like the file being moved.  */
-  if (s->fullname == NULL)
+  if (s->fullname () == nullptr)
     {
       scoped_fd fd = open_source_file (s);
 
@@ -1251,20 +1214,20 @@ symtab_to_fullname (struct symtab *s)
 	  /* rewrite_source_path would be applied by find_and_open_source, we
 	     should report the pathname where GDB tried to find the file.  */
 
-	  if (s->compunit ()->dirname () == nullptr
-	      || IS_ABSOLUTE_PATH (s->filename))
-	    fullname.reset (xstrdup (s->filename));
+	  if (s->compunit ().dirname () == nullptr
+	      || IS_ABSOLUTE_PATH (s->filename ()))
+	    fullname = make_unique_xstrdup (s->filename ());
 	  else
-	    fullname.reset (concat (s->compunit ()->dirname (), SLASH_STRING,
-				    s->filename, (char *) NULL));
+	    fullname.reset (concat (s->compunit ().dirname (), SLASH_STRING,
+				    s->filename (), (char *) NULL));
 
-	  s->fullname = rewrite_source_path (fullname.get ()).release ();
-	  if (s->fullname == NULL)
-	    s->fullname = fullname.release ();
+	  s->set_fullname (rewrite_source_path (fullname.get ()));
+	  if (s->fullname () == nullptr)
+	    s->set_fullname (std::move (fullname));
 	}
-    } 
+    }
 
-  return s->fullname;
+  return s->fullname ();
 }
 
 /* See commentary in source.h.  */
@@ -1273,11 +1236,11 @@ const char *
 symtab_to_filename_for_display (struct symtab *symtab)
 {
   if (filename_display_string == filename_display_basename)
-    return lbasename (symtab->filename);
+    return lbasename (symtab->filename ());
   else if (filename_display_string == filename_display_absolute)
     return symtab_to_fullname (symtab);
   else if (filename_display_string == filename_display_relative)
-    return symtab->filename;
+    return symtab->filename ();
   else
     internal_error (_("invalid filename_display_string"));
 }
@@ -1296,13 +1259,11 @@ print_source_lines_base (struct symtab *s, int line, int stopline,
   int nlines = stopline - line;
   struct ui_out *uiout = current_uiout;
 
-  /* Regardless of whether we can open the file, set current_source_symtab.  */
+  /* Regardless of whether we can open the file, we'll want to set
+     current_source_symtab, but not if throw an error, or return without
+     printing any source lines.  */
   current_source_location *loc
     = get_source_location (current_program_space);
-
-  loc->set (s, line);
-  first_line_listed = line;
-  last_line_listed = line;
 
   /* If printing of source lines is disabled, just print file and line
      number.  */
@@ -1340,40 +1301,33 @@ print_source_lines_base (struct symtab *s, int line, int stopline,
       if (!(flags & PRINT_SOURCE_LINES_NOERROR))
 	{
 	  const char *filename = symtab_to_filename_for_display (s);
-	  int len = strlen (filename) + 100;
-	  char *name = (char *) alloca (len);
-
-	  xsnprintf (name, len, "%d\t%s", line, filename);
-	  print_sys_errmsg (name, errcode);
+	  warning (_("%d\t%ps: %s"), line,
+		   styled_string (file_name_style.style (), filename),
+		   safe_strerror (errcode));
 	}
-      else
+      else if (uiout->is_mi_like_p () || uiout->test_flags (ui_source_list))
 	{
-	  uiout->field_signed ("line", line);
+	  /* CLI expects only the "file" field.  MI expects both
+	     fields.  ui_source_list is set only for CLI, not for
+	     TUI.  */
+
+	  uiout->field_signed ("line", line, line_number_style.style ());
 	  uiout->text ("\tin ");
 
-	  /* CLI expects only the "file" field.  TUI expects only the
-	     "fullname" field (and TUI does break if "file" is printed).
-	     MI expects both fields.  ui_source_list is set only for CLI,
-	     not for TUI.  */
-	  if (uiout->is_mi_like_p () || uiout->test_flags (ui_source_list))
-	    uiout->field_string ("file", symtab_to_filename_for_display (s),
-				 file_name_style.style ());
-	  if (uiout->is_mi_like_p () || !uiout->test_flags (ui_source_list))
+	  uiout->field_string ("file", symtab_to_filename_for_display (s),
+			       file_name_style.style ());
+	  if (uiout->is_mi_like_p ())
 	    {
 	      const char *s_fullname = symtab_to_fullname (s);
-	      char *local_fullname;
-
-	      /* ui_out_field_string may free S_FULLNAME by calling
-		 open_source_file for it again.  See e.g.,
-		 tui_field_string->tui_show_source.  */
-	      local_fullname = (char *) alloca (strlen (s_fullname) + 1);
-	      strcpy (local_fullname, s_fullname);
-
-	      uiout->field_string ("fullname", local_fullname);
+	      uiout->field_string ("fullname", s_fullname);
 	    }
 
 	  uiout->text ("\n");
 	}
+
+      loc->set (s, line);
+      first_line_listed = line;
+      last_line_listed = line;
 
       return;
     }
@@ -1386,27 +1340,28 @@ print_source_lines_base (struct symtab *s, int line, int stopline,
   std::string lines;
   if (!g_source_cache.get_source_lines (s, line, stopline - 1, &lines))
     {
-      const std::vector<off_t> *offsets = nullptr;
-      g_source_cache.get_line_charpos (s, &offsets);
-      error (_("Line number %d out of range; %s has %d lines."),
-	     line, symtab_to_filename_for_display (s),
-	     offsets == nullptr ? 0 : (int) offsets->size ());
+      std::optional<int> last_lineno = last_symtab_line (s);
+      error (_("Line number %ps out of range; %ps has %d lines."),
+	     styled_string (line_number_style.style (), plongest (line)),
+	     styled_string (file_name_style.style (),
+			    symtab_to_filename_for_display (s)),
+	     !last_lineno.has_value () ? 0 : last_lineno.value ());
     }
 
   const char *iter = lines.c_str ();
-  int new_lineno = loc->line ();
-  while (nlines-- > 0 && *iter != '\0')
+  int new_lineno = line;
+  for (; nlines-- > 0 && *iter != '\0'; ++new_lineno)
     {
-      char buf[20];
-
-      last_line_listed = loc->line ();
       if (flags & PRINT_SOURCE_LINES_FILENAME)
 	{
-	  uiout->text (symtab_to_filename_for_display (s));
+	  uiout->message ("%ps",
+			  styled_string (file_name_style.style (),
+					 symtab_to_filename_for_display (s)));
 	  uiout->text (":");
 	}
-      xsnprintf (buf, sizeof (buf), "%d\t", new_lineno++);
-      uiout->text (buf);
+
+      uiout->message ("%ps\t", styled_string (line_number_style.style (),
+					      pulongest (new_lineno)));
 
       while (*iter != '\0')
 	{
@@ -1448,6 +1403,8 @@ print_source_lines_base (struct symtab *s, int line, int stopline,
 	    }
 	  else if (*iter > 0 && *iter < 040)
 	    {
+	      char buf[20];
+
 	      xsnprintf (buf, sizeof (buf), "^%c", *iter + 0100);
 	      uiout->text (buf);
 	      ++iter;
@@ -1461,7 +1418,11 @@ print_source_lines_base (struct symtab *s, int line, int stopline,
       uiout->text ("\n");
     }
 
-  loc->set (loc->symtab (), new_lineno);
+  /* As NEW_LINENO was incremented after displaying the last source line,
+     the last line shown was the one before NEW_LINENO.  */
+  first_line_listed = line;
+  last_line_listed = new_lineno - 1;
+  loc->set (s, new_lineno);
 }
 
 
@@ -1486,16 +1447,16 @@ print_source_lines (struct symtab *s, source_lines_range line_range,
 
 /* See source.h.  */
 
-int
+std::optional<int>
 last_symtab_line (struct symtab *s)
 {
   const std::vector<off_t> *offsets;
 
   /* Try to get the offsets for the start of each line.  */
   if (!g_source_cache.get_line_charpos (s, &offsets))
-    return false;
+    return {};
   if (offsets == nullptr)
-    return false;
+    return {};
 
   return offsets->size ();
 }
@@ -1561,15 +1522,17 @@ info_line_command (const char *arg, int from_tty)
 	  gdb_printf ("\n");
 	}
       else if (sal.line > 0
-	       && find_line_pc_range (sal, &start_pc, &end_pc))
+	       && find_pc_range_for_sal (sal, &start_pc, &end_pc))
 	{
-	  gdbarch *gdbarch = sal.symtab->compunit ()->objfile ()->arch ();
+	  gdbarch *gdbarch = sal.symtab->compunit ().objfile ()->arch ();
 
 	  if (start_pc == end_pc)
 	    {
-	      gdb_printf ("Line %d of \"%s\"",
-			  sal.line,
-			  symtab_to_filename_for_display (sal.symtab));
+	      gdb_printf ("Line %ps of \"%ps\"",
+			  styled_string (line_number_style.style (),
+					 pulongest (sal.line)),
+			  styled_string (file_name_style.style (),
+					 symtab_to_filename_for_display (sal.symtab)));
 	      gdb_stdout->wrap_here (2);
 	      gdb_printf (" is at address ");
 	      print_address (gdbarch, start_pc, gdb_stdout);
@@ -1578,9 +1541,11 @@ info_line_command (const char *arg, int from_tty)
 	    }
 	  else
 	    {
-	      gdb_printf ("Line %d of \"%s\"",
-			  sal.line,
-			  symtab_to_filename_for_display (sal.symtab));
+	      gdb_printf ("Line %ps of \"%ps\"",
+			  styled_string (line_number_style.style (),
+					 pulongest (sal.line)),
+			  styled_string (file_name_style.style (),
+					 symtab_to_filename_for_display (sal.symtab)));
 	      gdb_stdout->wrap_here (2);
 	      gdb_printf (" starts at address ");
 	      print_address (gdbarch, start_pc, gdb_stdout);
@@ -1605,8 +1570,11 @@ info_line_command (const char *arg, int from_tty)
 	/* Is there any case in which we get here, and have an address
 	   which the user would want to see?  If we have debugging symbols
 	   and no line numbers?  */
-	gdb_printf (_("Line number %d is out of range for \"%s\".\n"),
-		    sal.line, symtab_to_filename_for_display (sal.symtab));
+	gdb_printf (_("Line number %ps is out of range for \"%ps\".\n"),
+		    styled_string (line_number_style.style (),
+				   pulongest (sal.line)),
+		    styled_string (file_name_style.style (),
+				   symtab_to_filename_for_display (sal.symtab)));
     }
 }
 
@@ -1748,7 +1716,7 @@ static void
 show_substitute_path_command (const char *args, int from_tty)
 {
   char *from = NULL;
-  
+
   gdb_argv argv (args);
 
   /* We expect zero or one argument.  */
@@ -1893,26 +1861,8 @@ source_lines_range::source_lines_range (int startline,
     }
 }
 
-/* Handle the "set source" base command.  */
-
-static void
-set_source (const char *arg, int from_tty)
-{
-  help_list (setsourcelist, "set source ", all_commands, gdb_stdout);
-}
-
-/* Handle the "show source" base command.  */
-
-static void
-show_source (const char *args, int from_tty)
-{
-  help_list (showsourcelist, "show source ", all_commands, gdb_stdout);
-}
-
 
-void _initialize_source ();
-void
-_initialize_source ()
+INIT_GDB_FILE (source)
 {
   init_source_path ();
 
@@ -1931,7 +1881,7 @@ directory in which the source file was compiled into object code.\n\
 With no argument, reset the search path to $cdir:$cwd, the default."),
 	       &cmdlist);
 
-  set_cmd_completer (directory_cmd, filename_completer);
+  set_cmd_completer (directory_cmd, deprecated_filename_completer);
 
   add_setshow_optional_filename_cmd ("directories",
 				     class_files,
@@ -1970,7 +1920,8 @@ The address is also stored as the value of \"$_\"."));
 Search for regular expression (see regex(3)) from last line listed.\n\
 The matching line number is also stored as the value of \"$_\"."));
   add_com_alias ("search", forward_search_cmd, class_files, 0);
-  add_com_alias ("fo", forward_search_cmd, class_files, 1);
+  add_com_alias ("fo", /* codespell:ignore.  */
+		 forward_search_cmd, class_files, 1);
 
   cmd_list_element *reverse_search_cmd
     = add_com ("reverse-search", class_files, reverse_search_command, _("\
@@ -2029,13 +1980,12 @@ By default, relative filenames are displayed."),
 			show_filename_display_string,
 			&setlist, &showlist);
 
-  add_prefix_cmd ("source", no_class, set_source,
-		  _("Generic command for setting how sources are handled."),
-		  &setsourcelist, 0, &setlist);
-
-  add_prefix_cmd ("source", no_class, show_source,
-		  _("Generic command for showing source settings."),
-		  &showsourcelist, 0, &showlist);
+  add_setshow_prefix_cmd
+    ("source", no_class,
+     _("Generic command for setting how sources are handled."),
+     _("Generic command for showing source settings."),
+     &setsourcelist, &showsourcelist,
+     &setlist, &showlist);
 
   add_setshow_boolean_cmd ("open", class_files, &source_open, _("\
 Set whether GDB should open source files."), _("\

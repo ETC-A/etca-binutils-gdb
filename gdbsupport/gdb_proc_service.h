@@ -1,5 +1,5 @@
 /* <proc_service.h> replacement for systems that don't have it.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_GDB_PROC_SERVICE_H
-#define COMMON_GDB_PROC_SERVICE_H
+#ifndef GDBSUPPORT_GDB_PROC_SERVICE_H
+#define GDBSUPPORT_GDB_PROC_SERVICE_H
 
 #include <sys/types.h>
 
@@ -25,11 +25,11 @@
 
 /* glibc's proc_service.h doesn't wrap itself with extern "C".  Need
    to do it ourselves.  */
-EXTERN_C_PUSH
+extern "C" {
 
 #include <proc_service.h>
 
-EXTERN_C_POP
+}
 
 #else /* HAVE_PROC_SERVICE_H */
 
@@ -69,7 +69,7 @@ EXTERN_C_POP
 # endif
 #endif
 
-EXTERN_C_PUSH
+extern "C" {
 
 /* Functions in this interface return one of these status codes.  */
 typedef enum
@@ -84,19 +84,19 @@ typedef enum
 } ps_err_e;
 
 #ifndef HAVE_LWPID_T
-typedef unsigned int lwpid_t;
+using lwpid_t = unsigned int;
 #endif
 
 #ifndef HAVE_PSADDR_T
-typedef void *psaddr_t;
+using psaddr_t = void *;
 #endif
 
 #ifndef HAVE_PRGREGSET_T
-typedef elf_gregset_t prgregset_t;
+using prgregset_t = elf_gregset_t;
 #endif
 
 #ifndef HAVE_PRFPREGSET_T
-typedef elf_fpregset_t prfpregset_t;
+using prfpregset_t = elf_fpregset_t;
 #endif
 
 /* This type is opaque in this interface.  It's defined by the user of
@@ -166,7 +166,7 @@ extern ps_err_e ps_lsetxregs (struct ps_prochandle *ph, lwpid_t lwpid,
 /* Log a message (sends to gdb_stderr).  */
 extern void ps_plog (const char *fmt, ...);
 
-EXTERN_C_POP
+}
 
 #endif /* HAVE_PROC_SERVICE_H */
 
@@ -199,4 +199,4 @@ PS_EXPORT (ps_lsetxregs);
 PS_EXPORT (ps_plog);
 #endif
 
-#endif /* COMMON_GDB_PROC_SERVICE_H */
+#endif /* GDBSUPPORT_GDB_PROC_SERVICE_H */

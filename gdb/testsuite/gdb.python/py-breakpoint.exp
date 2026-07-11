@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2023 Free Software Foundation, Inc.
+# Copyright (C) 2010-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ standard_testfile
 set options {debug c++}
 
 if { [prepare_for_testing "failed to prepare" ${testfile} ${srcfile} ${options}] } {
-    return -1
+    return
 }
 
 set past_throw_catch_line [gdb_get_line_number "Past throw-catch."]
@@ -153,6 +153,8 @@ proc_with_prefix test_bkpt_basic { } {
 	"Check repr for a thread breakpoint"
     gdb_py_test_silent_cmd "python blist\[1\].thread = None" \
 	"clear breakpoint thread" 0
+    gdb_test "python print (blist\[1\].inferior)" \
+	"None" "Check breakpoint inferior"
     gdb_test "python print (blist\[1\].type == gdb.BP_BREAKPOINT)" \
 	"True" "Check breakpoint type"
     gdb_test "python print (blist\[0\].number)" \
@@ -188,7 +190,7 @@ proc_with_prefix test_bkpt_deletion { } {
     gdb_py_test_silent_cmd  "python dp1.delete()" \
 	"Delete Breakpoint" 0
     gdb_test "python print (dp1.number)" \
-	"RuntimeError: Breakpoint 2 is invalid.*" \
+	"RuntimeError.*: Breakpoint 2 is invalid.*" \
 	"Check breakpoint invalidated"
     gdb_py_test_silent_cmd "python del_list = gdb.breakpoints()" \
 	"Get Breakpoint List" 0
@@ -255,6 +257,46 @@ proc_with_prefix test_bkpt_cond_and_cmds { } {
 	"check number of lines in commands"
 }
 
+# Test breakpoint thread and inferior attributes.
+proc_with_prefix test_bkpt_thread_and_inferior { } {
+    global srcfile testfile hex decimal
+
+    # Start with a fresh gdb.
+    clean_restart ${testfile}
+
+    if {![runto_main]} {
+	return 0
+    }
+
+    with_test_prefix "thread" {
+	delete_breakpoints
+	gdb_test "break multiply thread 1"
+	gdb_test "python bp = gdb.breakpoints ()\[0\]"
+	gdb_test "python print(bp.thread)" "1"
+	gdb_test "python print(bp.inferior)" "None"
+	gdb_test "python bp.inferior = 1" \
+	    "RuntimeError.*: Cannot have both 'thread' and 'inferior' conditions on a breakpoint.*"
+	gdb_test_no_output "python bp.thread = None"
+	gdb_test_no_output "python bp.inferior = 1" \
+	    "set the inferior now the thread has been cleared"
+	gdb_test "info breakpoints" "stop only in inferior 1\r\n.*"
+    }
+
+    with_test_prefix "inferior" {
+	delete_breakpoints
+	gdb_test "break multiply inferior 1"
+	gdb_test "python bp = gdb.breakpoints ()\[0\]"
+	gdb_test "python print(bp.thread)" "None"
+	gdb_test "python print(bp.inferior)" "1"
+	gdb_test "python bp.thread = 1" \
+	    "RuntimeError.*: Cannot have both 'thread' and 'inferior' conditions on a breakpoint.*"
+	gdb_test_no_output "python bp.inferior = None"
+	gdb_test_no_output "python bp.thread = 1" \
+	    "set the thread now the inferior has been cleared"
+	gdb_test "info breakpoints" "stop only in thread 1\r\n.*"
+    }
+}
+
 proc_with_prefix test_bkpt_invisible { } {
     global srcfile testfile hex decimal
 
@@ -291,7 +333,7 @@ proc_with_prefix test_bkpt_invisible { } {
 	"py-breakpoint\.c:$ibp_location*" "Check breakpoint location 2"
     gdb_test "python print (ilist\[0\].visible)" \
 	"False" "Check breakpoint visibility 2"
-    gdb_test "info breakpoints" "No breakpoints or watchpoints.*" \
+    gdb_test "info breakpoints" "No breakpoints, watchpoints, tracepoints, or catchpoints.*" \
 	"Check info breakpoints does not show invisible breakpoints"
     gdb_test "maint info breakpoints" \
 	"py-breakpoint\.c:$ibp_location.*" \
@@ -386,7 +428,7 @@ proc_with_prefix test_bkpt_internal { } {
     gdb_py_test_silent_cmd  "python wp1 = gdb.Breakpoint (\"result\", type=gdb.BP_WATCHPOINT, wp_class=gdb.WP_WRITE, internal=True )" \
 	"Set watchpoint" 0
     gdb_test "info breakpoints" \
-	"No breakpoints or watchpoints.*" \
+	"No breakpoints, watchpoints, tracepoints, or catchpoints.*" \
 	"Check info breakpoints does not show invisible breakpoints"
     gdb_test "maint info breakpoints" \
 	".*watchpoint.*result.*" \
@@ -480,7 +522,7 @@ proc_with_prefix test_bkpt_eval_funcs { } {
 	"end" ""
 
     gdb_test "python eval_bp2.stop = stop_func"  \
-	"RuntimeError: Only one stop condition allowed.  There is currently a GDB.*" \
+	"RuntimeError.*: Only one stop condition allowed.  There is currently a GDB.*" \
 	"assign stop function to a breakpoint that has a condition"
 
     delete_breakpoints
@@ -547,9 +589,9 @@ proc_with_prefix test_bkpt_temporary { } {
 	".*$srcfile:$ibp_location.*"
     gdb_test "python print (ibp.count)" "1" \
 	"Check temporary stop callback executed before deletion."
-    gdb_test "python print (ibp.temporary)" "RuntimeError: Breakpoint 2 is invalid.*" \
+    gdb_test "python print (ibp.temporary)" "RuntimeError.*: Breakpoint 2 is invalid.*" \
 	"Check temporary breakpoint is deleted after being hit"
-    gdb_test "info breakpoints" "No breakpoints or watchpoints.*" \
+    gdb_test "info breakpoints" "No breakpoints, watchpoints, tracepoints, or catchpoints.*" \
 	"Check info breakpoints shows temporary breakpoint is deleted"
 }
 
@@ -558,7 +600,7 @@ proc_with_prefix test_bkpt_temporary { } {
 proc_with_prefix test_bkpt_address {} {
     global gdb_prompt decimal srcfile
 
-    # Delete all breakpoints
+    # Delete all breakpoints, watchpoints, tracepoints, and catchpoints
     delete_breakpoints
 
     gdb_test "python gdb.Breakpoint(\"*main\")" \
@@ -587,7 +629,7 @@ proc_with_prefix test_bkpt_address {} {
 
 proc_with_prefix test_bkpt_pending {} {
     delete_breakpoints
-    gdb_breakpoint "nosuchfunction" allow-pending
+    gdb_breakpoint "nosuchfunction" -allow-pending
     gdb_test "python print (gdb.breakpoints()\[0\].pending)" "True" \
 	"Check pending status of pending breakpoint"
 }
@@ -665,7 +707,7 @@ proc_with_prefix test_bkpt_explicit_loc {} {
 
     delete_breakpoints
     gdb_test "python bp1 = gdb.Breakpoint (line=bp1)" \
-	"RuntimeError: Line keyword should be an integer or a string.*" \
+	"RuntimeError.*: Line keyword should be an integer or a string\\.\r\n.*" \
 	"set explicit breakpoint by invalid line type"
 
     delete_breakpoints
@@ -694,14 +736,16 @@ proc_with_prefix test_bkpt_explicit_loc {} {
 
     delete_breakpoints
     gdb_test "python bp1 = gdb.Breakpoint (source=\"$srcfile\")" \
-	"RuntimeError: Specifying a source must also include a line, label or function.*" \
+	"RuntimeError.*: Specifying a source must also include a line, label or function.*" \
 	"set invalid explicit breakpoint by source only"
 
     gdb_test "python bp1 = gdb.Breakpoint (source=\"foo.c\", line=\"5\")" \
 	"No source file named foo.*" \
 	"set invalid explicit breakpoint by missing source and line"
     gdb_test "python bp1 = gdb.Breakpoint (source=\"$srcfile\", line=\"900\")" \
-	"No line 900 in file \"$srcfile\".*" \
+	[multi_line \
+	     "^No compiled code for line 900 in file \"$srcfile\"\\." \
+	     "Breakpoint $::decimal \[^\r\n\]+ pending\\."] \
 	"set invalid explicit breakpoint by source and invalid line"
     gdb_test "python bp1 = gdb.Breakpoint (function=\"blah\")" \
 	"Function \"blah\" not defined.*" \
@@ -747,6 +791,15 @@ proc_with_prefix test_bkpt_qualified {} {
 	"python gdb.Breakpoint(\"multiply\", qualified=True)" \
 	$one_location_re \
 	"qualified true"
+
+    # Test qualified with a non-bool type.
+    delete_breakpoints
+    gdb_test \
+	"python gdb.Breakpoint(\"multiply\", qualified=None)" \
+	[multi_line \
+	     "Python Exception <class 'TypeError'>: argument 10 must be bool, not None" \
+	     "Error occurred in Python: argument 10 must be bool, not None"] \
+	"qualified non_bool_type"
 
     # Test qualified=True with an explicit function.
     delete_breakpoints
@@ -817,8 +870,8 @@ proc_with_prefix test_catchpoints {} {
     # the python api.
     gdb_test "python gdb.Breakpoint (\"syscall\", type=gdb.BP_CATCHPOINT)" \
 	[multi_line \
-	     "gdb.error: BP_CATCHPOINT not supported" \
-	     "Error while executing Python code\\."] \
+	     "gdb.error.*: BP_CATCHPOINT not supported" \
+	     "Error occurred in Python:.*"] \
 	"create a catchpoint via the api"
 
     # Setup a catchpoint.
@@ -900,6 +953,7 @@ proc_with_prefix test_bkpt_auto_disable { } {
 test_bkpt_basic
 test_bkpt_deletion
 test_bkpt_cond_and_cmds
+test_bkpt_thread_and_inferior
 test_bkpt_invisible
 test_hardware_breakpoints
 test_catchpoints

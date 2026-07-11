@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2023 Free Software Foundation, Inc.
+# Copyright (C) 2021-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 # though the tui should be disabled.
 
 load_lib gdb-python.exp
-require allow_tui_tests
+require allow_tui_tests allow_python_tests
 tuiterm_env
 
 standard_testfile
@@ -32,7 +32,7 @@ lappend flags debug
 lappend_include_file flags $srcdir/lib/attributes.h
 
 if {[build_executable "failed to prepare" ${testfile} ${srcfile} $flags] == -1} {
-    return -1
+    return
 }
 
 clean_restart
@@ -49,9 +49,6 @@ proc clean_restart_and_setup { prefix } {
 
 	Term::clean_restart 24 80 $testfile
 
-	# Skip all tests if Python scripting is not enabled.
-	if { ![allow_python_tests] } { return 0 }
-
 	# Now source the python script.
 	gdb_test_no_output "source ${remote_python_file}" \
 	    "source ${testfile}.py"
@@ -64,7 +61,7 @@ proc clean_restart_and_setup { prefix } {
 
 	if {![runto_main]} {
 	    perror "test suppressed"
-	    return
+	    return 0
 	}
     }
 
@@ -188,7 +185,7 @@ proc run_test { cleanup_properly } {
     Term::command "tui disable"
 
     send_gdb "tui enable\n"
-    gdb_assert { [Term::wait_for "^$::gdb_prompt tui disable"] } "TUI renabled"
+    gdb_assert { [Term::wait_for "^$::gdb_prompt tui disable"] } "TUI re-enabled"
 
     Term::check_box "check for python window" 0 0 80 16
 }

@@ -1,5 +1,5 @@
 /* CRIS exception, interrupt, and trap (EIT) support
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
    Contributed by Axis Communications.
 
 This file is part of the GNU simulators.
@@ -1527,7 +1527,7 @@ cris_break_13_handler (SIM_CPU *current_cpu, USI callnum, USI arg1,
 		  retval = TARGET_O_WRONLY;
 		  break;
 		}
-	      /* FALLTHROUGH */
+	      ATTRIBUTE_FALLTHROUGH;
 	    default:
 	      /* Nothing else is implemented.  */
 	      retval

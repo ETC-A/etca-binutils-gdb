@@ -1,5 +1,5 @@
 /* Meta support for 32-bit ELF
-   Copyright (C) 2013-2023 Free Software Foundation, Inc.
+   Copyright (C) 2013-2026 Free Software Foundation, Inc.
    Contributed by Imagination Technologies Ltd.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -709,8 +709,8 @@ static const struct metag_reloc_map metag_reloc_map [] =
     { BFD_RELOC_VTABLE_ENTRY,	     R_METAG_GNU_VTENTRY },
     { BFD_RELOC_METAG_REL8,	     R_METAG_REL8 },
     { BFD_RELOC_METAG_REL16,	     R_METAG_REL16 },
-    { BFD_RELOC_METAG_HI16_GOTOFF,   R_METAG_HI16_GOTOFF },
-    { BFD_RELOC_METAG_LO16_GOTOFF,   R_METAG_LO16_GOTOFF },
+    { BFD_RELOC_HI16_GOTOFF,	     R_METAG_HI16_GOTOFF },
+    { BFD_RELOC_LO16_GOTOFF,	     R_METAG_LO16_GOTOFF },
     { BFD_RELOC_METAG_GETSET_GOTOFF, R_METAG_GETSET_GOTOFF },
     { BFD_RELOC_METAG_GETSET_GOT,    R_METAG_GETSET_GOT },
     { BFD_RELOC_METAG_HI16_GOTPC,    R_METAG_HI16_GOTPC },
@@ -718,12 +718,12 @@ static const struct metag_reloc_map metag_reloc_map [] =
     { BFD_RELOC_METAG_HI16_PLT,	     R_METAG_HI16_PLT },
     { BFD_RELOC_METAG_LO16_PLT,	     R_METAG_LO16_PLT },
     { BFD_RELOC_METAG_RELBRANCH_PLT, R_METAG_RELBRANCH_PLT },
-    { BFD_RELOC_METAG_GOTOFF,	     R_METAG_GOTOFF },
+    { BFD_RELOC_32_GOTOFF,	     R_METAG_GOTOFF },
     { BFD_RELOC_METAG_PLT,	     R_METAG_PLT },
-    { BFD_RELOC_METAG_COPY,	     R_METAG_COPY },
-    { BFD_RELOC_METAG_JMP_SLOT,	     R_METAG_JMP_SLOT },
-    { BFD_RELOC_METAG_RELATIVE,	     R_METAG_RELATIVE },
-    { BFD_RELOC_METAG_GLOB_DAT,	     R_METAG_GLOB_DAT },
+    { BFD_RELOC_COPY,		     R_METAG_COPY },
+    { BFD_RELOC_JMP_SLOT,	     R_METAG_JMP_SLOT },
+    { BFD_RELOC_RELATIVE,	     R_METAG_RELATIVE },
+    { BFD_RELOC_GLOB_DAT,	     R_METAG_GLOB_DAT },
     { BFD_RELOC_METAG_TLS_GD,	     R_METAG_TLS_GD },
     { BFD_RELOC_METAG_TLS_LDM,	     R_METAG_TLS_LDM },
     { BFD_RELOC_METAG_TLS_LDO_HI16,  R_METAG_TLS_LDO_HI16 },
@@ -921,7 +921,7 @@ metag_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
    bfd_hash_lookup ((table), (string), (create), (copy)))
 
 #define metag_elf_local_got_tls_type(abfd) \
-  ((char *)(elf_local_got_offsets (abfd) + (elf_tdata (abfd)->symtab_hdr.sh_info)))
+  ((char *)(elf_local_got_offsets (abfd) + elf_symtab_hdr (abfd).sh_info))
 
 /* Assorted hash table functions.  */
 
@@ -1022,8 +1022,7 @@ elf_metag_link_hash_table_create (bfd *abfd)
 
   if (!_bfd_elf_link_hash_table_init (&htab->etab, abfd,
 				      metag_link_hash_newfunc,
-				      sizeof (struct elf_metag_link_hash_entry),
-				      METAG_ELF_DATA))
+				      sizeof (struct elf_metag_link_hash_entry)))
     {
       free (htab);
       return NULL;
@@ -1384,44 +1383,6 @@ metag_final_link_relocate (reloc_howto_type *howto,
   return r;
 }
 
-/* This is defined because R_METAG_NONE != 0...
-   See RELOC_AGAINST_DISCARDED_SECTION for details.  */
-#define METAG_RELOC_AGAINST_DISCARDED_SECTION(info, input_bfd, input_section, \
-					      rel, relend, howto, contents) \
-  {									\
-    _bfd_clear_contents (howto, input_bfd, input_section,		\
-			 contents, rel->r_offset);			\
-									\
-    if (bfd_link_relocatable (info)					\
-	&& (input_section->flags & SEC_DEBUGGING))			\
-      {									\
-	/* Only remove relocations in debug sections since other	\
-	   sections may require relocations.  */			\
-	Elf_Internal_Shdr *rel_hdr;					\
-									\
-	rel_hdr = _bfd_elf_single_rel_hdr (input_section->output_section); \
-									\
-	/* Avoid empty output section.  */				\
-	if (rel_hdr->sh_size > rel_hdr->sh_entsize)			\
-	  {								\
-	    rel_hdr->sh_size -= rel_hdr->sh_entsize;			\
-	    rel_hdr = _bfd_elf_single_rel_hdr (input_section);		\
-	    rel_hdr->sh_size -= rel_hdr->sh_entsize;			\
-									\
-	    memmove (rel, rel + 1, (relend - rel) * sizeof (*rel));	\
-									\
-	    input_section->reloc_count--;				\
-	    relend--;							\
-	    rel--;							\
-	    continue;							\
-	  }								\
-      }									\
-									\
-    rel->r_info = R_METAG_NONE;						\
-    rel->r_addend = 0;							\
-    continue;								\
-  }
-
 /* Relocate a META ELF section.
 
 The RELOCATE_SECTION function is called by the new ELF backend linker
@@ -1453,8 +1414,7 @@ section, which means that the addend must be adjusted
 accordingly.  */
 
 static int
-elf_metag_relocate_section (bfd *output_bfd,
-			    struct bfd_link_info *info,
+elf_metag_relocate_section (struct bfd_link_info *info,
 			    bfd *input_bfd,
 			    asection *input_section,
 			    bfd_byte *contents,
@@ -1470,7 +1430,7 @@ elf_metag_relocate_section (bfd *output_bfd,
   Elf_Internal_Rela *relend;
   asection *sreloc;
 
-  symtab_hdr = & elf_tdata (input_bfd)->symtab_hdr;
+  symtab_hdr = &elf_symtab_hdr (input_bfd);
   eh_syms = elf_sym_hashes (input_bfd);
   relend = relocs + input_section->reloc_count;
 
@@ -1509,7 +1469,8 @@ elf_metag_relocate_section (bfd *output_bfd,
 	{
 	  sym = local_syms + r_symndx;
 	  sec = local_sections [r_symndx];
-	  relocation = _bfd_elf_rela_local_sym (output_bfd, sym, &sec, rel);
+	  relocation = _bfd_elf_rela_local_sym (info->output_bfd,
+						sym, &sec, rel);
 
 	  name = bfd_elf_string_from_elf_section
 	    (input_bfd, symtab_hdr->sh_link, sym->st_name);
@@ -1530,8 +1491,9 @@ elf_metag_relocate_section (bfd *output_bfd,
 	}
 
       if (sec != NULL && discarded_section (sec))
-	  METAG_RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-						 rel, relend, howto, contents);
+	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
+					 rel, 1, relend, R_METAG_NONE,
+					 howto, 0, contents);
 
       if (bfd_link_relocatable (info))
 	continue;
@@ -1571,7 +1533,7 @@ elf_metag_relocate_section (bfd *output_bfd,
 	      skip = false;
 	      relocate = false;
 
-	      outrel.r_offset = _bfd_elf_section_offset (output_bfd,
+	      outrel.r_offset = _bfd_elf_section_offset (info->output_bfd,
 							 info,
 							 input_section,
 							 rel->r_offset);
@@ -1615,7 +1577,7 @@ elf_metag_relocate_section (bfd *output_bfd,
 
 	      loc = sreloc->contents;
 	      loc += sreloc->reloc_count * sizeof(Elf32_External_Rela);
-	      bfd_elf32_swap_reloca_out (output_bfd, &outrel,loc);
+	      bfd_elf32_swap_reloca_out (info->output_bfd, &outrel,loc);
 	      ++sreloc->reloc_count;
 
 	      /* If this reloc is against an external symbol, we do
@@ -1739,10 +1701,10 @@ elf_metag_relocate_section (bfd *output_bfd,
 		    outrel.r_addend = relocation;
 		    loc = s->contents;
 		    loc += s->reloc_count++ * sizeof (Elf32_External_Rela);
-		    bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		    bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 		  }
 		else
-		  bfd_put_32 (output_bfd, relocation,
+		  bfd_put_32 (info->output_bfd, relocation,
 			      htab->etab.sgot->contents + off);
 	      }
 
@@ -1827,23 +1789,25 @@ elf_metag_relocate_section (bfd *output_bfd,
 					   + htab->etab.sgot->output_offset);
 			outrel.r_info = ELF32_R_INFO (indx, R_METAG_TLS_DTPMOD);
 			outrel.r_addend = 0;
-			bfd_put_32 (output_bfd, 0, htab->etab.sgot->contents + cur_off);
+			bfd_put_32 (info->output_bfd, 0,
+				    htab->etab.sgot->contents + cur_off);
 
-			bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+			bfd_elf32_swap_reloca_out (info->output_bfd,
+						   &outrel, loc);
 			htab->etab.srelgot->reloc_count++;
 			loc += sizeof (Elf32_External_Rela);
 
 			if (indx == 0)
-			  bfd_put_32 (output_bfd, 0,
+			  bfd_put_32 (info->output_bfd, 0,
 				      htab->etab.sgot->contents + cur_off + 4);
 			else
 			  {
-			    bfd_put_32 (output_bfd, 0,
+			    bfd_put_32 (info->output_bfd, 0,
 					htab->etab.sgot->contents + cur_off + 4);
 			    outrel.r_info = ELF32_R_INFO (indx,
 						      R_METAG_TLS_DTPOFF);
 			    outrel.r_offset += 4;
-			    bfd_elf32_swap_reloca_out (output_bfd,
+			    bfd_elf32_swap_reloca_out (info->output_bfd,
 						       &outrel, loc);
 			    htab->etab.srelgot->reloc_count++;
 			    loc += sizeof (Elf32_External_Rela);
@@ -1879,12 +1843,13 @@ elf_metag_relocate_section (bfd *output_bfd,
 			else
 			  outrel.r_addend = 0;
 
-			bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+			bfd_elf32_swap_reloca_out (info->output_bfd,
+						   &outrel, loc);
 			htab->etab.srelgot->reloc_count++;
 			loc += sizeof (Elf32_External_Rela);
 		      }
 		    else
-		      bfd_put_32 (output_bfd, tpoff (info, relocation),
+		      bfd_put_32 (info->output_bfd, tpoff (info, relocation),
 				  htab->etab.sgot->contents + cur_off);
 
 		    cur_off += 4;
@@ -1948,7 +1913,7 @@ elf_metag_relocate_section (bfd *output_bfd,
 		outrel.r_info = ELF32_R_INFO (0, R_METAG_TLS_DTPMOD);
 		loc = htab->etab.srelgot->contents;
 		loc += htab->etab.srelgot->reloc_count++ * sizeof (Elf32_External_Rela);
-		bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
+		bfd_elf32_swap_reloca_out (info->output_bfd, &outrel, loc);
 		htab->tls_ldm_got.offset |= 1;
 	      }
 
@@ -2015,7 +1980,7 @@ elf_metag_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
   struct elf_metag_link_hash_table *htab;
   struct elf_link_hash_entry *eh;
   struct bfd_link_hash_entry *bh;
-  const struct elf_backend_data *bed = get_elf_backend_data (abfd);
+  elf_backend_data *bed = get_elf_backend_data (abfd);
 
   /* Don't try to create the .plt and .got twice.  */
   htab = metag_link_hash_table (info);
@@ -2076,7 +2041,7 @@ elf_metag_check_relocs (bfd *abfd,
 
   htab = metag_link_hash_table (info);
   dynobj = htab->etab.dynobj;
-  symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
+  symtab_hdr = &elf_symtab_hdr (abfd);
   eh_syms = elf_sym_hashes (abfd);
   sreloc = NULL;
 
@@ -2717,8 +2682,7 @@ allocate_dynrelocs (struct elf_link_hash_entry *eh, void *inf)
 /* Set the sizes of the dynamic sections.  */
 
 static bool
-elf_metag_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
-				 struct bfd_link_info *info)
+elf_metag_late_size_sections (struct bfd_link_info *info)
 {
   struct elf_metag_link_hash_table *htab;
   bfd *dynobj;
@@ -2729,18 +2693,19 @@ elf_metag_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
   htab = metag_link_hash_table (info);
   dynobj = htab->etab.dynobj;
   if (dynobj == NULL)
-    abort ();
+    return true;
 
   if (htab->etab.dynamic_sections_created)
     {
       /* Set the contents of the .interp section to the interpreter.  */
       if (bfd_link_executable (info) && !info->nointerp)
 	{
-	  s = bfd_get_linker_section (dynobj, ".interp");
+	  s = htab->etab.interp;
 	  if (s == NULL)
 	    abort ();
 	  s->size = sizeof ELF_DYNAMIC_INTERPRETER;
 	  s->contents = (unsigned char *) ELF_DYNAMIC_INTERPRETER;
+	  s->alloced = 1;
 	}
     }
 
@@ -2789,7 +2754,7 @@ elf_metag_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
       if (!local_got)
 	continue;
 
-      symtab_hdr = &elf_tdata (ibfd)->symtab_hdr;
+      symtab_hdr = &elf_symtab_hdr (ibfd);
       locsymcount = symtab_hdr->sh_info;
       end_local_got = local_got + locsymcount;
       local_tls_type = metag_elf_local_got_tls_type (ibfd);
@@ -2885,7 +2850,8 @@ elf_metag_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
       s->contents = bfd_zalloc (dynobj, s->size);
       if (s->contents == NULL)
 	return false;
-      else if (reloc_section)
+      s->alloced = 1;
+      if (reloc_section)
 	{
 	  unsigned char *contents = s->contents;
 	  Elf32_External_Rela reloc;
@@ -2901,15 +2867,14 @@ elf_metag_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
 	}
     }
 
-  return _bfd_elf_add_dynamic_tags (output_bfd, info, relocs);
+  return _bfd_elf_add_dynamic_tags (info, relocs);
 }
 
 /* Finish up dynamic symbol handling.  We set the contents of various
    dynamic sections here.  */
 
 static bool
-elf_metag_finish_dynamic_symbol (bfd *output_bfd,
-				 struct bfd_link_info *info,
+elf_metag_finish_dynamic_symbol (struct bfd_link_info *info,
 				 struct elf_link_hash_entry *eh,
 				 Elf_Internal_Sym *sym)
 {
@@ -2960,20 +2925,20 @@ elf_metag_finish_dynamic_symbol (bfd *output_bfd,
       /* Fill in the entry in the procedure linkage table.  */
       if (! bfd_link_pic (info))
 	{
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_entry[0]
 		       | (((got_entry >> 16) & 0xffff) << 3)),
 		      splt->contents + eh->plt.offset);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_entry[1]
 		       | ((got_entry & 0xffff) << 3)),
 		      splt->contents + eh->plt.offset + 4);
-	  bfd_put_32 (output_bfd, plt_entry[2],
+	  bfd_put_32 (info->output_bfd, plt_entry[2],
 		      splt->contents + eh->plt.offset + 8);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_entry[3] | (plt_index << 3)),
 		      splt->contents + eh->plt.offset + 12);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_entry[4]
 		       | ((((unsigned int) ((- (eh->plt.offset + 16)) >> 2)) & 0x7ffff) << 5)),
 		      splt->contents + eh->plt.offset + 16);
@@ -2983,25 +2948,25 @@ elf_metag_finish_dynamic_symbol (bfd *output_bfd,
 	  bfd_vma addr = got_entry - (splt->output_section->vma +
 				      splt->output_offset + eh->plt.offset);
 
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      plt_pic_entry[0] | (((addr >> 16) & 0xffff) << 3),
 		      splt->contents + eh->plt.offset);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      plt_pic_entry[1] | ((addr & 0xffff) << 3),
 		      splt->contents + eh->plt.offset + 4);
-	  bfd_put_32 (output_bfd, plt_pic_entry[2],
+	  bfd_put_32 (info->output_bfd, plt_pic_entry[2],
 		      splt->contents + eh->plt.offset + 8);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_pic_entry[3] | (plt_index << 3)),
 		      splt->contents + eh->plt.offset + 12);
-	  bfd_put_32 (output_bfd,
+	  bfd_put_32 (info->output_bfd,
 		      (plt_pic_entry[4]
 		       + ((((unsigned int) ((- (eh->plt.offset + 16)) >> 2)) & 0x7ffff) << 5)),
 		      splt->contents + eh->plt.offset + 16);
 	}
 
       /* Fill in the entry in the global offset table.  */
-      bfd_put_32 (output_bfd,
+      bfd_put_32 (info->output_bfd,
 		  (splt->output_section->vma
 		   + splt->output_offset
 		   + eh->plt.offset
@@ -3016,7 +2981,7 @@ elf_metag_finish_dynamic_symbol (bfd *output_bfd,
       rel.r_addend = 0;
       loc = htab->etab.srelplt->contents;
       loc += plt_index * sizeof(Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rel, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rel, loc);
 
       if (!eh->def_regular)
 	{
@@ -3055,14 +3020,15 @@ elf_metag_finish_dynamic_symbol (bfd *output_bfd,
 	{
 	  if ((eh->got.offset & 1) != 0)
 	    abort ();
-	  bfd_put_32 (output_bfd, 0, htab->etab.sgot->contents + eh->got.offset);
+	  bfd_put_32 (info->output_bfd, 0,
+		      htab->etab.sgot->contents + eh->got.offset);
 	  rel.r_info = ELF32_R_INFO (eh->dynindx, R_METAG_GLOB_DAT);
 	  rel.r_addend = 0;
 	}
 
       loc = htab->etab.srelgot->contents;
       loc += htab->etab.srelgot->reloc_count++ * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rel, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rel, loc);
     }
 
   if (eh->needs_copy)
@@ -3086,7 +3052,7 @@ elf_metag_finish_dynamic_symbol (bfd *output_bfd,
       else
 	s = htab->etab.srelbss;
       loc = s->contents + s->reloc_count++ * sizeof (Elf32_External_Rela);
-      bfd_elf32_swap_reloca_out (output_bfd, &rel, loc);
+      bfd_elf32_swap_reloca_out (info->output_bfd, &rel, loc);
     }
 
   /* Mark _DYNAMIC and _GLOBAL_OFFSET_TABLE_ as absolute.  */
@@ -3139,8 +3105,8 @@ elf_metag_reloc_type_class (const struct bfd_link_info *info ATTRIBUTE_UNUSED,
 /* Finish up the dynamic sections.  */
 
 static bool
-elf_metag_finish_dynamic_sections (bfd *output_bfd,
-				   struct bfd_link_info *info)
+elf_metag_finish_dynamic_sections (struct bfd_link_info *info,
+				   bfd_byte *buf ATTRIBUTE_UNUSED)
 {
   bfd *dynobj;
   struct elf_metag_link_hash_table *htab;
@@ -3176,19 +3142,19 @@ elf_metag_finish_dynamic_sections (bfd *output_bfd,
 	    case DT_PLTGOT:
 	      s = htab->etab.sgot;
 	      dyn.d_un.d_ptr = s->output_section->vma + s->output_offset;
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	      break;
 
 	    case DT_JMPREL:
 	      s = htab->etab.srelplt;
 	      dyn.d_un.d_ptr = s->output_section->vma + s->output_offset;
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	      break;
 
 	    case DT_PLTRELSZ:
 	      s = htab->etab.srelplt;
 	      dyn.d_un.d_val = s->size;
-	      bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
+	      bfd_elf32_swap_dyn_out (info->output_bfd, &dyn, dyncon);
 	      break;
 	    }
 
@@ -3205,27 +3171,33 @@ elf_metag_finish_dynamic_sections (bfd *output_bfd,
 	  if (bfd_link_pic (info))
 	    {
 	      addr -= splt->output_section->vma + splt->output_offset;
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  plt0_pic_entry[0] | (((addr >> 16) & 0xffff) << 3),
 			  splt->contents);
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  plt0_pic_entry[1] | ((addr & 0xffff) << 3),
 			  splt->contents + 4);
-	      bfd_put_32 (output_bfd, plt0_pic_entry[2], splt->contents + 8);
-	      bfd_put_32 (output_bfd, plt0_pic_entry[3], splt->contents + 12);
-	      bfd_put_32 (output_bfd, plt0_pic_entry[4], splt->contents + 16);
+	      bfd_put_32 (info->output_bfd, plt0_pic_entry[2],
+			  splt->contents + 8);
+	      bfd_put_32 (info->output_bfd, plt0_pic_entry[3],
+			  splt->contents + 12);
+	      bfd_put_32 (info->output_bfd, plt0_pic_entry[4],
+			  splt->contents + 16);
 	    }
 	  else
 	    {
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  plt0_entry[0] | (((addr >> 16) & 0xffff) << 3),
 			  splt->contents);
-	      bfd_put_32 (output_bfd,
+	      bfd_put_32 (info->output_bfd,
 			  plt0_entry[1] | ((addr & 0xffff) << 3),
 			  splt->contents + 4);
-	      bfd_put_32 (output_bfd, plt0_entry[2], splt->contents + 8);
-	      bfd_put_32 (output_bfd, plt0_entry[3], splt->contents + 12);
-	      bfd_put_32 (output_bfd, plt0_entry[4], splt->contents + 16);
+	      bfd_put_32 (info->output_bfd, plt0_entry[2],
+			  splt->contents + 8);
+	      bfd_put_32 (info->output_bfd, plt0_entry[3],
+			  splt->contents + 12);
+	      bfd_put_32 (info->output_bfd, plt0_entry[4],
+			  splt->contents + 16);
 	    }
 
 	  elf_section_data (splt->output_section)->this_hdr.sh_entsize =
@@ -3237,7 +3209,7 @@ elf_metag_finish_dynamic_sections (bfd *output_bfd,
     {
       /* Fill in the first entry in the global offset table.
 	 We use it to point to our dynamic section, if we have one.  */
-      bfd_put_32 (output_bfd,
+      bfd_put_32 (info->output_bfd,
 		  sdyn ? sdyn->output_section->vma + sdyn->output_offset : 0,
 		  htab->etab.sgot->contents);
 
@@ -3258,19 +3230,19 @@ elf_metag_finish_dynamic_sections (bfd *output_bfd,
 static asection *
 elf_metag_gc_mark_hook (asection *sec,
 			struct bfd_link_info *info,
-			Elf_Internal_Rela *rela,
+			struct elf_reloc_cookie *cookie,
 			struct elf_link_hash_entry *hh,
-			Elf_Internal_Sym *sym)
+			unsigned int symndx)
 {
   if (hh != NULL)
-    switch ((unsigned int) ELF32_R_TYPE (rela->r_info))
+    switch (ELF32_R_TYPE (cookie->rel->r_info))
       {
       case R_METAG_GNU_VTINHERIT:
       case R_METAG_GNU_VTENTRY:
 	return NULL;
       }
 
-  return _bfd_elf_gc_mark_hook (sec, info, rela, hh, sym);
+  return _bfd_elf_gc_mark_hook (sec, info, cookie, hh, symndx);
 }
 
 /* Determine the type of stub needed, if any, for a call.  */
@@ -3342,7 +3314,7 @@ metag_build_one_stub (struct bfd_hash_entry *gen_entry, void *in_arg)
      section.  The user should fix his linker script.  */
   if (hsh->target_section->output_section == NULL
       && info->non_contiguous_regions)
-    info->callbacks->einfo (_("%F%P: Could not assign `%pA' to an output section. "
+    info->callbacks->fatal (_("%P: Could not assign `%pA' to an output section. "
 			      "Retry without --enable-non-contiguous-regions.\n"),
 			    hsh->target_section);
 
@@ -3630,7 +3602,7 @@ get_local_syms (bfd *output_bfd ATTRIBUTE_UNUSED, bfd *input_bfd,
       Elf_Internal_Shdr *symtab_hdr;
 
       /* We'll need the symbol table in a second.  */
-      symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
+      symtab_hdr = &elf_symtab_hdr (input_bfd);
       if (symtab_hdr->sh_info == 0)
 	continue;
 
@@ -3729,7 +3701,7 @@ elf_metag_size_stubs(bfd *output_bfd, bfd *stub_bfd,
 	  Elf_Internal_Sym *local_syms;
 
 	  /* We'll need the symbol table in a second.  */
-	  symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
+	  symtab_hdr = &elf_symtab_hdr (input_bfd);
 	  if (symtab_hdr->sh_info == 0)
 	    continue;
 
@@ -3965,6 +3937,7 @@ elf_metag_build_stubs (struct bfd_link_info *info)
       stub_sec->contents = bfd_zalloc (htab->stub_bfd, size);
       if (stub_sec->contents == NULL && size != 0)
 	return false;
+      stub_sec->alloced = 1;
       stub_sec->size = 0;
     }
 
@@ -4019,7 +3992,7 @@ elf_metag_plt_sym_val (bfd_vma i, const asection *plt,
 #define elf_backend_adjust_dynamic_symbol	elf_metag_adjust_dynamic_symbol
 #define elf_backend_finish_dynamic_symbol	elf_metag_finish_dynamic_symbol
 #define elf_backend_finish_dynamic_sections	elf_metag_finish_dynamic_sections
-#define elf_backend_size_dynamic_sections	elf_metag_size_dynamic_sections
+#define elf_backend_late_size_sections		elf_metag_late_size_sections
 #define elf_backend_omit_section_dynsym \
 	_bfd_elf_omit_section_dynsym_all
 #define elf_backend_init_file_header		elf_metag_init_file_header

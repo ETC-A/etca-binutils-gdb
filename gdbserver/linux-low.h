@@ -1,5 +1,5 @@
 /* Internal interfaces for the GNU/Linux specific target code for gdbserver.
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,7 +28,7 @@
 
 /* Included for ptrace type definitions.  */
 #include "nat/linux-ptrace.h"
-#include "target/waitstatus.h" /* For enum target_stop_reason.  */
+#include "target/waitstatus.h"
 #include "tracepoint.h"
 
 #include <list>
@@ -42,7 +42,12 @@ enum regset_type {
   GENERAL_REGS,
   FP_REGS,
   EXTENDED_REGS,
-  OPTIONAL_REGS, /* Do not error if the regset cannot be accessed.  */
+  OPTIONAL_REGS, /* Do not error if the regset cannot be accessed.
+		    Disable the regset instead.  */
+  OPTIONAL_RUNTIME_REGS, /* Some optional regsets can only be accessed
+			    dependent on the execution flow.  For such
+			    access errors don't show a warning and don't
+			    disable the regset.  */
 };
 
 /* The arch's regsets array initializer must be terminated with a NULL
@@ -141,7 +146,7 @@ class linux_process_target : public process_stratum_target
 public:
 
   int create_inferior (const char *program,
-		       const std::vector<char *> &program_args) override;
+		       const std::string &program_args) override;
 
   void post_create_inferior () override;
 
@@ -199,7 +204,7 @@ public:
 
   bool stopped_by_watchpoint () override;
 
-  CORE_ADDR stopped_data_address () override;
+  std::vector<CORE_ADDR> stopped_data_addresses () override;
 
   bool supports_read_offsets () override;
 
@@ -234,11 +239,13 @@ public:
 
   bool supports_vfork_events () override;
 
+  gdb_thread_options supported_thread_options () override;
+
   bool supports_exec_events () override;
 
   void handle_new_gdb_connection () override;
 
-  int handle_monitor_command (char *mon) override;
+  int handle_monitor_command (const char *mon) override;
 
   int core_of_thread (ptid_t ptid) override;
 
@@ -256,6 +263,8 @@ public:
   bool supports_thread_stopped () override;
 
   bool thread_stopped (thread_info *thread) override;
+
+  bool any_resumed () override;
 
   void pause_all (bool freeze) override;
 
@@ -300,6 +309,8 @@ public:
   int multifs_open (int pid, const char *filename, int flags,
 		    mode_t mode) override;
 
+  int multifs_lstat (int pid, const char *filename, struct stat *st) override;
+
   int multifs_unlink (int pid, const char *filename) override;
 
   ssize_t multifs_readlink (int pid, const char *filename, char *buf,
@@ -313,7 +324,8 @@ public:
 #endif
 
   thread_info *thread_pending_parent (thread_info *thread) override;
-  thread_info *thread_pending_child (thread_info *thread) override;
+  thread_info *thread_pending_child (thread_info *thread,
+				     target_waitkind *kind) override;
 
   bool supports_catch_syscall () override;
 
@@ -550,7 +562,7 @@ private:
   process_info *add_linux_process_no_mem_file (int pid, int attached);
 
   /* Free resources associated to PROC and remove it.  */
-  void remove_linux_process (process_info *proc); 
+  void remove_linux_process (process_info *proc);
 
   /* Add a new thread.  */
   lwp_info *add_lwp (ptid_t ptid);
@@ -569,13 +581,15 @@ private: /* Back to private.  */
 
   /* Detect zombie thread group leaders, and "exit" them.  We can't
      reap their exits until all other threads in the group have
-     exited.  */
-  void check_zombie_leaders ();
+     exited.  Returns true if we left any new event pending, false
+     otherwise.  */
+  bool check_zombie_leaders ();
 
-  /* Convenience function that is called when the kernel reports an exit
-     event.  This decides whether to report the event to GDB as a
-     process exit event, a thread exit event, or to suppress the
-     event.  */
+  /* Convenience function that is called when we're about to return an
+     event to the core.  If the event is an exit or signalled event,
+     then this decides whether to report it as process-wide event, as
+     a thread exit event, or to suppress it.  All other event kinds
+     are passed through unmodified.  */
   ptid_t filter_exit_event (lwp_info *event_child,
 			    target_waitstatus *ourstatus);
 
@@ -643,7 +657,7 @@ protected:
 
   virtual bool low_stopped_by_watchpoint ();
 
-  virtual CORE_ADDR low_stopped_data_address ();
+  virtual std::vector<CORE_ADDR> low_stopped_data_addresses ();
 
   /* Hooks to reformat register data for PEEKUSR/POKEUSR (in particular
      for registers smaller than an xfer unit).  */
@@ -705,8 +719,11 @@ protected:
 
 extern linux_process_target *the_linux_target;
 
-#define get_thread_lwp(thr) ((struct lwp_info *) (thread_target_data (thr)))
-#define get_lwp_thread(lwp) ((lwp)->thread)
+static inline lwp_info *
+get_thread_lwp (thread_info *thr)
+{
+  return static_cast<lwp_info *> (thr->target_data ());
+}
 
 /* Information about a signal that is to be delivered to a thread.  */
 
@@ -732,61 +749,64 @@ struct pending_signal
 
 struct lwp_info
 {
-  /* If this LWP is a fork child that wasn't reported to GDB yet, return
-     its parent, else nullptr.  */
+  /* If this LWP is a fork/vfork/clone child that wasn't reported to
+     GDB yet, return its parent, else nullptr.  */
   lwp_info *pending_parent () const
   {
-    if (this->fork_relative == nullptr)
+    if (this->relative == nullptr)
       return nullptr;
 
-    gdb_assert (this->fork_relative->fork_relative == this);
+    gdb_assert (this->relative->relative == this);
 
-    /* In a fork parent/child relationship, the parent has a status pending and
+    /* In a parent/child relationship, the parent has a status pending and
        the child does not, and a thread can only be in one such relationship
        at most.  So we can recognize who is the parent based on which one has
        a pending status.  */
     gdb_assert (!!this->status_pending_p
-		!= !!this->fork_relative->status_pending_p);
+		!= !!this->relative->status_pending_p);
 
-    if (!this->fork_relative->status_pending_p)
+    if (!this->relative->status_pending_p)
       return nullptr;
 
     const target_waitstatus &ws
-      = this->fork_relative->waitstatus;
+      = this->relative->waitstatus;
     gdb_assert (ws.kind () == TARGET_WAITKIND_FORKED
-		|| ws.kind () == TARGET_WAITKIND_VFORKED);
+		|| ws.kind () == TARGET_WAITKIND_VFORKED
+		|| ws.kind () == TARGET_WAITKIND_THREAD_CLONED);
 
-    return this->fork_relative;
-  }
+    return this->relative; }
 
-  /* If this LWP is the parent of a fork child we haven't reported to GDB yet,
-     return that child, else nullptr.  */
-  lwp_info *pending_child () const
+  /* If this LWP is the parent of a fork/vfork/clone child we haven't
+     reported to GDB yet, return that child and fill in KIND with the
+     matching waitkind, otherwise nullptr.  */
+  lwp_info *pending_child (target_waitkind *kind) const
   {
-    if (this->fork_relative == nullptr)
+    if (this->relative == nullptr)
       return nullptr;
 
-    gdb_assert (this->fork_relative->fork_relative == this);
+    gdb_assert (this->relative->relative == this);
 
-    /* In a fork parent/child relationship, the parent has a status pending and
+    /* In a parent/child relationship, the parent has a status pending and
        the child does not, and a thread can only be in one such relationship
        at most.  So we can recognize who is the parent based on which one has
        a pending status.  */
     gdb_assert (!!this->status_pending_p
-		!= !!this->fork_relative->status_pending_p);
+		!= !!this->relative->status_pending_p);
 
     if (!this->status_pending_p)
       return nullptr;
 
     const target_waitstatus &ws = this->waitstatus;
     gdb_assert (ws.kind () == TARGET_WAITKIND_FORKED
-		|| ws.kind () == TARGET_WAITKIND_VFORKED);
+		|| ws.kind () == TARGET_WAITKIND_VFORKED
+		|| ws.kind () == TARGET_WAITKIND_THREAD_CLONED);
 
-    return this->fork_relative;
+    *kind = ws.kind ();
+    return this->relative;
   }
 
   /* Backlink to the parent object.  */
-  struct thread_info *thread = nullptr;
+  thread_info *thread = nullptr;
 
   /* If this flag is set, the next SIGSTOP will be ignored (the
      process will be immediately resumed).  This means that either we
@@ -820,11 +840,13 @@ struct lwp_info
      information or exit status until it can be reported to GDB.  */
   struct target_waitstatus waitstatus;
 
-  /* A pointer to the fork child/parent relative.  Valid only while
-     the parent fork event is not reported to higher layers.  Used to
-     avoid wildcard vCont actions resuming a fork child before GDB is
-     notified about the parent's fork event.  */
-  struct lwp_info *fork_relative = nullptr;
+  /* A pointer to the fork/vfork/clone child/parent relative (like
+     people, LWPs have relatives).  Valid only while the parent
+     fork/vfork/clone event is not reported to higher layers.  Used to
+     avoid wildcard vCont actions resuming a fork/vfork/clone child
+     before GDB is notified about the parent's fork/vfork/clone
+     event.  */
+  struct lwp_info *relative = nullptr;
 
   /* When stopped is set, this is where the lwp last stopped, with
      decr_pc_after_break already accounted for.  If the LWP is
@@ -841,10 +863,9 @@ struct lwp_info
   enum target_stop_reason stop_reason = TARGET_STOPPED_BY_NO_REASON;
 
   /* On architectures where it is possible to know the data address of
-     a triggered watchpoint, STOPPED_DATA_ADDRESS is non-zero, and
-     contains such data address.  Only valid if STOPPED_BY_WATCHPOINT
-     is true.  */
-  CORE_ADDR stopped_data_address = 0;
+     a triggered watchpoint, STOPPED_DATA_ADDRESS is the list of such
+     data addresses.  Only valid if STOPPED_BY_WATCHPOINT is true.  */
+  std::vector<CORE_ADDR> stopped_data_addresses;
 
   /* If this is non-zero, it is a breakpoint to be reinserted at our next
      stop (SIGTRAP stops only).  */
@@ -926,8 +947,8 @@ CORE_ADDR linux_get_pc_64bit (struct regcache *regcache);
 int thread_db_init (void);
 void thread_db_detach (struct process_info *);
 void thread_db_mourn (struct process_info *);
-int thread_db_handle_monitor_command (char *);
-int thread_db_get_tls_address (struct thread_info *thread, CORE_ADDR offset,
+int thread_db_handle_monitor_command (const char *);
+int thread_db_get_tls_address (thread_info *thread, CORE_ADDR offset,
 			       CORE_ADDR load_module, CORE_ADDR *address);
 int thread_db_look_up_one_symbol (const char *name, CORE_ADDR *addrp);
 
@@ -935,11 +956,9 @@ int thread_db_look_up_one_symbol (const char *name, CORE_ADDR *addrp);
    both the clone and the parent should be stopped.  This function does
    whatever is required have the clone under thread_db's control.  */
 
-void thread_db_notice_clone (struct thread_info *parent_thr, ptid_t child_ptid);
+void thread_db_notice_clone (thread_info *parent_thr, ptid_t child_ptid);
 
 bool thread_db_thread_handle (ptid_t ptid, gdb_byte **handle, int *handle_len);
-
-extern int have_ptrace_getregset;
 
 /* Search for the value with type MATCH in the auxv vector, with entries of
    length WORDSIZE bytes, of process with pid PID.  If found, store the

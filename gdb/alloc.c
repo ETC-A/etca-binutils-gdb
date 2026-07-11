@@ -1,6 +1,6 @@
 /* Shared allocation functions for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,14 +27,9 @@
    file can't live there.
 
    So, it lives in gdb and is built separately by gdb and gdbserver.
-   Please be aware of this when modifying it.
+   Please be aware of this when modifying it.  */
 
-   This also explains why this file includes common-defs.h and not
-   defs.h or server.h -- we'd prefer to avoid depending on the
-   GDBSERVER define when possible, and for this file it seemed
-   simple to do so.  */
 
-#include "gdbsupport/common-defs.h"
 #include "libiberty.h"
 #include "gdbsupport/errors.h"
 
@@ -54,7 +49,7 @@ xmalloc (size_t size)
   if (size == 0)
     size = 1;
 
-  val = malloc (size);         /* ARI: malloc */
+  val = malloc (size);
   if (val == NULL)
     malloc_failure (size);
 
@@ -72,9 +67,9 @@ xrealloc (void *ptr, size_t size)
     size = 1;
 
   if (ptr != NULL)
-    val = realloc (ptr, size);	/* ARI: realloc */
+    val = realloc (ptr, size);
   else
-    val = malloc (size);	        /* ARI: malloc */
+    val = malloc (size);
   if (val == NULL)
     malloc_failure (size);
 
@@ -94,7 +89,7 @@ xcalloc (size_t number, size_t size)
       size = 1;
     }
 
-  mem = calloc (number, size);      /* ARI: xcalloc */
+  mem = calloc (number, size);
   if (mem == NULL)
     malloc_failure (number * size);
 

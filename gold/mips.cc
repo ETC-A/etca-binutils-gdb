@@ -1,6 +1,6 @@
 // mips.cc -- mips target support for gold.
 
-// Copyright (C) 2011-2023 Free Software Foundation, Inc.
+// Copyright (C) 2011-2026 Free Software Foundation, Inc.
 // Written by Sasa Stankovic <sasa.stankovic@imgtec.com>
 //        and Aleksandar Simeonov <aleksandar.simeonov@rt-rk.com>.
 // This file contains borrowed and adapted code from bfd/elfxx-mips.c.
@@ -45,7 +45,6 @@
 #include "errors.h"
 #include "gc.h"
 #include "attributes.h"
-#include "nacl.h"
 
 namespace
 {
@@ -4348,7 +4347,8 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
   {
     return (micromips_reloc(r_type)
             && r_type != elfcpp::R_MICROMIPS_PC7_S1
-            && r_type != elfcpp::R_MICROMIPS_PC10_S1);
+            && r_type != elfcpp::R_MICROMIPS_PC10_S1
+            && r_type != elfcpp::R_MICROMIPS_GPREL7_S2);
   }
 
  public:
@@ -4438,8 +4438,9 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
   //   little-endian system.
 
   // Similar to MIPS16, the two 16-bit halves in microMIPS must be swapped
-  // on a little-endian system.  This does not apply to R_MICROMIPS_PC7_S1
-  // and R_MICROMIPS_PC10_S1 relocs that apply to 16-bit instructions.
+  // on a little-endian system.  This does not apply to R_MICROMIPS_PC7_S1,
+  // R_MICROMIPS_PC10_S1 and R_MICROMIPS_GPREL7_S2 relocs that apply
+  // to 16-bit instructions.
 
   static void
   mips_reloc_unshuffle(unsigned char* view, unsigned int r_type,
@@ -5432,13 +5433,12 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
   }
 
   // R_MIPS_GPREL16, R_MIPS16_GPREL, R_MIPS_LITERAL, R_MICROMIPS_LITERAL
-  // R_MICROMIPS_GPREL7_S2, R_MICROMIPS_GPREL16
+  // R_MICROMIPS_GPREL16
   static inline typename This::Status
   relgprel(unsigned char* view, const Mips_relobj<size, big_endian>* object,
            const Symbol_value<size>* psymval, Mips_address gp,
            Mips_address addend_a, bool extract_addend, bool local,
-           unsigned int r_type, bool calculate_only,
-           Valtype* calculated_value)
+           bool calculate_only, Valtype* calculated_value)
   {
     Valtype32* wv = reinterpret_cast<Valtype32*>(view);
     Valtype32 val = elfcpp::Swap<32, big_endian>::readval(wv);
@@ -5446,10 +5446,7 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
     Valtype addend;
     if (extract_addend)
       {
-        if (r_type == elfcpp::R_MICROMIPS_GPREL7_S2)
-          addend = (val & 0x7f) << 2;
-        else
-          addend = val & 0xffff;
+	addend = val & 0xffff;
         // Only sign-extend the addend if it was extracted from the
         // instruction.  If the addend was separate, leave it alone,
         // otherwise we may lose significant bits.
@@ -5468,10 +5465,7 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
     if (local)
       x += object->gp_value();
 
-    if (r_type == elfcpp::R_MICROMIPS_GPREL7_S2)
-      val = Bits<32>::bit_select32(val, x, 0x7f);
-    else
-      val = Bits<32>::bit_select32(val, x, 0xffff);
+    val = Bits<32>::bit_select32(val, x, 0xffff);
 
     if (calculate_only)
       {
@@ -5483,9 +5477,52 @@ class Mips_relocate_functions : public Relocate_functions<size, big_endian>
 
     if (check_overflow<16>(x) == This::STATUS_OVERFLOW)
       {
-        gold_error(_("small-data section exceeds 64KB; lower small-data size "
-                     "limit (see option -G)"));
+	gold_error(_("small-data section too large;"
+		     " lower small-data size limit (see option -G)"));
         return This::STATUS_OVERFLOW;
+      }
+    return This::STATUS_OKAY;
+  }
+
+  // R_MICROMIPS_GPREL7_S2
+  static inline typename This::Status
+  relgprel7(unsigned char* view, const Mips_relobj<size, big_endian>* object,
+	    const Symbol_value<size>* psymval, Mips_address gp,
+	    Mips_address addend_a, bool extract_addend, bool local,
+	    bool calculate_only, Valtype* calculated_value)
+  {
+    Valtype16* wv = reinterpret_cast<Valtype16*>(view);
+    Valtype16 val = elfcpp::Swap<16, big_endian>::readval(wv);
+
+    Valtype addend;
+    if (extract_addend)
+      {
+	addend = (val & 0x7f) << 2;
+	addend = Bits<9>::sign_extend32(addend);
+      }
+    else
+      addend = addend_a;
+
+    Valtype x = psymval->value(object, addend) - gp;
+
+    if (local)
+      x += object->gp_value();
+
+    val = Bits<16>::bit_select32(val, x >> 2, 0x7f);
+
+    if (calculate_only)
+      {
+	*calculated_value = x;
+	return This::STATUS_OKAY;
+      }
+    else
+      elfcpp::Swap<16, big_endian>::writeval(wv, val);
+
+    if (check_overflow<9>(x) == This::STATUS_OVERFLOW)
+      {
+	gold_error(_("small-data section too large;"
+		     " lower small-data size limit (see option -G)"));
+	return This::STATUS_OVERFLOW;
       }
     return This::STATUS_OKAY;
   }
@@ -8807,13 +8844,13 @@ bool
 Target_mips<size, big_endian>::mips_32bit_flags(elfcpp::Elf_Word flags)
 {
   return ((flags & elfcpp::EF_MIPS_32BITMODE) != 0
-          || (flags & elfcpp::EF_MIPS_ABI) == elfcpp::E_MIPS_ABI_O32
-          || (flags & elfcpp::EF_MIPS_ABI) == elfcpp::E_MIPS_ABI_EABI32
-          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::E_MIPS_ARCH_1
-          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::E_MIPS_ARCH_2
-          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::E_MIPS_ARCH_32
-          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::E_MIPS_ARCH_32R2
-          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::E_MIPS_ARCH_32R6);
+          || (flags & elfcpp::EF_MIPS_ABI) == elfcpp::EF_MIPS_ABI_O32
+          || (flags & elfcpp::EF_MIPS_ABI) == elfcpp::EF_MIPS_ABI_EABI32
+          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::EF_MIPS_ARCH_1
+          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::EF_MIPS_ARCH_2
+          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::EF_MIPS_ARCH_32
+          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::EF_MIPS_ARCH_32R2
+          || (flags & elfcpp::EF_MIPS_ARCH) == elfcpp::EF_MIPS_ARCH_32R6);
 }
 
 // Return the MACH for a MIPS e_flags value.
@@ -8823,101 +8860,101 @@ Target_mips<size, big_endian>::elf_mips_mach(elfcpp::Elf_Word flags)
 {
   switch (flags & elfcpp::EF_MIPS_MACH)
     {
-    case elfcpp::E_MIPS_MACH_3900:
+    case elfcpp::EF_MIPS_MACH_3900:
       return mach_mips3900;
 
-    case elfcpp::E_MIPS_MACH_4010:
+    case elfcpp::EF_MIPS_MACH_4010:
       return mach_mips4010;
 
-    case elfcpp::E_MIPS_MACH_4100:
+    case elfcpp::EF_MIPS_MACH_4100:
       return mach_mips4100;
 
-    case elfcpp::E_MIPS_MACH_4111:
+    case elfcpp::EF_MIPS_MACH_4111:
       return mach_mips4111;
 
-    case elfcpp::E_MIPS_MACH_4120:
+    case elfcpp::EF_MIPS_MACH_4120:
       return mach_mips4120;
 
-    case elfcpp::E_MIPS_MACH_4650:
+    case elfcpp::EF_MIPS_MACH_4650:
       return mach_mips4650;
 
-    case elfcpp::E_MIPS_MACH_5400:
+    case elfcpp::EF_MIPS_MACH_5400:
       return mach_mips5400;
 
-    case elfcpp::E_MIPS_MACH_5500:
+    case elfcpp::EF_MIPS_MACH_5500:
       return mach_mips5500;
 
-    case elfcpp::E_MIPS_MACH_5900:
+    case elfcpp::EF_MIPS_MACH_5900:
       return mach_mips5900;
 
-    case elfcpp::E_MIPS_MACH_9000:
+    case elfcpp::EF_MIPS_MACH_9000:
       return mach_mips9000;
 
-    case elfcpp::E_MIPS_MACH_SB1:
+    case elfcpp::EF_MIPS_MACH_SB1:
       return mach_mips_sb1;
 
-    case elfcpp::E_MIPS_MACH_LS2E:
+    case elfcpp::EF_MIPS_MACH_LS2E:
       return mach_mips_loongson_2e;
 
-    case elfcpp::E_MIPS_MACH_LS2F:
+    case elfcpp::EF_MIPS_MACH_LS2F:
       return mach_mips_loongson_2f;
 
-    case elfcpp::E_MIPS_MACH_GS464:
+    case elfcpp::EF_MIPS_MACH_GS464:
       return mach_mips_gs464;
 
-    case elfcpp::E_MIPS_MACH_GS464E:
+    case elfcpp::EF_MIPS_MACH_GS464E:
       return mach_mips_gs464e;
 
-    case elfcpp::E_MIPS_MACH_GS264E:
+    case elfcpp::EF_MIPS_MACH_GS264E:
       return mach_mips_gs264e;
 
-    case elfcpp::E_MIPS_MACH_OCTEON3:
+    case elfcpp::EF_MIPS_MACH_OCTEON3:
       return mach_mips_octeon3;
 
-    case elfcpp::E_MIPS_MACH_OCTEON2:
+    case elfcpp::EF_MIPS_MACH_OCTEON2:
       return mach_mips_octeon2;
 
-    case elfcpp::E_MIPS_MACH_OCTEON:
+    case elfcpp::EF_MIPS_MACH_OCTEON:
       return mach_mips_octeon;
 
-    case elfcpp::E_MIPS_MACH_XLR:
+    case elfcpp::EF_MIPS_MACH_XLR:
       return mach_mips_xlr;
 
     default:
       switch (flags & elfcpp::EF_MIPS_ARCH)
         {
         default:
-        case elfcpp::E_MIPS_ARCH_1:
+        case elfcpp::EF_MIPS_ARCH_1:
           return mach_mips3000;
 
-        case elfcpp::E_MIPS_ARCH_2:
+        case elfcpp::EF_MIPS_ARCH_2:
           return mach_mips6000;
 
-        case elfcpp::E_MIPS_ARCH_3:
+        case elfcpp::EF_MIPS_ARCH_3:
           return mach_mips4000;
 
-        case elfcpp::E_MIPS_ARCH_4:
+        case elfcpp::EF_MIPS_ARCH_4:
           return mach_mips8000;
 
-        case elfcpp::E_MIPS_ARCH_5:
+        case elfcpp::EF_MIPS_ARCH_5:
           return mach_mips5;
 
-        case elfcpp::E_MIPS_ARCH_32:
+        case elfcpp::EF_MIPS_ARCH_32:
           return mach_mipsisa32;
 
-        case elfcpp::E_MIPS_ARCH_64:
+        case elfcpp::EF_MIPS_ARCH_64:
           return mach_mipsisa64;
 
-        case elfcpp::E_MIPS_ARCH_32R2:
+        case elfcpp::EF_MIPS_ARCH_32R2:
           return mach_mipsisa32r2;
 
-        case elfcpp::E_MIPS_ARCH_32R6:
+        case elfcpp::EF_MIPS_ARCH_32R6:
           return mach_mipsisa32r6;
 
-        case elfcpp::E_MIPS_ARCH_64R2:
+        case elfcpp::EF_MIPS_ARCH_64R2:
           return mach_mipsisa64r2;
 
-        case elfcpp::E_MIPS_ARCH_64R6:
+        case elfcpp::EF_MIPS_ARCH_64R6:
           return mach_mipsisa64r6;
         }
     }
@@ -9066,37 +9103,37 @@ Target_mips<size, big_endian>::update_abiflags_isa(const std::string& name,
   int new_isa = 0;
   switch (e_flags & elfcpp::EF_MIPS_ARCH)
     {
-    case elfcpp::E_MIPS_ARCH_1:
+    case elfcpp::EF_MIPS_ARCH_1:
       new_isa = this->level_rev(1, 0);
       break;
-    case elfcpp::E_MIPS_ARCH_2:
+    case elfcpp::EF_MIPS_ARCH_2:
       new_isa = this->level_rev(2, 0);
       break;
-    case elfcpp::E_MIPS_ARCH_3:
+    case elfcpp::EF_MIPS_ARCH_3:
       new_isa = this->level_rev(3, 0);
       break;
-    case elfcpp::E_MIPS_ARCH_4:
+    case elfcpp::EF_MIPS_ARCH_4:
       new_isa = this->level_rev(4, 0);
       break;
-    case elfcpp::E_MIPS_ARCH_5:
+    case elfcpp::EF_MIPS_ARCH_5:
       new_isa = this->level_rev(5, 0);
       break;
-    case elfcpp::E_MIPS_ARCH_32:
+    case elfcpp::EF_MIPS_ARCH_32:
       new_isa = this->level_rev(32, 1);
       break;
-    case elfcpp::E_MIPS_ARCH_32R2:
+    case elfcpp::EF_MIPS_ARCH_32R2:
       new_isa = this->level_rev(32, 2);
       break;
-    case elfcpp::E_MIPS_ARCH_32R6:
+    case elfcpp::EF_MIPS_ARCH_32R6:
       new_isa = this->level_rev(32, 6);
       break;
-    case elfcpp::E_MIPS_ARCH_64:
+    case elfcpp::EF_MIPS_ARCH_64:
       new_isa = this->level_rev(64, 1);
       break;
-    case elfcpp::E_MIPS_ARCH_64R2:
+    case elfcpp::EF_MIPS_ARCH_64R2:
       new_isa = this->level_rev(64, 2);
       break;
-    case elfcpp::E_MIPS_ARCH_64R6:
+    case elfcpp::EF_MIPS_ARCH_64R6:
       new_isa = this->level_rev(64, 6);
       break;
     default:
@@ -11938,12 +11975,20 @@ Target_mips<size, big_endian>::Relocate::relocate(
 
         case elfcpp::R_MIPS_GPREL16:
         case elfcpp::R_MIPS16_GPREL:
-        case elfcpp::R_MICROMIPS_GPREL7_S2:
         case elfcpp::R_MICROMIPS_GPREL16:
           reloc_status = Reloc_funcs::relgprel(view, object, psymval,
                                              target->adjusted_gp_value(object),
                                              r_addend, extract_addend,
-                                             gsym == NULL, r_types[i],
+                                             gsym == NULL,
+                                             this->calculate_only_,
+                                             &this->calculated_value_);
+          break;
+
+        case elfcpp::R_MICROMIPS_GPREL7_S2:
+          reloc_status = Reloc_funcs::relgprel7(view, object, psymval,
+                                             target->adjusted_gp_value(object),
+                                             r_addend, extract_addend,
+                                             gsym == NULL,
                                              this->calculate_only_,
                                              &this->calculated_value_);
           break;
@@ -12489,13 +12534,13 @@ Target_mips<size, big_endian>::elf_mips_abi_name(elfcpp::Elf_Word e_flags)
         return "64";
       else
         return "none";
-    case elfcpp::E_MIPS_ABI_O32:
+    case elfcpp::EF_MIPS_ABI_O32:
       return "O32";
-    case elfcpp::E_MIPS_ABI_O64:
+    case elfcpp::EF_MIPS_ABI_O64:
       return "O64";
-    case elfcpp::E_MIPS_ABI_EABI32:
+    case elfcpp::EF_MIPS_ABI_EABI32:
       return "EABI32";
-    case elfcpp::E_MIPS_ABI_EABI64:
+    case elfcpp::EF_MIPS_ABI_EABI64:
       return "EABI64";
     default:
       return "unknown abi";
@@ -12508,81 +12553,81 @@ Target_mips<size, big_endian>::elf_mips_mach_name(elfcpp::Elf_Word e_flags)
 {
   switch (e_flags & elfcpp::EF_MIPS_MACH)
     {
-    case elfcpp::E_MIPS_MACH_3900:
+    case elfcpp::EF_MIPS_MACH_3900:
       return "mips:3900";
-    case elfcpp::E_MIPS_MACH_4010:
+    case elfcpp::EF_MIPS_MACH_4010:
       return "mips:4010";
-    case elfcpp::E_MIPS_MACH_4100:
+    case elfcpp::EF_MIPS_MACH_4100:
       return "mips:4100";
-    case elfcpp::E_MIPS_MACH_4111:
+    case elfcpp::EF_MIPS_MACH_4111:
       return "mips:4111";
-    case elfcpp::E_MIPS_MACH_4120:
+    case elfcpp::EF_MIPS_MACH_4120:
       return "mips:4120";
-    case elfcpp::E_MIPS_MACH_4650:
+    case elfcpp::EF_MIPS_MACH_4650:
       return "mips:4650";
-    case elfcpp::E_MIPS_MACH_5400:
+    case elfcpp::EF_MIPS_MACH_5400:
       return "mips:5400";
-    case elfcpp::E_MIPS_MACH_5500:
+    case elfcpp::EF_MIPS_MACH_5500:
       return "mips:5500";
-    case elfcpp::E_MIPS_MACH_5900:
+    case elfcpp::EF_MIPS_MACH_5900:
       return "mips:5900";
-    case elfcpp::E_MIPS_MACH_SB1:
+    case elfcpp::EF_MIPS_MACH_SB1:
       return "mips:sb1";
-    case elfcpp::E_MIPS_MACH_9000:
+    case elfcpp::EF_MIPS_MACH_9000:
       return "mips:9000";
-    case elfcpp::E_MIPS_MACH_LS2E:
+    case elfcpp::EF_MIPS_MACH_LS2E:
       return "mips:loongson_2e";
-    case elfcpp::E_MIPS_MACH_LS2F:
+    case elfcpp::EF_MIPS_MACH_LS2F:
       return "mips:loongson_2f";
-    case elfcpp::E_MIPS_MACH_GS464:
+    case elfcpp::EF_MIPS_MACH_GS464:
       return "mips:gs464";
-    case elfcpp::E_MIPS_MACH_GS464E:
+    case elfcpp::EF_MIPS_MACH_GS464E:
       return "mips:gs464e";
-    case elfcpp::E_MIPS_MACH_GS264E:
+    case elfcpp::EF_MIPS_MACH_GS264E:
       return "mips:gs264e";
-    case elfcpp::E_MIPS_MACH_OCTEON:
+    case elfcpp::EF_MIPS_MACH_OCTEON:
       return "mips:octeon";
-    case elfcpp::E_MIPS_MACH_OCTEON2:
+    case elfcpp::EF_MIPS_MACH_OCTEON2:
       return "mips:octeon2";
-    case elfcpp::E_MIPS_MACH_OCTEON3:
+    case elfcpp::EF_MIPS_MACH_OCTEON3:
       return "mips:octeon3";
-    case elfcpp::E_MIPS_MACH_XLR:
+    case elfcpp::EF_MIPS_MACH_XLR:
       return "mips:xlr";
     default:
       switch (e_flags & elfcpp::EF_MIPS_ARCH)
         {
         default:
-        case elfcpp::E_MIPS_ARCH_1:
+        case elfcpp::EF_MIPS_ARCH_1:
           return "mips:3000";
 
-        case elfcpp::E_MIPS_ARCH_2:
+        case elfcpp::EF_MIPS_ARCH_2:
           return "mips:6000";
 
-        case elfcpp::E_MIPS_ARCH_3:
+        case elfcpp::EF_MIPS_ARCH_3:
           return "mips:4000";
 
-        case elfcpp::E_MIPS_ARCH_4:
+        case elfcpp::EF_MIPS_ARCH_4:
           return "mips:8000";
 
-        case elfcpp::E_MIPS_ARCH_5:
+        case elfcpp::EF_MIPS_ARCH_5:
           return "mips:mips5";
 
-        case elfcpp::E_MIPS_ARCH_32:
+        case elfcpp::EF_MIPS_ARCH_32:
           return "mips:isa32";
 
-        case elfcpp::E_MIPS_ARCH_64:
+        case elfcpp::EF_MIPS_ARCH_64:
           return "mips:isa64";
 
-        case elfcpp::E_MIPS_ARCH_32R2:
+        case elfcpp::EF_MIPS_ARCH_32R2:
           return "mips:isa32r2";
 
-        case elfcpp::E_MIPS_ARCH_32R6:
+        case elfcpp::EF_MIPS_ARCH_32R6:
           return "mips:isa32r6";
 
-        case elfcpp::E_MIPS_ARCH_64R2:
+        case elfcpp::EF_MIPS_ARCH_64R2:
           return "mips:isa64r2";
 
-        case elfcpp::E_MIPS_ARCH_64R6:
+        case elfcpp::EF_MIPS_ARCH_64R6:
           return "mips:isa64r6";
         }
     }
@@ -12618,49 +12663,7 @@ const Target::Target_info Target_mips<size, big_endian>::mips_info =
   elfcpp::SHT_PROGBITS,	// unwind_section_type
 };
 
-template<int size, bool big_endian>
-class Target_mips_nacl : public Target_mips<size, big_endian>
-{
- public:
-  Target_mips_nacl()
-    : Target_mips<size, big_endian>(&mips_nacl_info)
-  { }
-
- private:
-  static const Target::Target_info mips_nacl_info;
-};
-
-template<int size, bool big_endian>
-const Target::Target_info Target_mips_nacl<size, big_endian>::mips_nacl_info =
-{
-  size,                 // size
-  big_endian,           // is_big_endian
-  elfcpp::EM_MIPS,      // machine_code
-  true,                 // has_make_symbol
-  false,                // has_resolve
-  false,                // has_code_fill
-  true,                 // is_default_stack_executable
-  false,                // can_icf_inline_merge_sections
-  '\0',                 // wrap_char
-  "/lib/ld.so.1",       // dynamic_linker
-  0x20000,              // default_text_segment_address
-  0x10000,              // abi_pagesize (overridable by -z max-page-size)
-  0x10000,              // common_pagesize (overridable by -z common-page-size)
-  true,                 // isolate_execinstr
-  0x10000000,           // rosegment_gap
-  elfcpp::SHN_UNDEF,    // small_common_shndx
-  elfcpp::SHN_UNDEF,    // large_common_shndx
-  0,                    // small_common_section_flags
-  0,                    // large_common_section_flags
-  NULL,                 // attributes_section
-  NULL,                 // attributes_vendor
-  "_start",             // entry_symbol_name
-  32,			// hash_entry_size
-  elfcpp::SHT_PROGBITS,	// unwind_section_type
-};
-
-// Target selector for Mips.  Note this is never instantiated directly.
-// It's only used in Target_selector_mips_nacl, below.
+// Target selector for Mips.
 
 template<int size, bool big_endian>
 class Target_selector_mips : public Target_selector
@@ -12680,23 +12683,9 @@ public:
   { return new Target_mips<size, big_endian>(); }
 };
 
-template<int size, bool big_endian>
-class Target_selector_mips_nacl
-  : public Target_selector_nacl<Target_selector_mips<size, big_endian>,
-                                Target_mips_nacl<size, big_endian> >
-{
- public:
-  Target_selector_mips_nacl()
-    : Target_selector_nacl<Target_selector_mips<size, big_endian>,
-                           Target_mips_nacl<size, big_endian> >(
-        // NaCl currently supports only MIPS32 little-endian.
-        "mipsel", "elf32-tradlittlemips-nacl", "elf32-tradlittlemips-nacl")
-  { }
-};
-
-Target_selector_mips_nacl<32, true> target_selector_mips32;
-Target_selector_mips_nacl<32, false> target_selector_mips32el;
-Target_selector_mips_nacl<64, true> target_selector_mips64;
-Target_selector_mips_nacl<64, false> target_selector_mips64el;
+Target_selector_mips<32, true> target_selector_mips32;
+Target_selector_mips<32, false> target_selector_mips32el;
+Target_selector_mips<64, true> target_selector_mips64;
+Target_selector_mips<64, false> target_selector_mips64el;
 
 } // End anonymous namespace.

@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2023 Free Software Foundation, Inc.
+# Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 # printers.
 
 import re
+
 import gdb
 
 
@@ -386,18 +387,18 @@ def register_pretty_printers():
     pretty_printers_dict[re.compile("^container$")] = ContainerPrinter
     pretty_printers_dict[re.compile("^justchildren$")] = NoStringContainerPrinter
 
-    pretty_printers_dict[
-        re.compile("^struct to_string_returns_value_inner$")
-    ] = ToStringReturnsValueInner
-    pretty_printers_dict[
-        re.compile("^to_string_returns_value_inner$")
-    ] = ToStringReturnsValueInner
-    pretty_printers_dict[
-        re.compile("^struct to_string_returns_value_wrapper$")
-    ] = ToStringReturnsValueWrapper
-    pretty_printers_dict[
-        re.compile("^to_string_returns_value_wrapper$")
-    ] = ToStringReturnsValueWrapper
+    pretty_printers_dict[re.compile("^struct to_string_returns_value_inner$")] = (
+        ToStringReturnsValueInner
+    )
+    pretty_printers_dict[re.compile("^to_string_returns_value_inner$")] = (
+        ToStringReturnsValueInner
+    )
+    pretty_printers_dict[re.compile("^struct to_string_returns_value_wrapper$")] = (
+        ToStringReturnsValueWrapper
+    )
+    pretty_printers_dict[re.compile("^to_string_returns_value_wrapper$")] = (
+        ToStringReturnsValueWrapper
+    )
 
     pretty_printers_dict[re.compile("^struct ns$")] = pp_ns
     pretty_printers_dict[re.compile("^ns$")] = pp_ns

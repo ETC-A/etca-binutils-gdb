@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 1998-2023 Free Software Foundation, Inc.
+## Copyright (C) 1998-2026 Free Software Foundation, Inc.
 ## Contributed by Red Hat.
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -17,10 +17,6 @@
 ## along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 AM_CPPFLAGS_%C% = $(SIM_FRV_TRAPDUMP_FLAGS)
-
-## Some modules don't build cleanly yet.
-AM_CFLAGS_%C%_memory.o = -Wno-error
-AM_CFLAGS_%C%_sem.o = -Wno-error
 
 nodist_%C%_libsim_a_SOURCES = \
 	%D%/modules.c
@@ -92,15 +88,15 @@ BUILT_SOURCES += %D%/eng.h
 
 ## FIXME: Use of `mono' is wip.
 %D%/mloop.c %D%/eng.h: %D%/stamp-mloop ; @true
-%D%/stamp-mloop: $(srccom)/genmloop.sh %D%/mloop.in
-	$(AM_V_GEN)$(SHELL) $(srccom)/genmloop.sh -shell $(SHELL) \
+%D%/stamp-mloop: %D%/mloop.in $(srccom)/genmloop.sh
+	$(AM_V_GEN)$(CGEN_GEN_MLOOP) \
 		-mono -scache -parallel-generic-write -parallel-only \
-		-cpu frvbf \
-		-infile $(srcdir)/%D%/mloop.in -outfile-prefix %D%/
+		-cpu frvbf
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/eng.hin %D%/eng.h
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/mloop.cin %D%/mloop.c
 	$(AM_V_at)touch $@
 
+CLEANFILES += %D%/eng.h
 MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 ## Target that triggers all cgen targets that works when --disable-cgen-maint.
@@ -108,8 +104,8 @@ MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 %D%/cgen-arch:
 	$(AM_V_GEN)mach=all FLAGS="with-scache"; $(CGEN_GEN_ARCH)
-%D%/arch.h %D%/arch.c %D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
+$(srcdir)/%D%/arch.h $(srcdir)/%D%/arch.c $(srcdir)/%D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
 
 %D%/cgen-cpu-decode:
 	$(AM_V_GEN)cpu=frvbf mach=frv,fr550,fr500,fr450,fr400,tomcat,simple FLAGS="with-scache with-profile=fn with-generic-write with-parallel-only" EXTRAFILES="$(CGEN_CPU_SEM)"; $(CGEN_GEN_CPU_DECODE)
-%D%/cpu.h %D%/sem.c %D%/model.c %D%/decode.c %D%/decode.h: @CGEN_MAINT@ %D%/cgen-cpu-decode
+$(srcdir)/%D%/cpu.h $(srcdir)/%D%/sem.c $(srcdir)/%D%/model.c $(srcdir)/%D%/decode.c $(srcdir)/%D%/decode.h: @CGEN_MAINT@ %D%/cgen-cpu-decode

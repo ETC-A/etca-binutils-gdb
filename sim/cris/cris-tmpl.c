@@ -1,5 +1,5 @@
 /* CRIS base simulator support code
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
    Contributed by Axis Communications.
 
 This file is part of the GNU simulators.
@@ -66,6 +66,10 @@ MY (f_break_handler) (SIM_CPU *cpu, USI breaknum, USI pc)
       /* Re-use the Linux exit call.  */
       cris_break_13_handler (cpu, /* TARGET_SYS_exit */ 1, 0,
 			     0, 0, 0, 0, 0, pc);
+
+      /* This shouldn't be reached, but we can't mark break 13 as noreturn
+	 since there are some calls which should return.  */
+      ATTRIBUTE_FALLTHROUGH;
 
     default:
       abort ();
@@ -261,6 +265,9 @@ MY (make_thread_cpu_data) (SIM_CPU *current_cpu, void *context)
   return info;
 }
 
+/* Placate -Wmissing-prototypes when mloop.in isn't used.  */
+void MY (f_specific_init) (SIM_CPU *current_cpu);
+
 /* Hook function for per-cpu simulator initialization.  */
 
 void
@@ -276,6 +283,13 @@ MY (f_specific_init) (SIM_CPU *current_cpu)
 #endif
 }
 
+/* Placate -Wmissing-prototypes when mloop.in isn't used.  */
+int MY (XCONCAT3 (f_model_crisv,BASENUM, _u_stall))
+     (SIM_CPU *current_cpu ATTRIBUTE_UNUSED,
+      const IDESC *idesc,
+      int unit_num,
+      int referenced ATTRIBUTE_UNUSED);
+
 /* Model function for arbitrary single stall cycles.  */
 
 int

@@ -1,6 +1,6 @@
 /* Native-dependent code for FreeBSD/arm.
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "inferior.h"
 #include "target.h"
 
@@ -105,9 +104,7 @@ arm_fbsd_nat_target::read_description ()
   return desc;
 }
 
-void _initialize_arm_fbsd_nat ();
-void
-_initialize_arm_fbsd_nat ()
+INIT_GDB_FILE (arm_fbsd_nat)
 {
   add_inf_child_target (&the_arm_fbsd_nat_target);
 }

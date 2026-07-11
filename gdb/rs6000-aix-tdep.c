@@ -1,6 +1,6 @@
 /* Native support code for PPC AIX, for GDB the GNU debugger.
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    Free Software Foundation, Inc.
 
@@ -19,7 +19,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "osabi.h"
 #include "regcache.h"
 #include "regset.h"
@@ -153,7 +153,7 @@ rs6000_aix_supply_vsxregset (const struct regset *regset, struct regcache *regca
     {
       int i, offset = 0;
 
-      for (i = tdep->ppc_vsr0_upper_regnum; i < tdep->ppc_vsr0_upper_regnum 
+      for (i = tdep->ppc_vsr0_upper_regnum; i < tdep->ppc_vsr0_upper_regnum
 						     + 32; i++, offset += 8)
 	ppc_supply_reg (regcache, i, (const gdb_byte *) vsxregs, offset, 8);
 
@@ -240,7 +240,7 @@ static const struct regset rs6000_aix_vsxregset = {
 };
 
 static struct trad_frame_cache *
-aix_sighandle_frame_cache (frame_info_ptr this_frame,
+aix_sighandle_frame_cache (const frame_info_ptr &this_frame,
 			   void **this_cache)
 {
   LONGEST backchain;
@@ -296,7 +296,7 @@ aix_sighandle_frame_cache (frame_info_ptr this_frame,
 }
 
 static void
-aix_sighandle_frame_this_id (frame_info_ptr this_frame,
+aix_sighandle_frame_this_id (const frame_info_ptr &this_frame,
 			     void **this_prologue_cache,
 			     struct frame_id *this_id)
 {
@@ -306,7 +306,7 @@ aix_sighandle_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-aix_sighandle_frame_prev_register (frame_info_ptr this_frame,
+aix_sighandle_frame_prev_register (const frame_info_ptr &this_frame,
 				   void **this_prologue_cache, int regnum)
 {
   struct trad_frame_cache *this_trad_cache
@@ -316,7 +316,7 @@ aix_sighandle_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 aix_sighandle_frame_sniffer (const struct frame_unwind *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     void **this_prologue_cache)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
@@ -328,15 +328,16 @@ aix_sighandle_frame_sniffer (const struct frame_unwind *self,
 
 /* AIX signal handler frame unwinder */
 
-static const struct frame_unwind aix_sighandle_frame_unwind = {
+static const struct frame_unwind_legacy aix_sighandle_frame_unwind (
   "rs6000 aix sighandle",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   aix_sighandle_frame_this_id,
   aix_sighandle_frame_prev_register,
   NULL,
   aix_sighandle_frame_sniffer
-};
+);
 
 /* Core file support.  */
 
@@ -469,13 +470,13 @@ ppc_aix_core_read_description (struct gdbarch *gdbarch,
     arch64 = 1;
 
   if (vsx && arch64)
-    return tdesc_powerpc_vsx64;
+    return tdesc_powerpc_vsx64.get ();
   else if (vsx && !arch64)
-    return tdesc_powerpc_vsx32;
+    return tdesc_powerpc_vsx32.get ();
   else if (altivec && arch64)
-    return tdesc_powerpc_altivec64;
+    return tdesc_powerpc_altivec64.get ();
   else if (altivec && !arch64)
-    return tdesc_powerpc_altivec32;
+    return tdesc_powerpc_altivec32.get ();
 
   return NULL;
 }
@@ -524,7 +525,7 @@ rs6000_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
      on PPC variants that lack them.  */
   gdb_assert (ppc_floating_point_unit_p (gdbarch));
 
-  /* The first eight words of ther arguments are passed in registers.
+  /* The first eight words of the arguments are passed in registers.
      Copy them appropriately.  */
   ii = 0;
 
@@ -543,17 +544,17 @@ rs6000_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
    return_val example( float, int);
 
-   eabi: 
+   eabi:
    float in fp0, int in r3
    offset of stack on overflow 8/16
    for varargs, must go by type.
    power open:
    float in r3&r4, int in r5
-   offset of stack on overflow different 
-   both: 
+   offset of stack on overflow different
+   both:
    return in r3 or f0.  If no float, must study how gcc emulates floats;
    pay attention to arg promotion.
-   User may have to cast\args to handle promotion correctly 
+   User may have to cast\args to handle promotion correctly
    since gdb won't know if prototype supplied or not.  */
 
   for (argno = 0, argbytes = 0; argno < nargs && ii < 8; ++ii)
@@ -640,7 +641,7 @@ ran_out_of_registers_for_arguments:
   /* Stack pointer must be quadword aligned.  */
   sp &= -16;
 
-  /* If there are more arguments, allocate space for them in 
+  /* If there are more arguments, allocate space for them in
      the stack, then push them starting from the ninth one.  */
 
   if ((argno < nargs) || argbytes)
@@ -649,7 +650,7 @@ ran_out_of_registers_for_arguments:
 
       if (argbytes)
 	{
-	  space += ((len - argbytes + 3) & -4);
+	  space += ((len - argbytes + wordsize -1) & -wordsize);
 	  jj = argno + 1;
 	}
       else
@@ -658,7 +659,7 @@ ran_out_of_registers_for_arguments:
       for (; jj < nargs; ++jj)
 	{
 	  struct value *val = args[jj];
-	  space += ((val->type ()->length ()) + 3) & -4;
+	  space += ((val->type ()->length () + wordsize -1) & -wordsize);
 	}
 
       /* Add location required for the rest of the parameters.  */
@@ -674,16 +675,16 @@ ran_out_of_registers_for_arguments:
       regcache_raw_write_signed (regcache,
 				 gdbarch_sp_regnum (gdbarch), sp);
 
-      /* If the last argument copied into the registers didn't fit there 
+      /* If the last argument copied into the registers didn't fit there
 	 completely, push the rest of it into stack.  */
 
       if (argbytes)
 	{
-	  write_memory (sp + 24 + (ii * 4),
+	  write_memory (sp + 6 * wordsize + (ii * wordsize),
 			arg->contents ().data () + argbytes,
 			len - argbytes);
 	  ++argno;
-	  ii += ((len - argbytes + 3) & -4) / 4;
+	  ii += ((len - argbytes + wordsize - 1) & -wordsize) / wordsize;
 	}
 
       /* Push the rest of the arguments into stack.  */
@@ -707,8 +708,20 @@ ran_out_of_registers_for_arguments:
 	      ++f_argno;
 	    }
 
-	  write_memory (sp + 24 + (ii * 4), arg->contents ().data (), len);
-	  ii += ((len + 3) & -4) / 4;
+	  if (type->code () == TYPE_CODE_INT
+	     || type->code () == TYPE_CODE_ENUM
+	     || type->code () == TYPE_CODE_BOOL
+	     || type->code () == TYPE_CODE_CHAR )
+	    {
+	      gdb_byte word[PPC_MAX_REGISTER_SIZE];
+	      memset (word, 0, PPC_MAX_REGISTER_SIZE);
+	      store_unsigned_integer (word, tdep->wordsize, byte_order,
+				      unpack_long (type, arg->contents ().data ()));
+	      write_memory (sp + 6 * wordsize + (ii * wordsize), word, PPC_MAX_REGISTER_SIZE);
+	    }
+	  else
+	    write_memory (sp + 6 * wordsize + (ii * wordsize), arg->contents ().data (), len);
+	  ii += ((len + wordsize -1) & -wordsize) / wordsize;
 	}
     }
 
@@ -1012,8 +1025,12 @@ rs6000_software_single_step (struct regcache *regcache)
   std::vector<CORE_ADDR> next_pcs = ppc_deal_with_atomic_sequence (regcache);
   if (!next_pcs.empty ())
     return next_pcs;
-  
-  breaks[0] = loc + PPC_INSN_SIZE;
+
+  /* Here 0xfc000000 is the opcode mask to detect a P10 prefix instruction.  */
+  if ((insn & 0xfc000000) == 1 << 26)
+    breaks[0] = loc + 2 * PPC_INSN_SIZE;
+  else
+    breaks[0] = loc + PPC_INSN_SIZE;
   opcode = insn >> 26;
   breaks[1] = branch_dest (regcache, opcode, insn, loc, breaks[0]);
 
@@ -1222,44 +1239,41 @@ rs6000_aix_extract_ld_info (struct gdbarch *gdbarch,
   return info;
 }
 
-/* Append to OBJSTACK an XML string description of the shared library
+/* Append to XML an XML string description of the shared library
    corresponding to LDI, following the TARGET_OBJECT_LIBRARIES_AIX
    format.  */
 
 static void
-rs6000_aix_shared_library_to_xml (struct ld_info *ldi,
-				  struct obstack *obstack)
+rs6000_aix_shared_library_to_xml (struct ld_info *ldi, std::string &xml)
 {
-  obstack_grow_str (obstack, "<library name=\"");
-  std::string p = xml_escape_text (ldi->filename);
-  obstack_grow_str (obstack, p.c_str ());
-  obstack_grow_str (obstack, "\"");
+  xml += "<library name=\"";
+  xml_escape_text_append (xml, ldi->filename);
+  xml += '"';
 
   if (ldi->member_name[0] != '\0')
     {
-      obstack_grow_str (obstack, " member=\"");
-      p = xml_escape_text (ldi->member_name);
-      obstack_grow_str (obstack, p.c_str ());
-      obstack_grow_str (obstack, "\"");
+      xml += " member=\"";
+      xml_escape_text_append (xml, ldi->member_name);
+      xml += '"';
     }
 
-  obstack_grow_str (obstack, " text_addr=\"");
-  obstack_grow_str (obstack, core_addr_to_string (ldi->textorg));
-  obstack_grow_str (obstack, "\"");
+  xml += " text_addr=\"";
+  xml += core_addr_to_string (ldi->textorg);
+  xml += '"';
 
-  obstack_grow_str (obstack, " text_size=\"");
-  obstack_grow_str (obstack, pulongest (ldi->textsize));
-  obstack_grow_str (obstack, "\"");
+  xml += " text_size=\"";
+  xml += pulongest (ldi->textsize);
+  xml += '"';
 
-  obstack_grow_str (obstack, " data_addr=\"");
-  obstack_grow_str (obstack, core_addr_to_string (ldi->dataorg));
-  obstack_grow_str (obstack, "\"");
+  xml += " data_addr=\"";
+  xml += core_addr_to_string (ldi->dataorg);
+  xml += '"';
 
-  obstack_grow_str (obstack, " data_size=\"");
-  obstack_grow_str (obstack, pulongest (ldi->datasize));
-  obstack_grow_str (obstack, "\"");
+  xml += " data_size=\"";
+  xml += pulongest (ldi->datasize);
+  xml += '"';
 
-  obstack_grow_str (obstack, "></library>");
+  xml += "></library>";
 }
 
 /* Convert the ld_info binary data provided by the AIX loader into
@@ -1282,18 +1296,13 @@ rs6000_aix_ld_info_to_xml (struct gdbarch *gdbarch, const gdb_byte *ldi_buf,
 			   gdb_byte *readbuf, ULONGEST offset, ULONGEST len,
 			   int close_ldinfo_fd)
 {
-  struct obstack obstack;
-  const char *buf;
-  ULONGEST len_avail;
-
-  obstack_init (&obstack);
-  obstack_grow_str (&obstack, "<library-list-aix version=\"1.0\">\n");
+  std::string xml = "<library-list-aix version=\"1.0\">\n";
 
   while (1)
     {
       struct ld_info ldi = rs6000_aix_extract_ld_info (gdbarch, ldi_buf);
 
-      rs6000_aix_shared_library_to_xml (&ldi, &obstack);
+      rs6000_aix_shared_library_to_xml (&ldi, xml);
       if (close_ldinfo_fd)
 	close (ldi.fd);
 
@@ -1302,20 +1311,18 @@ rs6000_aix_ld_info_to_xml (struct gdbarch *gdbarch, const gdb_byte *ldi_buf,
       ldi_buf = ldi_buf + ldi.next;
     }
 
-  obstack_grow_str0 (&obstack, "</library-list-aix>\n");
+  xml += "</library-list-aix>\n";
 
-  buf = (const char *) obstack_finish (&obstack);
-  len_avail = strlen (buf);
+  ULONGEST len_avail = xml.length ();
   if (offset >= len_avail)
     len= 0;
   else
     {
       if (len > len_avail - offset)
 	len = len_avail - offset;
-      memcpy (readbuf, buf + offset, len);
+      memcpy (readbuf, xml.data () + offset, len);
     }
 
-  obstack_free (&obstack, NULL);
   return len;
 }
 
@@ -1323,6 +1330,7 @@ rs6000_aix_ld_info_to_xml (struct gdbarch *gdbarch, const gdb_byte *ldi_buf,
 
 static ULONGEST
 rs6000_aix_core_xfer_shared_libraries_aix (struct gdbarch *gdbarch,
+					   struct bfd &cbfd,
 					   gdb_byte *readbuf,
 					   ULONGEST offset,
 					   ULONGEST len)
@@ -1330,7 +1338,7 @@ rs6000_aix_core_xfer_shared_libraries_aix (struct gdbarch *gdbarch,
   struct bfd_section *ldinfo_sec;
   int ldinfo_size;
 
-  ldinfo_sec = bfd_get_section_by_name (core_bfd, ".ldinfo");
+  ldinfo_sec = bfd_get_section_by_name (&cbfd, ".ldinfo");
   if (ldinfo_sec == NULL)
     error (_("cannot find .ldinfo section from core file: %s"),
 	   bfd_errmsg (bfd_get_error ()));
@@ -1338,8 +1346,8 @@ rs6000_aix_core_xfer_shared_libraries_aix (struct gdbarch *gdbarch,
 
   gdb::byte_vector ldinfo_buf (ldinfo_size);
 
-  if (! bfd_get_section_contents (core_bfd, ldinfo_sec,
-				  ldinfo_buf.data (), 0, ldinfo_size))
+  if (! bfd_get_section_contents (&cbfd, ldinfo_sec, ldinfo_buf.data (), 0,
+				  ldinfo_size))
     error (_("unable to read .ldinfo section from core file: %s"),
 	  bfd_errmsg (bfd_get_error ()));
 
@@ -1353,7 +1361,7 @@ rs6000_aix_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
   ppc_gdbarch_tdep *tdep = gdbarch_tdep<ppc_gdbarch_tdep> (gdbarch);
 
   /* RS6000/AIX does not support PT_STEP.  Has to be simulated.  */
-  set_gdbarch_software_single_step (gdbarch, rs6000_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, rs6000_software_single_step);
 
   /* Displaced stepping is currently not supported in combination with
      software single-stepping.  These override the values set by
@@ -1391,22 +1399,22 @@ rs6000_aix_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
        224.  */
     set_gdbarch_frame_red_zone_size (gdbarch, 224);
   else
-    set_gdbarch_frame_red_zone_size (gdbarch, 0);
+    /* In 64 bit mode the red zone should have 18 8 byte GPRS + 18 8 byte
+       FPRS making it 288 bytes.  This is 16 byte aligned as well.  */
+    set_gdbarch_frame_red_zone_size (gdbarch, 288);
 
   if (tdep->wordsize == 8)
     set_gdbarch_wchar_bit (gdbarch, 32);
   else
     set_gdbarch_wchar_bit (gdbarch, 16);
-  set_gdbarch_wchar_signed (gdbarch, 0);
+  set_gdbarch_wchar_signed (gdbarch, false);
   set_gdbarch_auto_wide_charset (gdbarch, rs6000_aix_auto_wide_charset);
 
-  set_gdbarch_so_ops (gdbarch, &solib_aix_so_ops);
+  set_gdbarch_make_solib_ops (gdbarch, make_aix_solib_ops);
   frame_unwind_append_unwinder (gdbarch, &aix_sighandle_frame_unwind);
 }
 
-void _initialize_rs6000_aix_tdep ();
-void
-_initialize_rs6000_aix_tdep ()
+INIT_GDB_FILE (rs6000_aix_tdep)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_rs6000,
 				  bfd_target_xcoff_flavour,
@@ -1420,4 +1428,3 @@ _initialize_rs6000_aix_tdep ()
   gdbarch_register_osabi (bfd_arch_powerpc, 0, GDB_OSABI_AIX,
 			  rs6000_aix_init_osabi);
 }
-

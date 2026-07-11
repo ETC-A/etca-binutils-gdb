@@ -1,6 +1,6 @@
 /* Native-dependent code for BSD Unix running on ARM's, for GDB.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,6 @@
 
 /* We define this to get types like register_t.  */
 #define _KERNTYPES
-#include "defs.h"
 #include "gdbcore.h"
 #include "inferior.h"
 #include "regcache.h"
@@ -184,7 +183,7 @@ store_register (const struct regcache *regcache, int regno)
 	  unsigned pc_val;
 
 	  regcache->raw_collect (ARM_PC_REGNUM, (char *) &pc_val);
-	  
+
 	  pc_val = gdbarch_addr_bits_remove (gdbarch, pc_val);
 	  inferior_registers.r_pc ^= gdbarch_addr_bits_remove
 				       (gdbarch, inferior_registers.r_pc);
@@ -250,7 +249,7 @@ store_regs (const struct regcache *regcache)
 
       regcache->raw_collect (ARM_PC_REGNUM, (char *) &pc_val);
       regcache->raw_collect (ARM_PS_REGNUM, (char *) &psr_val);
-	  
+
       pc_val = gdbarch_addr_bits_remove (gdbarch, pc_val);
       psr_val ^= gdbarch_addr_bits_remove (gdbarch, psr_val);
 
@@ -350,14 +349,12 @@ arm_netbsd_nat_target::read_description ()
 
   len = sizeof(flag);
   if (sysctlbyname("machdep.neon_present", &flag, &len, NULL, 0) == 0 && flag)
-    return aarch32_read_description ();
+    return aarch32_read_description (false);
 
   return arm_read_description (ARM_FP_TYPE_VFPV3, false);
 }
 
-void _initialize_arm_netbsd_nat ();
-void
-_initialize_arm_netbsd_nat ()
+INIT_GDB_FILE (arm_netbsd_nat)
 {
   add_inf_child_target (&the_arm_netbsd_nat_target);
 }

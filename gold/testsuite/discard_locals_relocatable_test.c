@@ -1,6 +1,6 @@
 /* discard_locals_relocatable_test.c -- test --discard-locals/--discard-all -r
 
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2026 Free Software Foundation, Inc.
    Viktor Kutuzov <vkutuzov@accesssoftek.com>.
 
    This file is part of gold.
@@ -31,14 +31,8 @@
    in the output object file. */
 __asm__ (".Lshould_be_discarded:");
 
-#ifdef __powerpc__
 /* Test wants to keep one local.  Satisfy it.  */
-#ifdef __powerpc64__
-__asm__ (".reloc 0,R_PPC64_NONE,.LC0");
-#else
-__asm__ (".reloc 0,R_PPC_NONE,.LC0");
-#endif
-#endif
+__asm__ (".dc.a .LC0 - .");
 
 extern void print_func (const char* s);
 

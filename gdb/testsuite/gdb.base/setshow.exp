@@ -1,4 +1,4 @@
-# Copyright 1992-2023 Free Software Foundation, Inc.
+# Copyright 1992-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,13 +23,13 @@
 standard_testfile .c
 
 if { [gdb_compile ${srcdir}/${subdir}/${srcfile} ${binfile} executable {debug}] != "" } {
-     untested "failed to compile"
-     return -1
+    untested "failed to compile"
+    return
 }
 
 proc_with_prefix test_setshow_annotate {} {
     # Start with a fresh gdb
-    clean_restart $::binfile
+    clean_restart $::testfile
 
     if {![runto_main]} {
 	return
@@ -67,18 +67,18 @@ proc_with_prefix test_setshow_annotate {} {
 
     #test set annotate 1
     gdb_test "set annotate 1" ".*post-prompt.*"
-    gdb_test "show annotate" "Annotation_level is 1..*"  "show annotate (1)"
+    gdb_test "show annotate" "Annotation_level is 1..*"  "show annotate, 1"
     #test annotation_level 1
     gdb_test "info line 1" "Line 1 of .* is at address .* but contains no code.*:1:0:beg:0x.*"  "annotation_level 1"
     #test set annotate 0
     gdb_test_no_output "set annotate 0" "set annotate 0"
-    gdb_test "show annotate" "Annotation_level is 0..*"  "show annotate (0)"
+    gdb_test "show annotate" "Annotation_level is 0..*"  "show annotate, 0"
     #test annotation_level 0
     gdb_test "info line 1" "Line 1 of .* is at address .* but contains no code.*"  "annotation_level 0"
 }
 
 proc_with_prefix test_setshow_args {} {
-    clean_restart $::binfile
+    clean_restart $::testfile
 
     if {![runto_main]} {
 	return
@@ -121,13 +121,13 @@ proc_with_prefix test_setshow_check {} {
 	"_gdb_setting check range on"
 
     #test show check range on
-    gdb_test "show check range" "Range checking is \"on\"\..*" "show check range (on)"
+    gdb_test "show check range" "Range checking is \"on\"\..*" "show check range, on"
 
     #test set check range off with trailing space
     gdb_test_no_output "set check range off " "set check range off"
 
     #test show check range off
-    gdb_test "show check range" "Range checking is \"off\"\..*" "show check range (off)"
+    gdb_test "show check range" "Range checking is \"off\"\..*" "show check range, off"
     gdb_test "p \$_gdb_setting(\"check range\")" " = \"off\"" \
 	"_gdb_setting check range off"
 
@@ -144,7 +144,7 @@ proc_with_prefix test_setshow_check {} {
 
     # Test show check type on
     gdb_test "show check type" "Strict type checking is on\..*" \
-	"show check type (on)"
+	"show check type, on"
     gdb_test "p \$_gdb_setting_str(\"check type\")" " = \"on\"" \
 	"_gdb_setting_str check type on"
     gdb_test "p \$_gdb_setting(\"check type\")" " = 1" \
@@ -159,7 +159,7 @@ proc_with_prefix test_setshow_check {} {
 
     # Test show check type off
     gdb_test "show check type" "Strict type checking is off\..*" \
-	"show check type (off)"
+	"show check type, off"
 }
 
 proc_with_prefix test_setshow_breakpoint_pending {} {
@@ -200,11 +200,11 @@ proc_with_prefix test_setshow_complaints {} {
     #test set complaints 100
     gdb_test_no_output "set complaints 100" "set complaints 100"
     #test show complaints 100
-    gdb_test "show complaints" "Max number of complaints about incorrect symbols is 100..*" "show complaints (100)"
+    gdb_test "show complaints" "Max number of complaints about incorrect symbols is 100..*" "show complaints, 100"
     #test set complaints 0
     gdb_test_no_output "set complaints 0" "set complaints 0"
     #test show complaints 0
-    gdb_test "show complaints" "Max number of complaints about incorrect symbols is 0..*" "show complaints (0)"
+    gdb_test "show complaints" "Max number of complaints about incorrect symbols is 0..*" "show complaints, 0"
 }
 
 proc_with_prefix test_setshow_confirm {} {
@@ -213,11 +213,11 @@ proc_with_prefix test_setshow_confirm {} {
     #test set confirm off
     gdb_test_no_output "set confirm off" "set confirm off"
     #test show confirm off
-    gdb_test "show confirm" "Whether to confirm potentially dangerous operations is off..*" "show confirm (off)"
+    gdb_test "show confirm" "Whether to confirm potentially dangerous operations is off..*" "show confirm, off"
     #test set confirm on
     gdb_test_no_output "set confirm on" "set confirm on"
     #test show confirm on
-    gdb_test "show confirm" "Whether to confirm potentially dangerous operations is on..*" "show confirm (on)"
+    gdb_test "show confirm" "Whether to confirm potentially dangerous operations is on..*" "show confirm, on"
 }
 
 proc_with_prefix test_setshow_editing {} {
@@ -280,10 +280,21 @@ proc_with_prefix test_setshow_history {} {
 
     #get home directory path
     set HOME ""
+    set STRINGHOME ""
     set test "show environment HOME"
     gdb_test_multiple $test $test {
 	-re "\nHOME = (\[^\r\n\]*)\[\r\n\]+$::gdb_prompt $" {
 	    set HOME $expect_out(1,string)
+	    if { [ishost *-*-mingw*] } {
+		# STRINGHOME is how HOME prints with C string escapes.
+		# Specifically, all backslashes "\" in the pathname
+		# string have to be escaped as "\\".  If you have other
+		# weird characters in your HOME pathname that need
+		# escaping too, maybe you shouldn't do that.  :-P
+		regsub -all {\\} $HOME {\\\\} STRINGHOME
+	    } else {
+		set STRINGHOME $HOME
+	    }
 	    pass $test
 	}
     }
@@ -297,10 +308,10 @@ proc_with_prefix test_setshow_history {} {
 	"The filename in which to record the command history is \"[string_to_regexp $HOME]/foobar.baz\"..*" \
 	"show history filename (~/foobar.baz)"
     gdb_test "p \$_gdb_setting(\"history filename\")" \
-	" = \"[string_to_regexp $HOME]/foobar.baz\"" \
+	" = \"[string_to_regexp $STRINGHOME]/foobar.baz\"" \
 	"_gdb_setting history filename"
     gdb_test "p \$_gdb_setting_str(\"history filename\")" \
-	" = \"[string_to_regexp $HOME]/foobar.baz\"" \
+	" = \"[string_to_regexp $STRINGHOME]/foobar.baz\"" \
 	"_gdb_setting_str history filename"
 
     #get current working directory
@@ -320,7 +331,7 @@ proc_with_prefix test_setshow_history {} {
     #test show history filename foobar.baz
     gdb_test "show history filename" \
 	"The filename in which to record the command history is \"[string_to_regexp $PWD]/foobar.baz\"..*" \
-	"show history filename (current_directory/foobar.baz)"
+	"show history filename, current_directory/foobar.baz"
 
     #test set history save on
     gdb_test_no_output "set history save on" "set history save on"
@@ -345,13 +356,13 @@ proc_with_prefix test_setshow_language {} {
     gdb_test_no_output "set language asm"
 
     #test show language asm
-    gdb_test "show language" "The current source language is \"asm\"..*" "show language (asm)"
+    gdb_test "show language" "The current source language is \"asm\"..*" "show language, asm"
 
     #test set language rust, with a trailing space
     gdb_test_no_output "set language rust " "set language rust"
 
     #test show language rust
-    gdb_test "show language" "The current source language is \"rust\"..*" "show language (rust)"
+    gdb_test "show language" "The current source language is \"rust\"..*" "show language, rust"
 
     #test completion for set language.
     gdb_test "complete set language min" "set language minimal" \
@@ -361,7 +372,7 @@ proc_with_prefix test_setshow_language {} {
     gdb_test_no_output "set language auto" "set language auto"
 
     #test show language
-    gdb_test "show language" "The current source language is \"auto.*\"..*" "show language (auto)"
+    gdb_test "show language" "The current source language is \"auto.*\"..*" "show language, auto"
 }
 
 proc_with_prefix test_setshow_listsize {} {
@@ -398,7 +409,7 @@ proc_with_prefix test_setshow_print_characters {} {
 proc_with_prefix test_setshow_prompt {} {
     clean_restart
 
-    if [board_info target exists gdb_prompt] {
+    if {[board_info target exists gdb_prompt]} {
 	return
     }
 
@@ -430,19 +441,19 @@ proc_with_prefix test_setshow_radix {} {
     clean_restart
 
     #test set radix 11
-    gdb_test "set radix 11" "Unsupported output radix ``decimal 11''; output radix unchanged..*"
+    gdb_test "set radix 11" "Unsupported output radix \"decimal 11\"; output radix unchanged..*"
 
     #test set radix 16
     gdb_test "set radix 16" "Input and output radices now set to decimal 16, hex 10, octal 20..*"
 
     #test show radix 16
-    gdb_test "show radix" "Input and output radices set to decimal 16, hex 10, octal 20..*"  "show radix (16)"
+    gdb_test "show radix" "Input and output radices set to decimal 16, hex 10, octal 20..*"  "show radix, 16"
 
     #test set radix 10
     gdb_test "set radix" "Input and output radices now set to decimal 10, hex a, octal 12..*"  "set radix 10"
 
     #test show radix 10
-    gdb_test "show radix" "Input and output radices set to decimal 10, hex a, octal 12..*" "show radix (10)"
+    gdb_test "show radix" "Input and output radices set to decimal 10, hex a, octal 12..*" "show radix, 10"
 }
 
 proc_with_prefix test_setshow_width {} {
@@ -481,13 +492,13 @@ proc_with_prefix test_setshow_verbose {} {
     gdb_test_no_output "set verbose on" "set verbose on"
 
     #test show verbose on
-    gdb_test "show verbose" "Verbose printing of informational messages is on..*" "show verbose (on)"
+    gdb_test "show verbose" "Verbose printing of informational messages is on..*" "show verbose, on"
 
     #test set verbose off
     gdb_test_no_output "set verbose off" "set verbose off"
 
     #test show verbose off
-    gdb_test "show verbose" "Verbosity is off..*" "show verbose (off)"
+    gdb_test "show verbose" "Verbosity is off..*" "show verbose, off"
 }
 
 proc_with_prefix test_argument_preceded_by_space {} {
@@ -498,6 +509,70 @@ proc_with_prefix test_argument_preceded_by_space {} {
 	foreach y {"/home/" "~/home" "=home"} {
 	    gdb_test "set $x$y" "Argument must be preceded by space." \
 		"$x is not set to $y"
+	}
+    }
+}
+
+# Some settings are per-inferior instead of global.  Verify that we can set
+# and show them correctly, including with the $_gdb_setting and
+# $_gdb_setting_str convenience functions.
+
+proc_with_prefix test_per_inferior_settings {} {
+    clean_restart $::testfile
+
+    # The $_gdb_setting/$_gdb_setting_str tests require running inferiors,
+    # because they allocate memory in the inferiors for the produced values.
+    # Since we need two inferiors for this test, we can't run them with stub
+    # boards (e.g. gdbserver with non-extended remote protocol), since they
+    # can only run one inferior at a time.  We can still run the other tests
+    # with multiple inferiors, they just won't be running inferiors.
+    set run [expr {![use_gdb_stub]}]
+
+    # Add a second inferior.
+    gdb_test "add-inferior -exec $::binfile" "Added inferior 2.*" \
+	"add second inferior"
+
+    # Set some settings on each inferior.
+    foreach_with_prefix inf {1 2} {
+	gdb_test "inferior ${inf}" "Switching to inferior ${inf}.*" \
+	    "switch to inferior ${inf} before set"
+
+	if { $run } {
+	    if {![runto_main]} {
+		fail "could not run to main"
+		return
+	    }
+	}
+
+	gdb_test_no_output "set inferior-tty /inf${inf}-tty"
+	gdb_test_no_output "set cwd /inf${inf}-cwd"
+	gdb_test_no_output "set args /inf${inf}-args"
+	gdb_test_no_output "set remote exec-file /inf${inf}-ref"
+	# Outputs a warning, ignore it.
+	gdb_test "set tdesc filename /inf${inf}-tf"
+    }
+
+    foreach_with_prefix inf {1 2} {
+	gdb_test "inferior ${inf}" "Switching to inferior ${inf}.*" \
+	    "switch to inferior ${inf} before show"
+
+	gdb_test "show inferior-tty" "Terminal for future runs of program being debugged is \"/inf${inf}-tty\"."
+	gdb_test "show cwd" "Current working directory that will be used when starting the inferior is \"/inf${inf}-cwd\"."
+	gdb_test "show args" "Argument list to give program being debugged when it is started is \"/inf${inf}-args\"."
+	gdb_test "show remote exec-file" "The remote exec-file is \"/inf${inf}-ref\"."
+	gdb_test "show tdesc filename" "The target description will be read from \"/inf${inf}-tf\"."
+
+	if { $run } {
+	    gdb_test "print \$_gdb_setting(\"inferior-tty\")" " = \"/inf${inf}-tty\""
+	    gdb_test "print \$_gdb_setting_str(\"inferior-tty\")" " = \"/inf${inf}-tty\""
+	    gdb_test "print \$_gdb_setting(\"cwd\")" " = \"/inf${inf}-cwd\""
+	    gdb_test "print \$_gdb_setting_str(\"cwd\")" " = \"/inf${inf}-cwd\""
+	    gdb_test "print \$_gdb_setting(\"args\")" " = \"/inf${inf}-args\""
+	    gdb_test "print \$_gdb_setting_str(\"args\")" " = \"/inf${inf}-args\""
+	    gdb_test "print \$_gdb_setting(\"remote exec-file\")" " = \"/inf${inf}-ref\""
+	    gdb_test "print \$_gdb_setting_str(\"remote exec-file\")" " = \"/inf${inf}-ref\""
+	    gdb_test "print \$_gdb_setting(\"tdesc filename\")" " = \"/inf${inf}-tf\""
+	    gdb_test "print \$_gdb_setting_str(\"tdesc filename\")" " = \"/inf${inf}-tf\""
 	}
     }
 }
@@ -522,3 +597,4 @@ test_setshow_write
 test_show_user
 test_setshow_verbose
 test_argument_preceded_by_space
+test_per_inferior_settings

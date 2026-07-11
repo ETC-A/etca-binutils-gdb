@@ -1,4 +1,4 @@
-# Copyright (c) 2016-2023 Free Software Foundation, Inc.
+# Copyright (c) 2016-2026 Free Software Foundation, Inc.
 #
 # Originally based on the AX_CXX_COMPILE_STDCXX macro found at the url
 # below.
@@ -19,13 +19,13 @@
 #
 #   Check for baseline language coverage in the compiler for the specified
 #   version of the C++ standard.  If necessary, add switches to CXX and
-#   CXXCPP to enable support.  VERSION may be '11' (for the C++11 standard)
-#   or '14' (for the C++14 standard).
+#   CXXCPP to enable support.  VERSION may be '11', '14', '17', or '20' for
+#   the respective C++ standard version.
 #
 #   The second argument, if specified, indicates whether you insist on an
 #   extended mode (e.g. -std=gnu++11) or a strict conformance mode (e.g.
 #   -std=c++11).  If neither is specified, you get whatever works, with
-#   preference for an extended mode.
+#   preference for no added switch, and then for an extended mode.
 #
 #   The third argument, if specified 'mandatory' or if left unspecified,
 #   indicates that baseline support for the specified C++ standard is
@@ -42,42 +42,48 @@
 #   Copyright (c) 2014, 2015 Google Inc.; contributed by Alexey Sokolov <sokolov@google.com>
 #   Copyright (c) 2015 Paul Norman <penorman@mac.com>
 #   Copyright (c) 2015 Moritz Klammler <moritz@klammler.eu>
-#   Copyright (c) 2016 Krzesimir Nowak <qdlacz@gmail.com>
+#   Copyright (c) 2016, 2018 Krzesimir Nowak <qdlacz@gmail.com>
+#   Copyright (c) 2019 Enji Cooper <yaneurabeya@gmail.com>
+#   Copyright (c) 2020 Jason Merrill <jason@redhat.com>
+#   Copyright (c) 2021 Jörn Heusipp <osmanx@problemloesungsmaschine.de>
 #
 #   Copying and distribution of this file, with or without modification, are
 #   permitted in any medium without royalty provided the copyright notice
 #   and this notice are preserved.  This file is offered as-is, without any
 #   warranty.
 
-#serial 8
+#serial 18
 
 dnl  This macro is based on the code from the AX_CXX_COMPILE_STDCXX_11 macro
 dnl  (serial version number 13).
 
 AC_DEFUN([AX_CXX_COMPILE_STDCXX], [dnl
   m4_if([$1], [11], [ax_cxx_compile_alternatives="11 0x"],
-        [$1], [14], [ax_cxx_compile_alternatives="14 1y"],
-        [$1], [17], [ax_cxx_compile_alternatives="17 1z"],
-        [m4_fatal([invalid first argument `$1' to AX_CXX_COMPILE_STDCXX])])dnl
+	[$1], [14], [ax_cxx_compile_alternatives="14 1y"],
+	[$1], [17], [ax_cxx_compile_alternatives="17 1z"],
+	[$1], [20], [ax_cxx_compile_alternatives="20"],
+	[m4_fatal([invalid first argument `$1' to AX_CXX_COMPILE_STDCXX])])dnl
   m4_if([$2], [], [],
-        [$2], [ext], [],
-        [$2], [noext], [],
-        [m4_fatal([invalid second argument `$2' to AX_CXX_COMPILE_STDCXX])])dnl
+	[$2], [ext], [],
+	[$2], [noext], [],
+	[m4_fatal([invalid second argument `$2' to AX_CXX_COMPILE_STDCXX])])dnl
   m4_if([$3], [], [ax_cxx_compile_cxx$1_required=true],
-        [$3], [mandatory], [ax_cxx_compile_cxx$1_required=true],
-        [$3], [optional], [ax_cxx_compile_cxx$1_required=false],
-        [m4_fatal([invalid third argument `$3' to AX_CXX_COMPILE_STDCXX])])
+	[$3], [mandatory], [ax_cxx_compile_cxx$1_required=true],
+	[$3], [optional], [ax_cxx_compile_cxx$1_required=false],
+	[m4_fatal([invalid third argument `$3' to AX_CXX_COMPILE_STDCXX])])
   AC_LANG_PUSH([C++])dnl
   CXX_DIALECT=""
   ac_success=no
-  AC_CACHE_CHECK(whether $CXX supports C++$1 features by default,
-  ax_cv_cxx_compile_cxx$1,
-  [AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
-    [ax_cv_cxx_compile_cxx$1=yes],
-    [ax_cv_cxx_compile_cxx$1=no])])
-  if test x$ax_cv_cxx_compile_cxx$1 = xyes; then
-    ac_success=yes
-  fi
+
+  m4_if([$2], [], [dnl
+    AC_CACHE_CHECK(whether $CXX supports C++$1 features by default,
+		   ax_cv_cxx_compile_cxx$1,
+      [AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
+	[ax_cv_cxx_compile_cxx$1=yes],
+	[ax_cv_cxx_compile_cxx$1=no])])
+    if test x$ax_cv_cxx_compile_cxx$1 = xyes; then
+      ac_success=yes
+    fi])
 
   m4_if([$2], [noext], [], [dnl
   if test x$ac_success = xno; then
@@ -85,21 +91,21 @@ AC_DEFUN([AX_CXX_COMPILE_STDCXX], [dnl
       switch="-std=gnu++${alternative}"
       cachevar=AS_TR_SH([ax_cv_cxx_compile_cxx$1_$switch])
       AC_CACHE_CHECK(whether $CXX supports C++$1 features with $switch,
-                     $cachevar,
-        [ac_save_CXX="$CXX"
-         CXX="$CXX $switch"
-         AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
-          [eval $cachevar=yes],
-          [eval $cachevar=no])
-         CXX="$ac_save_CXX"])
+		     $cachevar,
+	[ac_save_CXX="$CXX"
+	 CXX="$CXX $switch"
+	 AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
+	  [eval $cachevar=yes],
+	  [eval $cachevar=no])
+	 CXX="$ac_save_CXX"])
       if eval test x\$$cachevar = xyes; then
-        CXX_DIALECT="$switch"
-        CXX="$CXX $switch"
-        if test -n "$CXXCPP" ; then
-          CXXCPP="$CXXCPP $switch"
-        fi
-        ac_success=yes
-        break
+	CXX_DIALECT="$switch"
+	CXX="$CXX $switch"
+	if test -n "$CXXCPP" ; then
+	  CXXCPP="$CXXCPP $switch"
+	fi
+	ac_success=yes
+	break
       fi
     done
   fi])
@@ -109,29 +115,38 @@ AC_DEFUN([AX_CXX_COMPILE_STDCXX], [dnl
     dnl HP's aCC needs +std=c++11 according to:
     dnl http://h21007.www2.hp.com/portal/download/files/unprot/aCxx/PDF_Release_Notes/769149-001.pdf
     dnl Cray's crayCC needs "-h std=c++11"
+    dnl MSVC needs -std:c++NN for C++17 and later (default is C++14)
     for alternative in ${ax_cxx_compile_alternatives}; do
-      for switch in -std=c++${alternative} +std=c++${alternative} "-h std=c++${alternative}"; do
-        cachevar=AS_TR_SH([ax_cv_cxx_compile_cxx$1_$switch])
-        AC_CACHE_CHECK(whether $CXX supports C++$1 features with $switch,
-                       $cachevar,
-          [ac_save_CXX="$CXX"
-           CXX="$CXX $switch"
-           AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
-            [eval $cachevar=yes],
-            [eval $cachevar=no])
-           CXX="$ac_save_CXX"])
-        if eval test x\$$cachevar = xyes; then
-          CXX_DIALECT="$switch"
-          CXX="$CXX $switch"
-          if test -n "$CXXCPP" ; then
-            CXXCPP="$CXXCPP $switch"
-          fi
-          ac_success=yes
-          break
-        fi
+      for switch in -std=c++${alternative} +std=c++${alternative} "-h std=c++${alternative}" MSVC; do
+	if test x"$switch" = xMSVC; then
+	  dnl AS_TR_SH maps both `:` and `=` to `_` so -std:c++17 would collide
+	  dnl with -std=c++17.  We suffix the cache variable name with _MSVC to
+	  dnl avoid this.
+	  switch=-std:c++${alternative}
+	  cachevar=AS_TR_SH([ax_cv_cxx_compile_cxx$1_${switch}_MSVC])
+	else
+	  cachevar=AS_TR_SH([ax_cv_cxx_compile_cxx$1_$switch])
+	fi
+	AC_CACHE_CHECK(whether $CXX supports C++$1 features with $switch,
+		       $cachevar,
+	  [ac_save_CXX="$CXX"
+	   CXX="$CXX $switch"
+	   AC_COMPILE_IFELSE([AC_LANG_SOURCE([_AX_CXX_COMPILE_STDCXX_testbody_$1])],
+	    [eval $cachevar=yes],
+	    [eval $cachevar=no])
+	   CXX="$ac_save_CXX"])
+	if eval test x\$$cachevar = xyes; then
+	  CXX_DIALECT="$switch"
+	  CXX="$CXX $switch"
+	  if test -n "$CXXCPP" ; then
+	    CXXCPP="$CXXCPP $switch"
+	  fi
+	  ac_success=yes
+	  break
+	fi
       done
       if test x$ac_success = xyes; then
-        break
+	break
       fi
     done
   fi])
@@ -147,7 +162,7 @@ AC_DEFUN([AX_CXX_COMPILE_STDCXX], [dnl
   else
     HAVE_CXX$1=1
     AC_DEFINE(HAVE_CXX$1,1,
-              [define if the compiler supports basic C++$1 syntax])
+	      [define if the compiler supports basic C++$1 syntax])
   fi
   AC_SUBST(HAVE_CXX$1)
   AC_SUBST(CXX_DIALECT)
@@ -160,7 +175,6 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_11],
   _AX_CXX_COMPILE_STDCXX_testbody_new_in_11
 )
 
-
 dnl  Test body for checking C++14 support
 
 m4_define([_AX_CXX_COMPILE_STDCXX_testbody_14],
@@ -168,11 +182,23 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_14],
   _AX_CXX_COMPILE_STDCXX_testbody_new_in_14
 )
 
+dnl  Test body for checking C++17 support
+
 m4_define([_AX_CXX_COMPILE_STDCXX_testbody_17],
   _AX_CXX_COMPILE_STDCXX_testbody_new_in_11
   _AX_CXX_COMPILE_STDCXX_testbody_new_in_14
   _AX_CXX_COMPILE_STDCXX_testbody_new_in_17
 )
+
+dnl  Test body for checking C++20 support
+
+m4_define([_AX_CXX_COMPILE_STDCXX_testbody_20],
+  _AX_CXX_COMPILE_STDCXX_testbody_new_in_11
+  _AX_CXX_COMPILE_STDCXX_testbody_new_in_14
+  _AX_CXX_COMPILE_STDCXX_testbody_new_in_17
+  _AX_CXX_COMPILE_STDCXX_testbody_new_in_20
+)
+
 
 dnl  Tests for new features in C++11
 
@@ -185,7 +211,11 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_new_in_11], [[
 
 #error "This is not a C++ compiler"
 
-#elif __cplusplus < 201103L
+// MSVC always sets __cplusplus to 199711L in older versions; newer versions
+// only set it correctly if /Zc:__cplusplus is specified as well as a
+// /std:c++NN switch:
+// https://devblogs.microsoft.com/cppblog/msvc-now-correctly-reports-__cplusplus/
+#elif __cplusplus < 201103L && !defined _MSC_VER
 
 #error "This is not a C++11 compiler"
 
@@ -210,11 +240,13 @@ namespace cxx11
 
     struct Base
     {
+      virtual ~Base() {}
       virtual void f() {}
     };
 
     struct Derived : public Base
     {
+      virtual ~Derived() override {}
       virtual void f() override {}
     };
 
@@ -382,10 +414,10 @@ namespace cxx11
       auto c = [=](){ return a + b; }();
       auto d = [&](){ return c; }();
       auto e = [a, &b](int x) mutable {
-        const auto identity = [](int y){ return y; };
-        for (auto i = 0; i < a; ++i)
-          a += b--;
-        return x + identity(a + b);
+	const auto identity = [](int y){ return y; };
+	for (auto i = 0; i < a; ++i)
+	  a += b--;
+	return x + identity(a + b);
       }(0);
       return a + b + c + d + e;
     }
@@ -399,7 +431,7 @@ namespace cxx11
       using unary_t = decltype(unary);
       const auto higher1st = [](nullary_t f){ return f(); };
       const auto higher2nd = [unary](nullary_t f1){
-        return [unary, f1](unary_t f2){ return f2(unary(f1())); };
+	return [unary, f1](unary_t f2){ return f2(unary(f1())); };
       };
       return higher1st(nullary) + higher2nd(nullary)(unary);
     }
@@ -474,7 +506,7 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_new_in_14], [[
 
 #error "This is not a C++ compiler"
 
-#elif __cplusplus < 201402L
+#elif __cplusplus < 201402L && !defined _MSC_VER
 
 #error "This is not a C++14 compiler"
 
@@ -490,11 +522,11 @@ namespace cxx14
     test()
     {
       const auto lambda = [](auto&&... args){
-        const auto istiny = [](auto x){
-          return (sizeof(x) == 1UL) ? 1 : 0;
-        };
-        const int aretiny[] = { istiny(args)... };
-        return aretiny[0];
+	const auto istiny = [](auto x){
+	  return (sizeof(x) == 1UL) ? 1 : 0;
+	};
+	const int aretiny[] = { istiny(args)... };
+	return aretiny[0];
       };
       return lambda(1, 1L, 1.0f, '1');
     }
@@ -518,7 +550,7 @@ namespace cxx14
     {
       auto length = 0UL;
       for (auto p = s; *p; ++p)
-        ++length;
+	++length;
       return length;
     }
 
@@ -598,19 +630,11 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_new_in_17], [[
 
 #error "This is not a C++ compiler"
 
-#elif __cplusplus <= 201402L
+#elif __cplusplus < 201703L && !defined _MSC_VER
 
 #error "This is not a C++17 compiler"
 
 #else
-
-#if defined(__clang__)
-  #define REALLY_CLANG
-#else
-  #if defined(__GNUC__)
-    #define REALLY_GCC
-  #endif
-#endif
 
 #include <initializer_list>
 #include <utility>
@@ -619,16 +643,12 @@ m4_define([_AX_CXX_COMPILE_STDCXX_testbody_new_in_17], [[
 namespace cxx17
 {
 
-#if !defined(REALLY_CLANG)
   namespace test_constexpr_lambdas
   {
-
-    // TODO: test it with clang++ from git
 
     constexpr int foo = [](){return 42;}();
 
   }
-#endif // !defined(REALLY_CLANG)
 
   namespace test::nested_namespace::definitions
   {
@@ -691,10 +711,10 @@ namespace cxx17
       switch (f1())
       {
       case 17:
-        f1();
-        [[fallthrough]];
+	f1();
+	[[fallthrough]];
       case 42:
-        f1();
+	f1();
       }
       return f1();
     }
@@ -712,14 +732,14 @@ namespace cxx17
     struct base2
     {
       base2() {
-        b3 = 42;
+	b3 = 42;
       }
       int b3;
     };
 
     struct derived : base1, base2
     {
-        int d;
+	int d;
     };
 
     derived d1 {{1, 2}, {}, 4};  // full initialization
@@ -736,18 +756,18 @@ namespace cxx17
 
       int& operator* ()
       {
-        return i;
+	return i;
       }
 
       const int& operator* () const
       {
-        return i;
+	return i;
       }
 
       iter& operator++()
       {
-        ++i;
-        return *this;
+	++i;
+	return *this;
       }
     };
 
@@ -770,12 +790,12 @@ namespace cxx17
     {
       iter begin() const
       {
-        return {0};
+	return {0};
       }
 
       sentinel end() const
       {
-        return {5};
+	return {5};
       }
     };
 
@@ -785,7 +805,7 @@ namespace cxx17
 
       for (auto i : r)
       {
-        [[maybe_unused]] auto v = i;
+	[[maybe_unused]] auto v = i;
       }
     }
 
@@ -799,10 +819,10 @@ namespace cxx17
       int i;
       int foo()
       {
-        return [*this]()
-        {
-          return i;
-        }();
+	return [*this]()
+	{
+	  return i;
+	}();
       }
     };
 
@@ -826,11 +846,11 @@ namespace cxx17
     {
       if constexpr(cond)
       {
-        return 13;
+	return 13;
       }
       else
       {
-        return 42;
+	return 42;
       }
     }
 
@@ -848,33 +868,30 @@ namespace cxx17
     {
       if (auto i = f(); i > 0)
       {
-        return 3;
+	return 3;
       }
 
       switch (auto i = f(); i + 4)
       {
       case 17:
-        return 2;
+	return 2;
 
       default:
-        return 1;
+	return 1;
       }
     }
 
   }
 
-#if !defined(REALLY_CLANG)
   namespace test_template_argument_deduction_for_class_templates
   {
-
-    // TODO: test it with clang++ from git
 
     template <typename T1, typename T2>
     struct pair
     {
       pair (T1 p1, T2 p2)
-        : m1 {p1},
-          m2 {p2}
+	: m1 {p1},
+	  m2 {p2}
       {}
 
       T1 m1;
@@ -887,7 +904,6 @@ namespace cxx17
     }
 
   }
-#endif // !defined(REALLY_CLANG)
 
   namespace test_non_type_auto_template_parameters
   {
@@ -901,11 +917,8 @@ namespace cxx17
 
   }
 
-#if !defined(REALLY_CLANG)
   namespace test_structured_bindings
   {
-
-    // TODO: test it with clang++ from git
 
     int arr[2] = { 1, 2 };
     std::pair<int, int> pr = { 1, 2 };
@@ -938,13 +951,9 @@ namespace cxx17
     const auto [ x3, y3 ] = f3();
 
   }
-#endif // !defined(REALLY_CLANG)
 
-#if !defined(REALLY_CLANG)
   namespace test_exception_spec_type_system
   {
-
-    // TODO: test it with clang++ from git
 
     struct Good {};
     struct Bad {};
@@ -963,7 +972,6 @@ namespace cxx17
     static_assert (std::is_same_v<Good, decltype(f(g1, g2))>);
 
   }
-#endif // !defined(REALLY_CLANG)
 
   namespace test_inline_variables
   {
@@ -988,6 +996,36 @@ namespace cxx17
 
 }  // namespace cxx17
 
-#endif  // __cplusplus <= 201402L
+#endif  // __cplusplus < 201703L && !defined _MSC_VER
+
+]])
+
+
+dnl  Tests for new features in C++20
+
+m4_define([_AX_CXX_COMPILE_STDCXX_testbody_new_in_20], [[
+
+#ifndef __cplusplus
+
+#error "This is not a C++ compiler"
+
+#elif __cplusplus < 202002L && !defined _MSC_VER
+
+#error "This is not a C++20 compiler"
+
+#else
+
+#include <version>
+
+namespace cxx20
+{
+
+// As C++20 supports feature test macros in the standard, there is no
+// immediate need to actually test for feature availability on the
+// Autoconf side.
+
+}  // namespace cxx20
+
+#endif  // __cplusplus < 202002L && !defined _MSC_VER
 
 ]])

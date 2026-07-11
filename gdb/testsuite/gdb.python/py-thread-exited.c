@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2022-2023 Free Software Foundation, Inc.
+   Copyright 2022-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,14 +24,25 @@ pthread_t thread3_id;
 
 void* do_thread (void* d)
 {
-  return NULL;
+  if (d != NULL)
+    {
+      pthread_barrier_t *barrier = (pthread_barrier_t *) d;
+      pthread_barrier_wait (barrier);
+    }
+
+  return NULL;			/* In thread */
 }
 
 int main (void)
 {
+  /* We want the threads to exit in a known order.  Use a barrier to ensure
+     the second thread doesn't exit until the first has been joined.  */
+  pthread_barrier_t barrier;
+  pthread_barrier_init (&barrier, NULL, 2);
   pthread_create (&thread2_id, NULL, do_thread, NULL);
+  pthread_create (&thread3_id, NULL, do_thread, &barrier);
   pthread_join (thread2_id, NULL);
-  pthread_create (&thread3_id, NULL, do_thread, NULL);
+  pthread_barrier_wait (&barrier);
   pthread_join (thread3_id, NULL);
-  return 12;
+  return 12;			/* Done */
 }

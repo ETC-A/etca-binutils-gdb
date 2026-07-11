@@ -1,4 +1,4 @@
-/* Copyright (C) 2019-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,22 +15,22 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
-
 #include "aarch32-tdep.h"
 
 #include "gdbsupport/common-regcache.h"
 #include "arch/aarch32.h"
 
-static struct target_desc *tdesc_aarch32;
+static const_target_desc_up tdesc_aarch32_list[2];
 
 /* See aarch32-tdep.h.  */
 
 const target_desc *
-aarch32_read_description ()
+aarch32_read_description (bool tls)
 {
-  if (tdesc_aarch32 == nullptr)
-    tdesc_aarch32 = aarch32_create_target_description ();
+  const_target_desc_up &tdesc = tdesc_aarch32_list[tls];
 
-  return tdesc_aarch32;
+  if (tdesc == nullptr)
+    tdesc = aarch32_create_target_description (tls);
+
+  return tdesc.get ();
 }

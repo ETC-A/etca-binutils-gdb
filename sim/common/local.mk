@@ -1,6 +1,6 @@
 ## See sim/Makefile.am.
 ##
-## Copyright (C) 1997-2023 Free Software Foundation, Inc.
+## Copyright (C) 1997-2026 Free Software Foundation, Inc.
 ##
 ## This program is free software; you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -178,7 +178,7 @@ SIM_COMMON_LIBS = \
 ##
 
 ## If the local tree has a bundled copy of guile, use that.
-GUILE = $(or $(wildcard ../guile/libguile/guile),guile)
+GUILE = guile
 CGEN = "$(GUILE) -l $(cgendir)/guile.scm -s"
 CGENFLAGS = -v
 CGEN_CPU_DIR = $(cgendir)/cpu
@@ -232,3 +232,10 @@ CGEN_GEN_CPU_DESC = \
 		$(CGEN) $(cgendir) "$(CGENFLAGS)" \
 		$(@D) "$$FLAGS" $$cpu "$$isa" $$mach "$$SUFFIX" \
 		$(CGEN_ARCHFILE) ignored $$opcfile
+
+CGEN_GEN_MLOOP = \
+	$(SHELL) $(srccom)/lineno.sh \
+		$(srccom)/genmloop.sh \
+		$@.lineno.sh \
+		-shell $(SHELL) -awk $(AWK) -lineno $(srccom)/lineno.sh \
+		-infile $< -outfile-prefix $(@D)/

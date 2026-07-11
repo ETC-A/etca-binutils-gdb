@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2012-2023 Free Software Foundation, Inc.
+   Copyright 2012-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,11 +16,11 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-/* Test the behaviour of gdb in the following situation, the dwarf debug
+/* Test the behavior of gdb in the following situation, the dwarf debug
    information describes a parameter as being in a register but a more
    recent (inner) frame marks the register as being undefined.
 
-   This can arrise if the dwarf producer has the location of a parameter in
+   This can arise if the dwarf producer has the location of a parameter in
    a callee clobbered register at the time of a call.  Older versions of
    gcc used to do this, newer versions seem to avoid this issue.
 
@@ -46,7 +46,7 @@
    clobbering them.
 
    The dwarf register numbering is different to the gdb register number.
-   In some of the tests we rely on gdb behaviour of being able to specify a
+   In some of the tests we rely on gdb behavior of being able to specify a
    struct using a single register location, the structure will then "flow"
    into the next gdb register.  The initial register is specified using a
    dwarf register number, but the "next" register will depend on gdb
@@ -267,7 +267,7 @@ int_param_two_reg_pieces:
 	.quad	.Ltext5b                /* start */
 	.quad	.Ltext7-.Ltext5b        /* length */
         /* Instructions */
- 	.byte	0x4
+	.byte	0x4
 	.long	.Ltext6-.Ltext5b
 	.byte	0xe
 	.uleb128 0x10
@@ -282,7 +282,7 @@ int_param_two_reg_pieces:
 	.quad	.Ltext8                 /* start */
 	.quad	.Ltext10-.Ltext8        /* length */
         /* Instructions */
- 	.byte	0x4
+	.byte	0x4
 	.long	.Ltext9-.Ltext8
 	.byte	0xe
 	.uleb128 0x10
@@ -297,7 +297,7 @@ int_param_two_reg_pieces:
 	.quad	.Ltext11                /* start */
 	.quad	.Ltext13-.Ltext11       /* length */
         /* Instructions */
- 	.byte	0x4
+	.byte	0x4
 	.long	.Ltext12-.Ltext11
 	.byte	0xe
 	.uleb128 0x10
@@ -312,7 +312,7 @@ int_param_two_reg_pieces:
 	.quad	.Ltext14                /* start */
 	.quad	.Ltext16-.Ltext14       /* length */
         /* Instructions */
- 	.byte	0x4
+	.byte	0x4
 	.long	.Ltext15-.Ltext14
 	.byte	0xe
 	.uleb128 0x10
@@ -327,7 +327,7 @@ int_param_two_reg_pieces:
 	.quad	.Ltext1                 /* start */
 	.quad	.Ltext3-.Ltext1         /* length */
         /* Instructions */
- 	.byte	0x4
+	.byte	0x4
 	.long	.Ltext2-.Ltext1
 	.byte	0xe
 	.uleb128 0x10

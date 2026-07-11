@@ -1,5 +1,5 @@
 /* Linux-specific PROCFS manipulation routines.
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,11 +16,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "linux-procfs.h"
 #include "gdbsupport/filestuff.h"
+#include "gdbsupport/unordered_set.h"
 #include <dirent.h>
 #include <sys/stat.h>
+#include <utility>
 
 /* Return the TGID of LWPID from /proc/pid/status.  Returns -1 if not
    found.  */
@@ -104,7 +105,7 @@ parse_proc_status_state (const char *state)
       return PROC_STATE_TRACING_STOP;
     case 'T':
       /* Before Linux 2.6.33, tracing stop used uppercase T.  */
-      if (strcmp (state, "T (stopped)\n") == 0)
+      if (streq (state, "T (stopped)\n"))
 	return PROC_STATE_STOPPED;
       else /* "T (tracing stop)\n" */
 	return PROC_STATE_TRACING_STOP;
@@ -231,6 +232,73 @@ linux_proc_pid_is_zombie (pid_t pid)
 
 /* See linux-procfs.h.  */
 
+std::optional<std::string>
+linux_proc_get_stat_field (ptid_t ptid, int field)
+{
+  /* We never need to read PID from the stat file, and there's
+     command_from_pid to read the comm field.  */
+  gdb_assert (field >= LINUX_PROC_STAT_STATE);
+
+  std::string filename = string_printf ("/proc/%ld/task/%ld/stat",
+					(long) ptid.pid (), (long) ptid.lwp ());
+
+  std::optional<std::string> content
+    = read_text_file_to_string (filename.c_str ());
+  if (!content.has_value ())
+    return {};
+
+  /* ps command also relies on no trailing fields ever containing ')'.  */
+  std::string::size_type pos = content->find_last_of (')');
+  if (pos == std::string::npos)
+    return {};
+
+  /* The first field after program name is LINUX_PROC_STAT_STATE.  */
+  for (int i = LINUX_PROC_STAT_STATE; i <= field; ++i)
+    {
+      /* Find separator.  */
+      pos = content->find_first_of (' ', pos);
+      if (pos == std::string::npos)
+	return {};
+
+      /* Find beginning of field.  */
+      pos = content->find_first_not_of (' ', pos);
+      if (pos == std::string::npos)
+	return {};
+    }
+
+  /* Find end of field.  */
+  std::string::size_type end_pos = content->find_first_of (' ', pos);
+  if (end_pos == std::string::npos)
+    return content->substr (pos);
+  else
+    return content->substr (pos, end_pos - pos);
+}
+
+/* Get the start time of thread PTID.  */
+
+static std::optional<ULONGEST>
+linux_proc_get_starttime (ptid_t ptid)
+{
+  std::optional<std::string> field
+    = linux_proc_get_stat_field (ptid, LINUX_PROC_STAT_STARTTIME);
+
+  if (!field.has_value ())
+    return {};
+
+  errno = 0;
+  const char *trailer;
+  ULONGEST starttime = strtoulst (field->c_str (), &trailer, 10);
+  if (starttime == ULONGEST_MAX && errno == ERANGE)
+    return {};
+  else if (*trailer != '\0')
+    /* There were unexpected characters.  */
+    return {};
+
+  return starttime;
+}
+
+/* See linux-procfs.h.  */
+
 const char *
 linux_proc_tid_get_name (ptid_t ptid)
 {
@@ -275,7 +343,6 @@ void
 linux_proc_attach_tgid_threads (pid_t pid,
 				linux_proc_attach_lwp_func attach_lwp)
 {
-  DIR *dir;
   char pathname[128];
   int new_threads_found;
   int iterations;
@@ -284,12 +351,16 @@ linux_proc_attach_tgid_threads (pid_t pid,
     return;
 
   xsnprintf (pathname, sizeof (pathname), "/proc/%ld/task", (long) pid);
-  dir = opendir (pathname);
+  gdb_dir_up dir (opendir (pathname));
   if (dir == NULL)
     {
-      warning (_("Could not open /proc/%ld/task."), (long) pid);
+      warning (_("Could not open %s."), pathname);
       return;
     }
+
+  /* Keeps track of the LWPs we have already visited in /proc,
+     identified by their PID and starttime to detect PID reuse.  */
+  gdb::unordered_set<std::pair<unsigned long, ULONGEST>> visited_lwps;
 
   /* Scan the task list for existing threads.  While we go through the
      threads, new threads may be spawned.  Cycle through the list of
@@ -300,7 +371,7 @@ linux_proc_attach_tgid_threads (pid_t pid,
       struct dirent *dp;
 
       new_threads_found = 0;
-      while ((dp = readdir (dir)) != NULL)
+      while ((dp = readdir (dir.get ())) != NULL)
 	{
 	  unsigned long lwp;
 
@@ -309,6 +380,19 @@ linux_proc_attach_tgid_threads (pid_t pid,
 	  if (lwp != 0)
 	    {
 	      ptid_t ptid = ptid_t (pid, lwp);
+	      std::optional<ULONGEST> starttime
+		= linux_proc_get_starttime (ptid);
+
+	      if (starttime.has_value ())
+		{
+		  std::pair<unsigned long, ULONGEST> key (lwp, *starttime);
+
+		  /* If we already visited this LWP, skip it this time.  */
+		  if (visited_lwps.find (key) != visited_lwps.cend ())
+		    continue;
+
+		  visited_lwps.insert (key);
+		}
 
 	      if (attach_lwp (ptid))
 		new_threads_found = 1;
@@ -321,10 +405,8 @@ linux_proc_attach_tgid_threads (pid_t pid,
 	  iterations = -1;
 	}
 
-      rewinddir (dir);
+      rewinddir (dir.get ());
     }
-
-  closedir (dir);
 }
 
 /* See linux-procfs.h.  */
@@ -342,7 +424,7 @@ linux_proc_task_list_dir_exists (pid_t pid)
 /* See linux-procfs.h.  */
 
 const char *
-linux_proc_pid_to_exec_file (int pid)
+linux_proc_pid_to_exec_file (int pid, bool is_local_fs)
 {
   static char buf[PATH_MAX];
   char name[PATH_MAX];
@@ -354,6 +436,33 @@ linux_proc_pid_to_exec_file (int pid)
     strcpy (buf, name);
   else
     buf[len] = '\0';
+
+  /* If the inferior and GDB can see the same filesystem, and NAME
+     cannot be read, maybe the file has been deleted, then we can
+     potentially use /proc/PID/exe instead.
+
+     GDB always interprets the results of this function within the
+     current sysroot (which is 'target:' by default).  This means
+     that, if we return /proc/PID/exe, GDB will try to find this file
+     within the sysroot.
+
+     This doesn't make sense if GDB is using a sysroot like:
+     '/some/random/directory/', not only is it possible that NAME
+     could be found within the sysroot, it is unlikely that
+     /proc/PID/exe will exist within the sysroot.
+
+     Similarly, if the sysroot is 'target:', but the inferior is
+     running within a separate MNT namespace, then it is more than
+     likely that the inferior will also be running in a separate PID
+     namespace, in this case PID is the pid on the host system,
+     /proc/PID/exe will not be correct within the inferiors MNT/PID
+     namespace.
+
+     So, we can fallback to use /proc/PID/exe only if IS_LOCAL_FS is
+     true, this indicates that GDB and the inferior are using the same
+     MNT namespace, and GDB's sysroot is either empty, or 'target:'.  */
+  if (is_local_fs && access (buf, R_OK) != 0 && access (name, R_OK) == 0)
+    strcpy (buf, name);
 
   return buf;
 }

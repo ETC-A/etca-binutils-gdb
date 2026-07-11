@@ -1,5 +1,5 @@
 /* Low-level file-handling.
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_FILESTUFF_H
-#define COMMON_FILESTUFF_H
+#ifndef GDBSUPPORT_FILESTUFF_H
+#define GDBSUPPORT_FILESTUFF_H
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -112,7 +112,7 @@ struct gdb_dir_deleter
 
 /* A unique pointer to a DIR.  */
 
-typedef std::unique_ptr<DIR, gdb_dir_deleter> gdb_dir_up;
+using gdb_dir_up = std::unique_ptr<DIR, gdb_dir_deleter>;
 
 /* Return true if the file NAME exists and is a regular file.
    If the result is false then *ERRNO_PTR is set to a useful value assuming
@@ -131,6 +131,10 @@ extern bool mkdir_recursive (const char *dir);
 
 /* Read the entire content of file PATH into an std::string.  */
 
-extern gdb::optional<std::string> read_text_file_to_string (const char *path);
+extern std::optional<std::string> read_text_file_to_string (const char *path);
 
-#endif /* COMMON_FILESTUFF_H */
+/* Read the remaining content from FILE into an std::string.  */
+
+extern std::string read_remainder_of_file (FILE *file);
+
+#endif /* GDBSUPPORT_FILESTUFF_H */

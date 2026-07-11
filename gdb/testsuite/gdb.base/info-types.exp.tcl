@@ -1,4 +1,4 @@
-# Copyright 2019-2023 Free Software Foundation, Inc.
+# Copyright 2019-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,11 +32,12 @@ proc run_test { lang } {
 	     "${testfile}" $srcfile "debug $lang"]} {
 	return -1
     }
-    gdb_test_no_output "set auto-solib-add off"
 
-    if ![runto_main] then {
+    if { ![runto_main] } {
 	return 0
     }
+
+    gdb_test_no_output "nosharedlibrary"
 
     set file_re "File .*[string_to_regexp $srcfile]:"
 
@@ -89,6 +90,7 @@ proc run_test { lang } {
 		 "28:\[\t \]+typedef struct baz_t baz;" \
 		 "31:\[\t \]+typedef struct baz_t \\* baz_ptr;" \
 		 "21:\[\t \]+struct baz_t;" \
+		 "27:\[\t \]+typedef struct baz_t baz_t;" \
 		 "\[\t \]+double" \
 		 "33:\[\t \]+enum enum_t;" \
 		 "\[\t \]+float" \

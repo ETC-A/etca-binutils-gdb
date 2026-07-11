@@ -1,6 +1,6 @@
 /* Self tests for scoped_mmap for GDB, the GNU debugger.
 
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "gdbsupport/filestuff.h"
 #include "gdbsupport/scoped_mmap.h"
@@ -42,7 +41,7 @@ test_destroy ()
   errno = 0;
   {
     ::scoped_mmap smmap (nullptr, sysconf (_SC_PAGESIZE), PROT_WRITE,
-			 MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+			 MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     mem = smmap.get ();
     SELF_CHECK (mem != nullptr);
@@ -60,7 +59,7 @@ test_release ()
   errno = 0;
   {
     ::scoped_mmap smmap (nullptr, sysconf (_SC_PAGESIZE), PROT_WRITE,
-			 MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+			 MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     mem = smmap.release ();
     SELF_CHECK (mem != nullptr);
@@ -103,7 +102,7 @@ test_normal ()
 
     SELF_CHECK (m.get () != MAP_FAILED);
     SELF_CHECK (m.size () == 7);
-    SELF_CHECK (0 == strcmp ((char *) m.get (), "Hello!"));
+    SELF_CHECK (streq ((char *) m.get (), "Hello!"));
   }
 }
 
@@ -115,7 +114,7 @@ test_invalid_filename ()
 
   try {
       ::scoped_mmap m = ::mmap_file ("/this/file/should/not/exist");
-  } catch (gdb_exception &e) {
+  } catch (const gdb_exception &e) {
       threw = true;
   }
 
@@ -136,9 +135,7 @@ run_tests ()
 
 #endif /* !defined(HAVE_SYS_MMAN_H) */
 
-void _initialize_scoped_mmap_selftests ();
-void
-_initialize_scoped_mmap_selftests ()
+INIT_GDB_FILE (scoped_mmap_selftests)
 {
 #if defined(HAVE_SYS_MMAN_H)
   selftests::register_test ("scoped_mmap",

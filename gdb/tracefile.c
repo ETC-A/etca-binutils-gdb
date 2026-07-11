@@ -1,6 +1,6 @@
 /* Trace file support in GDB.
 
-   Copyright (C) 1997-2023 Free Software Foundation, Inc.
+   Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,14 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "tracefile.h"
-#include "tracectf.h"
+#include "extract-store-integer.h"
 #include "exec.h"
 #include "regcache.h"
 #include "gdbsupport/byte-vector.h"
 #include "gdbarch.h"
 #include "gdbsupport/buildargv.h"
+#include "inferior.h"
 
 /* Helper macros.  */
 
@@ -71,7 +71,7 @@ trace_save (const char *filename, struct trace_file_writer *writer,
   ULONGEST offset = 0;
 #define MAX_TRACE_UPLOAD 2000
   gdb::byte_vector buf (std::max (MAX_TRACE_UPLOAD, trace_regblock_size));
-  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch ());
+  bfd_endian byte_order = gdbarch_byte_order (current_inferior ()->arch ());
 
   /* If the target is to save the data to a file on its own, then just
      send the command and be done with it.  */
@@ -322,7 +322,6 @@ tsave_command (const char *args, int from_tty)
   int target_does_save = 0;
   char **argv;
   char *filename = NULL;
-  int generate_ctf = 0;
 
   if (args == NULL)
     error_no_arg (_("file in which to save trace data"));
@@ -332,10 +331,8 @@ tsave_command (const char *args, int from_tty)
 
   for (; *argv; ++argv)
     {
-      if (strcmp (*argv, "-r") == 0)
+      if (streq (*argv, "-r"))
 	target_does_save = 1;
-      else if (strcmp (*argv, "-ctf") == 0)
-	generate_ctf = 1;
       else if (**argv == '-')
 	error (_("unknown option `%s'"), *argv);
       else
@@ -345,14 +342,10 @@ tsave_command (const char *args, int from_tty)
   if (!filename)
     error_no_arg (_("file in which to save trace data"));
 
-  if (generate_ctf)
-    trace_save_ctf (filename, target_does_save);
-  else
-    trace_save_tfile (filename, target_does_save);
+  trace_save_tfile (filename, target_does_save);
 
   if (from_tty)
-    gdb_printf (_("Trace data saved to %s '%s'.\n"),
-		generate_ctf ? "directory" : "file", filename);
+    gdb_printf (_("Trace data saved to file '%s'.\n"), filename);
 }
 
 /* Save the trace data to file FILENAME of tfile format.  */
@@ -364,17 +357,7 @@ trace_save_tfile (const char *filename, int target_does_save)
   trace_save (filename, writer.get (), target_does_save);
 }
 
-/* Save the trace data to dir DIRNAME of ctf format.  */
-
-void
-trace_save_ctf (const char *dirname, int target_does_save)
-{
-  trace_file_writer_up writer (ctf_trace_file_writer_new ());
-  trace_save (dirname, writer.get (), target_does_save);
-}
-
-/* Fetch register data from tracefile, shared for both tfile and
-   ctf.  */
+/* Fetch register data from tracefile.  */
 
 void
 tracefile_fetch_registers (struct regcache *regcache, int regno)
@@ -472,13 +455,10 @@ tracefile_target::get_trace_status (struct trace_status *ts)
   return -1;
 }
 
-void _initialize_tracefile ();
-void
-_initialize_tracefile ()
+INIT_GDB_FILE (tracefile)
 {
   add_com ("tsave", class_trace, tsave_command, _("\
 Save the trace data to a file.\n\
-Use the '-ctf' option to save the data to CTF format.\n\
 Use the '-r' option to direct the target to save directly to the file,\n\
 using its own filesystem."));
 }

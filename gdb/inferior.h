@@ -1,7 +1,7 @@
 /* Variables that describe the inferior process running under GDB:
    Where it is, why it stopped, and how to step it.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,8 +18,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#if !defined (INFERIOR_H)
-#define INFERIOR_H 1
+#ifndef GDB_INFERIOR_H
+#define GDB_INFERIOR_H
 
 #include <exception>
 #include <list>
@@ -54,16 +54,15 @@ struct thread_info;
 #include "symfile-add-flags.h"
 #include "gdbsupport/refcounted-object.h"
 #include "gdbsupport/forward-scope-exit.h"
-#include "gdbsupport/gdb_unique_ptr.h"
 #include "gdbsupport/intrusive_list.h"
 
-#include "gdbsupport/common-inferior.h"
 #include "gdbthread.h"
 
 #include "process-stratum-target.h"
 #include "displaced-stepping.h"
 
-#include <unordered_map>
+#include "gdbsupport/unordered_map.h"
+#include "gdbsupport/common-inferior.h"
 
 struct infcall_suspend_state;
 struct infcall_control_state;
@@ -86,13 +85,7 @@ struct infcall_suspend_state_deleter
 	/* If we are restoring the inferior state due to an exception,
 	   some error message will be printed.  So, only warn the user
 	   when we cannot restore during normal execution.  */
-	bool unwinding;
-#if __cpp_lib_uncaught_exceptions
-	unwinding = std::uncaught_exceptions () > 0;
-#else
-	unwinding = std::uncaught_exception ();
-#endif
-	if (!unwinding)
+	if (std::uncaught_exceptions () == 0)
 	  warning (_("Failed to restore inferior state: %s"), e.what ());
       }
   }
@@ -156,15 +149,15 @@ extern void reopen_exec_file (void);
 
 extern void default_print_registers_info (struct gdbarch *gdbarch,
 					  struct ui_file *file,
-					  frame_info_ptr frame,
-					  int regnum, int all);
+					  const frame_info_ptr &frame,
+					  int regnum, bool all);
 
 /* Default implementation of gdbarch_print_float_info.  Print
    the values of all floating point registers.  */
 
 extern void default_print_float_info (struct gdbarch *gdbarch,
 				      struct ui_file *file,
-				      frame_info_ptr frame,
+				      const frame_info_ptr &frame,
 				      const char *args);
 
 /* Try to determine whether TTY is GDB's input terminal.  Returns
@@ -207,8 +200,8 @@ extern void child_interrupt (struct target_ops *self);
 /* From fork-child.c */
 
 /* Helper function to call STARTUP_INFERIOR with PID and NUM_TRAPS.
-   This function already calls set_executing.  Return the ptid_t from
-   STARTUP_INFERIOR.  */
+   This function already sets the threads' internal state to
+   THREAD_STOPPED.  Return the ptid_t from STARTUP_INFERIOR.  */
 extern ptid_t gdb_startup_inferior (pid_t pid, int num_traps);
 
 /* From infcmd.c */
@@ -219,11 +212,18 @@ extern ptid_t gdb_startup_inferior (pid_t pid, int num_traps);
 
 extern void setup_inferior (int from_tty);
 
-extern void post_create_inferior (int from_tty);
+/* Common actions to take after creating any sort of inferior, by any
+   means (running, attaching, connecting, et cetera).  The target
+   should be stopped.
+
+   If SET_PSPACE_SOLIB_OPS is true, initialize the program space's solib
+   provider using the current inferior's architecture.  */
+
+extern void post_create_inferior (int from_tty, bool set_pspace_solib_ops);
 
 extern void attach_command (const char *, int);
 
-extern void registers_info (const char *, int);
+extern void registers_info (const char *, bool);
 
 extern void continue_1 (int all_threads);
 
@@ -327,6 +327,9 @@ struct inferior_control_state
   enum stop_kind stop_soon;
 };
 
+/* Initialize the inferior-related global state.  */
+extern void initialize_inferiors ();
+
 /* Return a pointer to the current inferior.  */
 extern inferior *current_inferior ();
 
@@ -340,7 +343,7 @@ extern void switch_to_inferior_no_thread (inferior *inf);
 
    If the current inferior was changed, return an RAII object that will
    restore the original current context.  */
-extern gdb::optional<scoped_restore_current_thread> maybe_switch_inferior
+extern std::optional<scoped_restore_current_thread> maybe_switch_inferior
   (inferior *inf);
 
 /* Info about an inferior's target description.  There's one of these
@@ -462,43 +465,56 @@ public:
 
   /* A map of ptid_t to thread_info*, for average O(1) ptid_t lookup.
      Exited threads do not appear in the map.  */
-  std::unordered_map<ptid_t, thread_info *, hash_ptid> ptid_thread_map;
+  gdb::unordered_map<ptid_t, thread_info *> ptid_thread_map;
 
   /* Returns a range adapter covering the inferior's threads,
      including exited threads.  Used like this:
 
-       for (thread_info *thr : inf->threads ())
+       for (thread_info &thr : inf->threads ())
 	 { .... }
   */
   inf_threads_range threads ()
-  { return inf_threads_range (this->thread_list.begin ()); }
+  {
+    inf_threads_iterator begin (this->thread_list.begin ());
+
+    return inf_threads_range (std::move (begin));
+  }
 
   /* Returns a range adapter covering the inferior's non-exited
      threads.  Used like this:
 
-       for (thread_info *thr : inf->non_exited_threads ())
+       for (thread_info &thr : inf->non_exited_threads ())
 	 { .... }
   */
   inf_non_exited_threads_range non_exited_threads ()
-  { return inf_non_exited_threads_range (this->thread_list.begin ()); }
+  {
+    inf_threads_iterator begin (this->thread_list.begin ());
+    inf_non_exited_threads_iterator filtered_begin (std::move (begin));
+
+    return inf_non_exited_threads_range (std::move (filtered_begin));
+  }
 
   /* Like inferior::threads(), but returns a range adapter that can be
      used with range-for, safely.  I.e., it is safe to delete the
      currently-iterated thread, like this:
 
-     for (thread_info *t : inf->threads_safe ())
+     for (thread_info &t : inf->threads_safe ())
        if (some_condition ())
-	 delete f;
+	 delete &f;
   */
   inline safe_inf_threads_range threads_safe ()
-  { return safe_inf_threads_range (this->thread_list.begin ()); }
+  {
+    inf_threads_iterator begin (this->thread_list.begin ());
+    safe_inf_threads_iterator safe_begin (std::move (begin));
+
+    return safe_inf_threads_range (std::move (safe_begin));
+  }
 
   /* Find (non-exited) thread PTID of this inferior.  */
   thread_info *find_thread (ptid_t ptid);
 
-  /* Delete all threads in the thread list.  If SILENT, exit threads
-     silently.  */
-  void clear_thread_list (bool silent);
+  /* Delete all threads in the thread list, silently.  */
+  void clear_thread_list ();
 
   /* Continuations-related methods.  A continuation is an std::function
      to be called to finish the execution of a command when running
@@ -524,10 +540,17 @@ public:
   void set_args (std::string args)
   {
     m_args = std::move (args);
-  };
+  }
 
-  /* Set the argument string from some strings.  */
-  void set_args (gdb::array_view<char * const> args);
+  /* Set the argument string from some strings in ARGS.  When
+     ESCAPE_SHELL_CHAR is true all special shell characters in ARGS are
+     escaped, When false only the characters that GDB sees as special will
+     be escaped.  See construct_inferior_arguments for more details.  */
+  template<typename T>
+  void set_args (gdb::array_view<T const> args, bool escape_shell_char)
+  {
+    this->set_args (construct_inferior_arguments (args, escape_shell_char));
+  }
 
   /* Get the argument string to use when running this inferior.
 
@@ -554,6 +577,13 @@ public:
     return m_cwd;
   }
 
+  /* Set this inferior's arch.  */
+  void set_arch (gdbarch *arch);
+
+  /* Get this inferior's arch.  */
+  gdbarch *arch ()
+  { return m_gdbarch; }
+
   /* Convenient handle (GDB inferior id).  Unique across all
      inferiors.  */
   int num = 0;
@@ -578,7 +608,7 @@ public:
   bool removable = false;
 
   /* The address space bound to this inferior.  */
-  struct address_space *aspace = NULL;
+  address_space_ref_ptr aspace;
 
   /* The program space bound to this inferior.  */
   struct program_space *pspace = NULL;
@@ -633,7 +663,7 @@ public:
      attach or handling a fork child.  */
   bool in_initial_library_scan = false;
 
-  /* Private data used by the target vector implementation.  */
+  /* Private data used by the process_stratum target.  */
   std::unique_ptr<private_inferior> priv;
 
   /* HAS_EXIT_CODE is true if the inferior exited with an exit code.
@@ -648,19 +678,6 @@ public:
   /* Info about an inferior's target description (if it's fetched; the
      user supplied description's filename, if any; etc.).  */
   target_desc_info tdesc_info;
-
-  /* The architecture associated with the inferior through the
-     connection to the target.
-
-     The architecture vector provides some information that is really
-     a property of the inferior, accessed through a particular target:
-     ptrace operations; the layout of certain RSP packets; the
-     solib_ops vector; etc.  To differentiate architecture accesses to
-     per-inferior/target properties from
-     per-thread/per-frame/per-objfile properties, accesses to
-     per-inferior/target properties should be made through
-     this gdbarch.  */
-  struct gdbarch *gdbarch = NULL;
 
   /* Data related to displaced stepping.  */
   displaced_step_inferior_state displaced_step_state;
@@ -688,6 +705,19 @@ private:
   /* The current working directory that will be used when starting
      this inferior.  */
   std::string m_cwd;
+
+  /* The architecture associated with the inferior through the
+     connection to the target.
+
+     The architecture vector provides some information that is really
+     a property of the inferior, accessed through a particular target:
+     ptrace operations; the layout of certain RSP packets; the
+     solib_ops vector; etc.  To differentiate architecture accesses to
+     per-inferior/target properties from
+     per-thread/per-frame/per-objfile properties, accesses to
+     per-inferior/target properties should be made through
+     this gdbarch.  */
+  gdbarch *m_gdbarch = nullptr;
 };
 
 /* Add an inferior to the inferior list, print a message that a new
@@ -705,11 +735,10 @@ extern void delete_inferior (struct inferior *todel);
 /* Delete an existing inferior list entry, due to inferior detaching.  */
 extern void detach_inferior (inferior *inf);
 
+/* Notify observers and interpreters that INF has gone away.  Reset the INF
+   object back to an default, empty, state.  Clear register and frame
+   caches.  */
 extern void exit_inferior (inferior *inf);
-
-extern void exit_inferior_silent (inferior *inf);
-
-extern void exit_inferior_num_silent (int num);
 
 extern void inferior_appeared (struct inferior *inf, int pid);
 
@@ -769,14 +798,14 @@ class scoped_restore_current_inferior_for_memory
 public:
 
   /* Save the current globals and switch to the given inferior and the
-     inferior's program space.  PTID must name a thread in INF, it is
-     used as the new inferior_ptid.  */
-  scoped_restore_current_inferior_for_memory (inferior *inf, ptid_t ptid)
+     inferior's program space.  inferior_ptid is set to point to the
+     inferior's process id (and not to any particular thread).  */
+  explicit scoped_restore_current_inferior_for_memory (inferior *inf)
     : m_save_ptid (&inferior_ptid)
   {
     set_current_inferior (inf);
     set_current_program_space (inf->pspace);
-    inferior_ptid = ptid;
+    inferior_ptid = ptid_t (inf->pid);
   }
 
   DISABLE_COPY_AND_ASSIGN (scoped_restore_current_inferior_for_memory);
@@ -810,7 +839,10 @@ extern intrusive_list<inferior> inferior_list;
 inline all_inferiors_safe_range
 all_inferiors_safe ()
 {
-  return all_inferiors_safe_range (nullptr, inferior_list);
+  all_inferiors_iterator begin (nullptr, inferior_list);
+  all_inferiors_safe_iterator safe_begin (std::move (begin));
+
+  return all_inferiors_safe_range (std::move (safe_begin));
 }
 
 /* Returns a range representing all inferiors, suitable to use with
@@ -823,7 +855,9 @@ all_inferiors_safe ()
 inline all_inferiors_range
 all_inferiors (process_stratum_target *proc_target = nullptr)
 {
-  return all_inferiors_range (proc_target, inferior_list);
+  all_inferiors_iterator begin (proc_target, inferior_list);
+
+  return all_inferiors_range (std::move (begin));
 }
 
 /* Return a range that can be used to walk over all inferiors with PID
@@ -832,7 +866,10 @@ all_inferiors (process_stratum_target *proc_target = nullptr)
 inline all_non_exited_inferiors_range
 all_non_exited_inferiors (process_stratum_target *proc_target = nullptr)
 {
-  return all_non_exited_inferiors_range (proc_target, inferior_list);
+  all_inferiors_iterator begin (proc_target, inferior_list);
+  all_non_exited_inferiors_iterator filtered_begin (std::move (begin));
+
+  return all_non_exited_inferiors_range (std::move (filtered_begin));
 }
 
 /* Prune away automatically added inferiors that aren't required
@@ -846,11 +883,23 @@ extern struct inferior *add_inferior_with_spaces (void);
 /* Print the current selected inferior.  */
 extern void print_selected_inferior (struct ui_out *uiout);
 
-/* Switch to inferior NEW_INF, a new inferior, and unless
-   NO_CONNECTION is true, push the process_stratum_target of ORG_INF
-   to NEW_INF.  */
+/* Switch to inferior NEW_INF, a new inferior, and unless NO_CONNECTION is
+   true, or the process_stratum_target of ORG_INF is not shareable, or the
+   process_stratum_target cannot start new inferiors, push the
+   process_stratum_target of ORG_INF to NEW_INF.  */
 
 extern void switch_to_inferior_and_push_target
   (inferior *new_inf, bool no_connection, inferior *org_inf);
 
-#endif /* !defined (INFERIOR_H) */
+/* Return true if ID is a valid global inferior number.  */
+
+inline bool
+valid_global_inferior_id (int id)
+{
+  for (inferior *inf : all_inferiors ())
+    if (inf->num == id)
+      return true;
+  return false;
+}
+
+#endif /* GDB_INFERIOR_H */

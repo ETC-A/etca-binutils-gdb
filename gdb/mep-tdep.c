@@ -1,6 +1,6 @@
 /* Target-dependent code for the Toshiba MeP for GDB, the GNU debugger.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -19,13 +19,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
 #include "symtab.h"
 #include "gdbtypes.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "value.h"
 #include "inferior.h"
@@ -47,7 +47,10 @@
 #include "gdbarch.h"
 
 /* Get the user's customized MeP coprocessor register names from
-   libopcodes.  */
+   libopcodes.  Make cgen names unique to prevent ODR conflicts with other
+   targets.  */
+#define GDB_CGEN_REMAP_PREFIX mep
+#include "cgen-remap.h"
 #include "opcodes/mep-desc.h"
 #include "opcodes/mep-opc.h"
 
@@ -57,7 +60,7 @@
 /* A quick recap for GDB hackers not familiar with the whole Toshiba
    Media Processor story:
 
-   The MeP media engine is a configureable processor: users can design
+   The MeP media engine is a configurable processor: users can design
    their own coprocessors, implement custom instructions, adjust cache
    sizes, select optional standard facilities like add-and-saturate
    instructions, and so on.  Then, they can build custom versions of
@@ -260,7 +263,7 @@ me_module_register_set (CONFIG_ATTR me_module,
        specifically excluding the generic coprocessor register sets.  */
 
   mep_gdbarch_tdep *tdep
-    = gdbarch_tdep<mep_gdbarch_tdep> (target_gdbarch ());
+    = gdbarch_tdep<mep_gdbarch_tdep> (current_inferior ()->arch ());
   CGEN_CPU_DESC desc = tdep->cpu_desc;
   const CGEN_HW_ENTRY *hw;
 
@@ -329,7 +332,7 @@ register_name_from_keyword (CGEN_KEYWORD *keyword_table, int regnum)
     return "";
 }
 
-  
+
 /* Masks for option bits in the OPT special-purpose register.  */
 enum {
   MEP_OPT_DIV = 1 << 25,        /* 32-bit divide instruction option */
@@ -434,7 +437,7 @@ me_module_name (CONFIG_ATTR me_module)
 
 
 /* The MeP spec defines the following registers:
-   16 general purpose registers (r0-r15) 
+   16 general purpose registers (r0-r15)
    32 control/special registers (csr0-csr31)
    32 coprocessor general-purpose registers (c0 -- c31)
    64 coprocessor control registers (ccr0 -- ccr63)
@@ -849,14 +852,14 @@ current_me_module (void)
   if (target_has_registers ())
     {
       ULONGEST regval;
-      regcache_cooked_read_unsigned (get_current_regcache (),
+      regcache_cooked_read_unsigned (get_thread_regcache (inferior_thread ()),
 				     MEP_MODULE_REGNUM, &regval);
       return (CONFIG_ATTR) regval;
     }
   else
     {
       mep_gdbarch_tdep *tdep
-	= gdbarch_tdep<mep_gdbarch_tdep> (target_gdbarch ());
+	= gdbarch_tdep<mep_gdbarch_tdep> (current_inferior ()->arch ());
       return tdep->me_module;
     }
 }
@@ -876,7 +879,7 @@ current_options (void)
   if (target_has_registers ())
     {
       ULONGEST regval;
-      regcache_cooked_read_unsigned (get_current_regcache (),
+      regcache_cooked_read_unsigned (get_thread_regcache (inferior_thread ()),
 				     MEP_OPT_REGNUM, &regval);
       return regval;
     }
@@ -943,7 +946,7 @@ mep_register_name (struct gdbarch *gdbarch, int regnr)
 
   /* Special-purpose registers.  */
   static const char *csr_names[] = {
-    "pc",   "lp",   "sar",  "",     /* 0  csr3: reserved */ 
+    "pc",   "lp",   "sar",  "",     /* 0  csr3: reserved */
     "rpb",  "rpe",  "rpc",  "hi",   /* 4 */
     "lo",   "",     "",     "",     /* 8  csr9-csr11: reserved */
     "mb0",  "me0",  "mb1",  "me1",  /* 12 */
@@ -1026,7 +1029,7 @@ static const reggroup *mep_cr_reggroup;  /* coprocessor general-purpose */
 static const reggroup *mep_ccr_reggroup; /* coprocessor control */
 
 
-static int
+static bool
 mep_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 			 const struct reggroup *group)
 {
@@ -1035,7 +1038,7 @@ mep_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
     const char *name = mep_register_name (gdbarch, regnum);
 
     if (! name || name[0] == '\0')
-      return 0;
+      return false;
   }
 
   /* We could separate the GPRs and the CSRs.  Toshiba has approved of
@@ -1073,7 +1076,7 @@ mep_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
   else if (group == mep_ccr_reggroup)
     return IS_CCR_REGNUM (regnum);
   else
-    return 0;
+    return false;
 }
 
 
@@ -1195,7 +1198,7 @@ mep_pseudo_csr_write (struct gdbarch *gdbarch,
       ULONGEST old_bits;
       ULONGEST new_bits;
       ULONGEST mixed_bits;
-	  
+
       regcache_raw_read_unsigned (regcache, r->raw, &old_bits);
       new_bits = extract_unsigned_integer (buf, size, byte_order);
       mixed_bits = ((r->writeable_bits & new_bits)
@@ -1203,7 +1206,7 @@ mep_pseudo_csr_write (struct gdbarch *gdbarch,
       regcache_raw_write_unsigned (regcache, r->raw, mixed_bits);
     }
 }
-		      
+
 
 static void
 mep_pseudo_cr32_write (struct gdbarch *gdbarch,
@@ -1216,7 +1219,7 @@ mep_pseudo_cr32_write (struct gdbarch *gdbarch,
      the pseudoregister.  */
   int rawnum = mep_pseudo_to_raw[cookednum];
   gdb_byte buf64[8];
-  
+
   gdb_assert (register_type (gdbarch, rawnum)->length () == sizeof (buf64));
   gdb_assert (register_type (gdbarch, cookednum)->length () == 4);
   /* Slow, but legible.  */
@@ -1383,7 +1386,7 @@ mep_pc_in_vliw_section (CORE_ADDR pc)
    So, the *INSN values for the instruction sequence above would be
    the following, in either endianness:
 
-       0xd1561234       movu $1,0x123456     
+       0xd1561234       movu $1,0x123456
        0xc1285678 	sb $1,22136($2)
        0xf1011098 	clip $1,0x13
        0x70020000      	ret
@@ -1405,7 +1408,7 @@ mep_pc_in_vliw_section (CORE_ADDR pc)
    significant to prologue analysis --- for the time being,
    anyway.  */
 
-static CORE_ADDR 
+static CORE_ADDR
 mep_get_insn (struct gdbarch *gdbarch, CORE_ADDR pc, unsigned long *insn)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -1476,7 +1479,7 @@ mep_get_insn (struct gdbarch *gdbarch, CORE_ADDR pc, unsigned long *insn)
       else
 	gdb_assert_not_reached ("unexpected vliw mode");
     }
-  
+
   /* Otherwise, the top two bits of the major opcode are (again) what
      we need to check.  */
   else if ((*insn & 0xc0000000) == 0xc0000000)
@@ -1733,7 +1736,7 @@ mep_analyze_prologue (struct gdbarch *gdbarch,
 	     accuracy, it would be better to just quit now.  */
 	  if (stack.store_would_trash (reg[rm]))
 	    break;
-	  
+
 	  if (is_arg_spill (gdbarch, reg[rn], reg[rm], &stack))
 	    after_last_frame_setup_insn = next_pc;
 
@@ -1809,11 +1812,11 @@ mep_analyze_prologue (struct gdbarch *gdbarch,
 	     to this branch target and also stop the prologue scan.
 	     The instructions at and beyond the branch target should
 	     no longer be associated with the prologue.
-	     
+
 	     Note that we only consider forward branches here.  We
 	     presume that a forward branch is being used to skip over
 	     a loop body.
-	     
+
 	     A backwards branch is covered by the default case below.
 	     If we were to encounter a backwards branch, that would
 	     most likely mean that we've scanned through a loop body.
@@ -1839,7 +1842,7 @@ mep_analyze_prologue (struct gdbarch *gdbarch,
 
 	 - If the instruction just changed the FP back to its original
 	   value, then that's probably a restore instruction.  The
-	   prologue should definitely end before that.  
+	   prologue should definitely end before that.
 
 	 - If the instruction increased the value of the SP (that is,
 	   shrunk the frame), then it's probably part of a frame
@@ -1903,22 +1906,21 @@ mep_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 /* Breakpoints.  */
 constexpr gdb_byte mep_break_insn[] = { 0x70, 0x32 };
 
-typedef BP_MANIPULATION (mep_break_insn) mep_breakpoint;
+using mep_breakpoint = BP_MANIPULATION (mep_break_insn);
 
 
 /* Frames and frame unwinding.  */
 
 
 static struct mep_prologue *
-mep_analyze_frame_prologue (frame_info_ptr this_frame,
+mep_analyze_frame_prologue (const frame_info_ptr &this_frame,
 			    void **this_prologue_cache)
 {
   if (! *this_prologue_cache)
     {
       CORE_ADDR func_start, stop_addr;
 
-      *this_prologue_cache 
-	= FRAME_OBSTACK_ZALLOC (struct mep_prologue);
+      *this_prologue_cache = frame_obstack_zalloc<mep_prologue> ();
 
       func_start = get_frame_func (this_frame);
       stop_addr = get_frame_pc (this_frame);
@@ -1940,7 +1942,7 @@ mep_analyze_frame_prologue (frame_info_ptr this_frame,
 /* Given the next frame and a prologue cache, return this frame's
    base.  */
 static CORE_ADDR
-mep_frame_base (frame_info_ptr this_frame,
+mep_frame_base (const frame_info_ptr &this_frame,
 		void **this_prologue_cache)
 {
   struct mep_prologue *p
@@ -1968,7 +1970,7 @@ mep_frame_base (frame_info_ptr this_frame,
 
 
 static void
-mep_frame_this_id (frame_info_ptr this_frame,
+mep_frame_this_id (const frame_info_ptr &this_frame,
 		   void **this_prologue_cache,
 		   struct frame_id *this_id)
 {
@@ -1978,7 +1980,7 @@ mep_frame_this_id (frame_info_ptr this_frame,
 
 
 static struct value *
-mep_frame_prev_register (frame_info_ptr this_frame,
+mep_frame_prev_register (const frame_info_ptr &this_frame,
 			 void **this_prologue_cache, int regnum)
 {
   struct mep_prologue *p
@@ -2058,15 +2060,16 @@ mep_frame_prev_register (frame_info_ptr this_frame,
 }
 
 
-static const struct frame_unwind mep_frame_unwind = {
+static const struct frame_unwind_legacy mep_frame_unwind (
   "mep prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   mep_frame_this_id,
   mep_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 
 /* Return values.  */
@@ -2264,7 +2267,7 @@ mep_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
   /* The address of the end of the stack area for arguments.  This is
      just for error checking.  */
   CORE_ADDR arg_stack_end;
-  
+
   sp = push_large_arguments (sp, argc, argv, copy);
 
   /* Reserve space for the stack arguments, if any.  */
@@ -2320,7 +2323,7 @@ mep_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
   /* Update the stack pointer.  */
   regcache_cooked_write_unsigned (regcache, MEP_SP_REGNUM, sp);
-  
+
   return sp;
 }
 
@@ -2365,7 +2368,7 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  const char *file_name = bfd_get_filename (info.abfd);
 	  const char *file_endianness
 	    = bfd_big_endian (info.abfd) ? "big" : "little";
-	  
+
 	  gdb_putc ('\n', gdb_stderr);
 	  if (module_name)
 	    warning (_("the MeP module '%s' is %s-endian, but the executable\n"
@@ -2384,7 +2387,7 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      already.  info->bfd_arch_info needs to match, but we also want
      the right me_module: the ELF header's e_flags field needs to
      match as well.  */
-  for (arches = gdbarch_list_lookup_by_info (arches, &info); 
+  for (arches = gdbarch_list_lookup_by_info (arches, &info);
        arches != NULL;
        arches = gdbarch_list_lookup_by_info (arches->next, &info))
     {
@@ -2421,9 +2424,9 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_register_type (gdbarch, mep_register_type);
   set_gdbarch_num_pseudo_regs (gdbarch, MEP_NUM_PSEUDO_REGS);
   set_gdbarch_pseudo_register_read (gdbarch, mep_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (gdbarch, mep_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (gdbarch,
+						mep_pseudo_register_write);
   set_gdbarch_dwarf2_reg_to_regnum (gdbarch, mep_debug_reg_to_regnum);
-  set_gdbarch_stab_reg_to_regnum (gdbarch, mep_debug_reg_to_regnum);
 
   set_gdbarch_register_reggroup_p (gdbarch, mep_register_reggroup_p);
   reggroup_add (gdbarch, mep_csr_reggroup);
@@ -2431,7 +2434,7 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   reggroup_add (gdbarch, mep_ccr_reggroup);
 
   /* Disassembly.  */
-  set_gdbarch_print_insn (gdbarch, mep_gdb_print_insn); 
+  set_gdbarch_print_insn (gdbarch, mep_gdb_print_insn);
 
   /* Breakpoints.  */
   set_gdbarch_breakpoint_kind_from_pc (gdbarch, mep_breakpoint::kind_from_pc);
@@ -2446,7 +2449,7 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   /* Return values.  */
   set_gdbarch_return_value (gdbarch, mep_return_value);
-  
+
   /* Inferior function calls.  */
   set_gdbarch_frame_align (gdbarch, mep_frame_align);
   set_gdbarch_push_dummy_call (gdbarch, mep_push_dummy_call);
@@ -2454,12 +2457,10 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
-void _initialize_mep_tdep ();
-void
-_initialize_mep_tdep ()
+INIT_GDB_FILE (mep_tdep)
 {
   mep_csr_reggroup = reggroup_new ("csr", USER_REGGROUP);
-  mep_cr_reggroup  = reggroup_new ("cr", USER_REGGROUP); 
+  mep_cr_reggroup  = reggroup_new ("cr", USER_REGGROUP);
   mep_ccr_reggroup = reggroup_new ("ccr", USER_REGGROUP);
 
   gdbarch_register (bfd_arch_mep, mep_gdbarch_init);

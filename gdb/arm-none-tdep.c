@@ -1,6 +1,6 @@
 /* none on ARM target support.
 
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arm-tdep.h"
 #include "arch-utils.h"
+#include "extract-store-integer.h"
 #include "regcache.h"
 #include "elf-bfd.h"
 #include "regset.h"
@@ -204,9 +204,7 @@ arm_none_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
 /* Initialize ARM bare-metal target support.  */
 
-void _initialize_arm_none_tdep ();
-void
-_initialize_arm_none_tdep ()
+INIT_GDB_FILE (arm_none_tdep)
 {
   gdbarch_register_osabi (bfd_arch_arm, 0, GDB_OSABI_NONE,
 			  arm_none_init_abi);

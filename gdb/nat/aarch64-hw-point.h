@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef NAT_AARCH64_HW_POINT_H
-#define NAT_AARCH64_HW_POINT_H
+#ifndef GDB_NAT_AARCH64_HW_POINT_H
+#define GDB_NAT_AARCH64_HW_POINT_H
 
 /* Macro definitions, data structures, and code for the hardware
    breakpoint and hardware watchpoint support follow.  We use the
@@ -73,6 +73,7 @@
 
 #define DR_CONTROL_ENABLED(ctrl)	(((ctrl) & 0x1) == 1)
 #define DR_CONTROL_MASK(ctrl)		(((ctrl) >> 5) & 0xff)
+#define DR_CONTROL_TYPE(ctrl)		(((ctrl) >> 3) & 0x3)
 
 /* Structure for managing the hardware breakpoint/watchpoint resources.
    DR_ADDR_* stores the address, DR_CTRL_* stores the control register
@@ -107,6 +108,20 @@ void aarch64_notify_debug_reg_change (ptid_t ptid, int is_watchpoint,
 
 unsigned int aarch64_watchpoint_offset (unsigned int ctrl);
 unsigned int aarch64_watchpoint_length (unsigned int ctrl);
+enum target_hw_bp_type aarch64_watchpoint_type (unsigned int ctrl);
+
+/* Helper for the "stopped_data_addresses" target method.  Returns a vector
+   containing the addresses of all hardware watchpoints that could account
+   for a watchpoint trap at ADDR_TRAP.  Return an empty vector if no
+   suitable watchpoint addresses can be identified.
+
+   It is possible that multiple watchpoints could account for a trap at
+   ADDR_TRAP, in which case all possible addresses are returned, and GDB
+   core is responsible for selecting a suitable watchpoint, or otherwise
+   letting the user know that there is some ambiguity.  */
+
+extern std::vector<CORE_ADDR> aarch64_stopped_data_addresses
+  (const struct aarch64_debug_reg_state *state, CORE_ADDR addr_trap);
 
 int aarch64_handle_breakpoint (enum target_hw_bp_type type, CORE_ADDR addr,
 			       int len, int is_insert, ptid_t ptid,
@@ -126,4 +141,4 @@ void aarch64_show_debug_reg_state (struct aarch64_debug_reg_state *state,
 
 int aarch64_region_ok_for_watchpoint (CORE_ADDR addr, int len);
 
-#endif /* NAT_AARCH64_HW_POINT_H */
+#endif /* GDB_NAT_AARCH64_HW_POINT_H */

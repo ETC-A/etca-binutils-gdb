@@ -1,4 +1,4 @@
-# Copyright 2023 Free Software Foundation, Inc.
+# Copyright 2023-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,38 +14,30 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import base64
+
 import gdb
 
-from .server import request, capability
-from .startup import send_gdb_with_response, in_gdb_thread
-
-
-@in_gdb_thread
-def _read_memory(addr, count):
-    buf = gdb.selected_inferior().read_memory(addr, count)
-    return base64.b64encode(buf).decode("ASCII")
+from .server import capability, request
+from .startup import DAPException
 
 
 @request("readMemory")
 @capability("supportsReadMemoryRequest")
 def read_memory(*, memoryReference: str, offset: int = 0, count: int, **extra):
     addr = int(memoryReference, 0) + offset
-    buf = send_gdb_with_response(lambda: _read_memory(addr, count))
+    try:
+        buf = gdb.selected_inferior().read_memory(addr, count)
+    except MemoryError as e:
+        raise DAPException("Out of memory") from e
     return {
         "address": hex(addr),
-        "data": buf,
+        "data": base64.b64encode(buf).decode("ASCII"),
     }
-
-
-@in_gdb_thread
-def _write_memory(addr, contents):
-    buf = base64.b64decode(contents)
-    gdb.selected_inferior().write_memory(addr, buf)
 
 
 @request("writeMemory")
 @capability("supportsWriteMemoryRequest")
 def write_memory(*, memoryReference: str, offset: int = 0, data: str, **extra):
     addr = int(memoryReference, 0) + offset
-    send_gdb_with_response(lambda: _write_memory(addr, data))
-    return {}
+    buf = base64.b64decode(data)
+    gdb.selected_inferior().write_memory(addr, buf)

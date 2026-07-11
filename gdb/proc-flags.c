@@ -1,5 +1,5 @@
 /* Machine independent support for Solaris /proc (process file system) for GDB.
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
 
@@ -20,12 +20,11 @@
 
 /*
  * Pretty-print the prstatus flags.
- * 
+ *
  * Arguments: unsigned long flags, int verbose
  *
  */
 
-#include "defs.h"
 
 #include <sys/types.h>
 #include <sys/procfs.h>

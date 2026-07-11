@@ -1,4 +1,4 @@
-# Copyright 1998-2023 Free Software Foundation, Inc.
+# Copyright 1998-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 #
 # tests for command completion
 #
-# Here are some useful test cases for completion.  
+# Here are some useful test cases for completion.
 # They should be tested with both M-? and TAB.
 #
 #   "show output-" "radix"
@@ -54,7 +54,7 @@ standard_testfile break.c break1.c
 
 if {[prepare_for_testing "failed to prepare" $testfile \
 	 [list $srcfile $srcfile2] {debug nowarnings}]} {
-    return -1
+    return
 }
 
 if {![runto_main]} {
@@ -89,16 +89,6 @@ gdb_test "complete set cp-abi aut" "set cp-abi auto"
 
 # Test that completion of commands 'target FOO' works well.
 set targets [list "core" "tfile" "exec"]
-
-# Test that completion of command 'target ctf' if GDB supports ctf
-# target.
-gdb_test_multiple "target ctf" "" {
-    -re "Undefined target command: \"ctf\"\.  Try \"help target\"\.\r\n$gdb_prompt $" {
-    }
-    -re "No CTF directory specified.*\r\n$gdb_prompt $" {
-	lappend targets "ctf"
-    }
-}
 
 # Test artifacts are put in different locations depending on test
 # is a parallel run or not.  Firstly check file exists, and then
@@ -145,7 +135,7 @@ append regs_output "\n"
 append regs_output [capture_command_output "mt print user-registers" \
 		     ".*Name.*Nr\[^\n]*\n"]
 set all_regs {}
-foreach {- reg} [regexp -all -inline -line {^\s+(\w+)} $regs_output] {
+foreach {- reg} [regexp -all -inline -line {^(\w+)} $regs_output] {
     lappend all_regs $reg
 }
 
@@ -165,7 +155,7 @@ gdb_assert {$all_regs eq $completed_regs} "complete 'info registers '"
 # library isn't used.  Check it first.
 
 if { ![readline_is_used] } {
-    return -1
+    return
 }
 
 # The bulk of this test script pre-dates the completion-support
@@ -210,7 +200,7 @@ gdb_test_multiple "" "$test" {
 	    -re "Default output radix for printing of values is 10\\..*$gdb_prompt $" {
 		pass "$test"
 	    }
-        }
+	}
     }
 }
 
@@ -223,7 +213,7 @@ gdb_test_multiple "" "$test" {
 	    -re "The history is empty\\..*$gdb_prompt $" {
 		pass "$test"
 	    }
-        }
+	}
     }
 }
 
@@ -311,7 +301,7 @@ gdb_test_multiple "" "$test" {
     -re "^info $" {
 	send_gdb "\n"
 	gdb_test_multiple "" "$test" {
-	    -re "List of info subcommands.*$gdb_prompt $" {
+	    -re "List of \"info\" subcommands.*$gdb_prompt $" {
 		pass "$test"
 	    }
 	}
@@ -324,7 +314,7 @@ gdb_test_multiple "" "$test" {
     -re "^info \\\x07$" {
 	send_gdb "\n"
 	gdb_test_multiple "" "$test" {
-	    -re "List of info subcommands:\r\n\r\n.*$gdb_prompt $" {
+	    -re "List of \"info\" subcommands:\r\n\r\n.*$gdb_prompt $" {
 		pass "$test"
 	    }
 	}
@@ -514,12 +504,12 @@ set test "complete 'p no_var_named_this-arg'"
 send_gdb "p no_var_named_this-arg\t"
 gdb_test_multiple "" "$test" {
     -re "^p no_var_named_this-arg\\\x07$" {
-        send_gdb "\n"
+	send_gdb "\n"
 	gdb_test_multiple "" "$test" {
-            -re "No symbol \"no_var_named_this\" in current context\\..*$gdb_prompt $" {
+	    -re "No symbol \"no_var_named_this\" in current context\\..*$gdb_prompt $" {
 		pass "$test"
-            }
-        }
+	    }
+	}
     }
 }
 
@@ -543,10 +533,10 @@ gdb_test_multiple "" "$test" {
 		# Eat the prompt
 		gdb_expect {
 		    -re "$gdb_prompt " {
-			pass "$test (eat prompt)"
+			pass "$test, eat prompt"
 		    }
 		    timeout {
-			fail "(timeout) $test (eat prompt)"
+			fail "$test, eat prompt (timeout)"
 		    }
 		}
 
@@ -556,7 +546,7 @@ gdb_test_multiple "" "$test" {
 		    }
 		}
 	    }
-        }
+	}
     }
 }
 
@@ -572,10 +562,10 @@ gdb_test_multiple "" "$test" {
 		# Eat the prompt
 		gdb_expect {
 		    -re "$gdb_prompt " {
-			pass "$test (eat prompt)"
+			pass "$test, eat prompt"
 		    }
 		    timeout {
-			fail "(timeout) $test (eat prompt)"
+			fail "$test, eat prompt (timeout)"
 		    }
 		}
 
@@ -676,12 +666,12 @@ with_cwd $srcdir {
 }
 
 # If the directory name contains a '+' we must escape it, adding a backslash.
-# If not, the test below will fail because it will interpret the '+' as a 
+# If not, the test below will fail because it will interpret the '+' as a
 # regexp operator. We use string_to_regexp for this purpose.
 
 gdb_test "cd ${fullsrcdir}" \
-         "Working directory [string_to_regexp ${fullsrcdir}].*" \
-         "cd to \${srcdir}"
+	 "Working directory [string_to_regexp ${fullsrcdir}].*" \
+	 "cd to \${srcdir}"
 
 
 # GDB used to fail adding / on directories, on the first try only.
@@ -975,3 +965,33 @@ test_gdb_complete_unique "xxx_yyy_" "xxx_yyy_zzz"
 gdb_test_no_output "alias set aaa_bbb_ccc=set debug"
 gdb_test_no_output "maint deprecate set aaa_bbb_ccc"
 test_gdb_complete_unique "set aaa_bbb_" "set aaa_bbb_ccc"
+
+# Test command completion for the disassemble command.
+test_gdb_complete_unique \
+    "disassemble multi_line_if" \
+    "disassemble multi_line_if_conditional"
+
+test_gdb_complete_multiple "disassemble " \
+    "multi_li" "ne_" {
+	"multi_line_if_conditional"
+	"multi_line_while_conditional"
+    }
+
+foreach_with_prefix spc { " " "" } {
+    test_gdb_complete_none "disassemble${spc}/"
+
+    foreach_with_prefix flg { "r" "b" "rb" "s" "m" "ms" } {
+	test_gdb_complete_unique "disassemble${spc}/${flg}" \
+	    "disassemble${spc}/${flg}"
+
+	test_gdb_complete_unique \
+	    "disassemble${spc}/${flg} multi_line_if" \
+	    "disassemble${spc}/${flg} multi_line_if_conditional"
+
+	test_gdb_complete_multiple "disassemble${spc}/${flg} " \
+	    "multi_li" "ne_" {
+		"multi_line_if_conditional"
+		"multi_line_while_conditional"
+	    }
+    }
+}

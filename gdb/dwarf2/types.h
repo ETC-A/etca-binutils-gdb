@@ -1,6 +1,6 @@
 /* Common internal types for the DWARF reader
 
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef DWARF2_TYPES_H
-#define DWARF2_TYPES_H
+#ifndef GDB_DWARF2_TYPES_H
+#define GDB_DWARF2_TYPES_H
 
 #include "gdbsupport/offset-type.h"
 #include "gdbsupport/underlying.h"
@@ -31,10 +31,12 @@ DEFINE_OFFSET_TYPE (cu_offset, unsigned int);
    section.  */
 DEFINE_OFFSET_TYPE (sect_offset, uint64_t);
 
-static inline char *
+constexpr auto invalid_sect_offset = static_cast<sect_offset> (-1);
+
+static inline const char *
 sect_offset_str (sect_offset offset)
 {
   return hex_string (to_underlying (offset));
 }
 
-#endif /* DWARF2_TYPES_H */
+#endif /* GDB_DWARF2_TYPES_H */

@@ -1,6 +1,6 @@
 /* Scheme interface to breakpoints.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,10 +20,9 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
 #include "value.h"
 #include "breakpoint.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbthread.h"
 #include "observable.h"
 #include "cli/cli-script.h"
@@ -465,7 +464,7 @@ gdbscm_register_breakpoint_x (SCM self)
 	    const breakpoint_ops *ops =
 	      breakpoint_ops_for_location_spec (locspec.get (), false);
 	    create_breakpoint (get_current_arch (),
-			       locspec.get (), NULL, -1, NULL, false,
+			       locspec.get (), NULL, -1, -1, NULL, false,
 			       0,
 			       temporary, bp_breakpoint,
 			       0,
@@ -784,6 +783,11 @@ gdbscm_set_breakpoint_thread_x (SCM self, SCM newvalue)
   else
     SCM_ASSERT_TYPE (0, newvalue, SCM_ARG2, FUNC_NAME, _("integer or #f"));
 
+  if (bp_smob->bp->inferior != -1 && id != -1)
+    scm_misc_error (FUNC_NAME,
+		    _("Cannot have both 'thread' and 'inferior' "
+		      "conditions on a breakpoint"), SCM_EOL);
+
   breakpoint_set_thread (bp_smob->bp, id);
 
   return SCM_UNSPECIFIED;
@@ -811,13 +815,13 @@ gdbscm_set_breakpoint_task_x (SCM self, SCM newvalue)
   breakpoint_smob *bp_smob
     = bpscm_get_valid_breakpoint_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   long id;
-  int valid_id = 0;
 
   if (scm_is_signed_integer (newvalue, LONG_MIN, LONG_MAX))
     {
       id = scm_to_long (newvalue);
 
       gdbscm_gdb_exception exc {};
+      bool valid_id = false;
       try
 	{
 	  valid_id = valid_task_id (id);
@@ -885,12 +889,11 @@ gdbscm_breakpoint_expression (SCM self)
 {
   breakpoint_smob *bp_smob
     = bpscm_get_valid_breakpoint_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
-  struct watchpoint *wp;
 
   if (!is_watchpoint (bp_smob->bp))
     return SCM_BOOL_F;
 
-  wp = (struct watchpoint *) bp_smob->bp;
+  watchpoint *wp = gdb::checked_static_cast<watchpoint *> (bp_smob->bp);
 
   const char *str = wp->exp_string.get ();
   if (! str)

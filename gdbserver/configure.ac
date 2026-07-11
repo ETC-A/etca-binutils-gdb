@@ -1,5 +1,5 @@
 dnl Autoconf configure script for GDB server.
-dnl Copyright (C) 2000-2023 Free Software Foundation, Inc.
+dnl Copyright (C) 2000-2026 Free Software Foundation, Inc.
 dnl
 dnl This file is part of GDB.
 dnl
@@ -46,11 +46,9 @@ AC_PROG_RANLIB
 
 AC_ARG_PROGRAM
 
-# We require a C++11 compiler.  Check if one is available, and if
+# We require a C++17 compiler.  Check if one is available, and if
 # necessary, set CXX_DIALECT to some -std=xxx switch.
-AX_CXX_COMPILE_STDCXX(11, , mandatory)
-
-AC_HEADER_STDC
+AX_CXX_COMPILE_STDCXX(17, , mandatory)
 
 GDB_AC_COMMON
 # This is set by GDB_AC_COMMON.
@@ -80,71 +78,33 @@ AC_CONFIG_COMMANDS([gdbdepdir],[
 
 ZW_PROG_COMPILER_DEPENDENCIES([CC])
 
-AC_CHECK_HEADERS(termios.h sys/reg.h string.h dnl
-		 sys/procfs.h linux/elf.h dnl
-		 fcntl.h signal.h sys/file.h dnl
-		 sys/ioctl.h netinet/in.h sys/socket.h netdb.h dnl
-		 netinet/tcp.h arpa/inet.h ws2tcpip.h)
+AC_CHECK_HEADERS([ \
+  arpa/inet.h \
+  fcntl.h \
+  linux/elf.h \
+  netdb.h \
+  netinet/in.h \
+  netinet/tcp.h \
+  signal.h \
+  string.h \
+  sys/file.h \
+  sys/ioctl.h \
+  sys/procfs.h \
+  sys/reg.h \
+  sys/socket.h \
+  termios.h \
+  ws2tcpip.h \
+])
+
 AC_FUNC_FORK
-AC_CHECK_FUNCS(pread pwrite pread64)
+AC_CHECK_FUNCS([ \
+  pread \
+  pread64 \
+  pwrite \
+])
 
 # Check the return and argument types of ptrace.
 GDB_AC_PTRACE
-
-# Check for UST
-ustlibs=""
-ustinc=""
-
-AC_ARG_WITH(ust, [  --with-ust=PATH       Specify prefix directory for the installed UST package
-                          Equivalent to --with-ust-include=PATH/include
-                          plus --with-ust-lib=PATH/lib])
-AC_ARG_WITH(ust_include, [  --with-ust-include=PATH Specify directory for installed UST include files])
-AC_ARG_WITH(ust_lib, [  --with-ust-lib=PATH   Specify the directory for the installed UST library])
-
-case $with_ust in
-  no)
-    ustlibs=
-    ustinc=
-    ;;
-  "" | yes)
-    ustlibs=" -lust "
-    ustinc=""
-    ;;
-  *)
-    ustlibs="-L$with_ust/lib -lust"
-    ustinc="-I$with_ust/include "
-    ;;
-esac
-if test "x$with_ust_include" != x; then
-  ustinc="-I$with_ust_include "
-fi
-if test "x$with_ust_lib" != x; then
-  ustlibs="-L$with_ust_lib -lust"
-fi
-
-if test "x$with_ust" != "xno"; then
-  saved_CFLAGS="$CFLAGS"
-  CFLAGS="$CFLAGS $ustinc"
-  AC_MSG_CHECKING([for ust])
-  AC_COMPILE_IFELSE(
-    [AC_LANG_PROGRAM(
-       [
-#define CONFIG_UST_GDB_INTEGRATION
-#include <ust/ust.h>
-       ],
-       []
-     )],
-    [AC_MSG_RESULT([yes]);
-     AC_DEFINE(HAVE_UST, 1, [Define if UST is available])],
-    [AC_MSG_RESULT([no])
-     ustlibs= ; ustinc= ]
-  )
-  CFLAGS="$saved_CFLAGS"
-fi
-
-# Flags needed for UST
-AC_SUBST(ustlibs)
-AC_SUBST(ustinc)
 
 AM_GDB_COMPILER_TYPE
 AM_GDB_WARNINGS
@@ -176,7 +136,7 @@ case "${target}" in
     # Starting with NDK version 9, <elf.h> actually includes definitions
     # of Elf32_auxv_t and Elf64_auxv_t. But sadly, <elf.h> includes
     # <sys/exec_elf.h> which defines some of the ELF types incorrectly,
-    # leading to conflicts with the defintions from <linux/elf.h>.
+    # leading to conflicts with the definitions from <linux/elf.h>.
     # This makes it impossible for us to include both <elf.h> and
     # <linux/elf.h>, which means that, in practice, we do not have
     # access to Elf32_auxv_t and Elf64_auxv_t on this platform.
@@ -201,15 +161,15 @@ changequote(,)dnl
   i[34567]86-*-linux*)
 changequote([,])dnl
     AC_CACHE_CHECK([if building for x86-64], [gdb_cv_i386_is_x86_64],
-      	           [save_CPPFLAGS="$CPPFLAGS"
-                    CPPFLAGS="$CPPFLAGS $CFLAGS"
-                    AC_EGREP_CPP([got it], [
+		   [save_CPPFLAGS="$CPPFLAGS"
+		    CPPFLAGS="$CPPFLAGS $CFLAGS"
+		    AC_EGREP_CPP([got it], [
 #if __x86_64__
 got it
 #endif
-                 ], [gdb_cv_i386_is_x86_64=yes],
-                    [gdb_cv_i386_is_x86_64=no])
-                    CPPFLAGS="$save_CPPFLAGS"])
+		 ], [gdb_cv_i386_is_x86_64=yes],
+		    [gdb_cv_i386_is_x86_64=no])
+		    CPPFLAGS="$save_CPPFLAGS"])
     ;;
 
   x86_64-*-linux*)
@@ -227,15 +187,15 @@ got it
 
   m68k-*-*)
     AC_CACHE_CHECK([if building for Coldfire], [gdb_cv_m68k_is_coldfire],
-      	           [save_CPPFLAGS="$CPPFLAGS"
-                    CPPFLAGS="$CPPFLAGS $CFLAGS"
-                    AC_EGREP_CPP([got it], [
+		   [save_CPPFLAGS="$CPPFLAGS"
+		    CPPFLAGS="$CPPFLAGS $CFLAGS"
+		    AC_EGREP_CPP([got it], [
 #ifdef __mcoldfire__
 got it
 #endif
-                 ], [gdb_cv_m68k_is_coldfire=yes],
-                    [gdb_cv_m68k_is_coldfire=no])
-                    CPPFLAGS="$save_CPPFLAGS"])
+		 ], [gdb_cv_m68k_is_coldfire=yes],
+		    [gdb_cv_m68k_is_coldfire=no])
+		    CPPFLAGS="$save_CPPFLAGS"])
     ;;
 esac
 
@@ -407,8 +367,8 @@ dnl Check for -fvisibility=hidden support in the compiler.
 saved_cflags="$CFLAGS"
 CFLAGS="$CFLAGS -fvisibility=hidden"
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([])],
-		        [gdbsrv_cv_have_visibility_hidden=yes],
-	        	[gdbsrv_cv_have_visibility_hidden=no])
+			[gdbsrv_cv_have_visibility_hidden=yes],
+			[gdbsrv_cv_have_visibility_hidden=no])
 CFLAGS="$saved_cflags"
 
 IPA_DEPFILES=""
@@ -455,6 +415,22 @@ if test x"$STDINT_H" != x; then
   GNULIB_STDINT_H=$GNULIB/$STDINT_H
 fi
 AC_SUBST(GNULIB_STDINT_H)
+
+# Check for libiconv.  It is a requirement for Linux hosts, and others hosts
+# don't use it at all.  Define MAYBE_LIBICONV only if the host is Linux.
+AM_ICONV
+MAYBE_LIBICONV=
+case "$host" in
+  *linux*)
+    if test "$am_cv_func_iconv" != yes; then
+      AC_MSG_ERROR([could not find libiconv (required for host $host)])
+    fi
+
+    MAYBE_LIBICONV="$LIBICONV"
+    ;;
+esac
+
+AC_SUBST(MAYBE_LIBICONV)
 
 AC_CONFIG_FILES([Makefile])
 

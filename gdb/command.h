@@ -1,6 +1,6 @@
 /* Header file for command creation.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,10 +15,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#if !defined (COMMAND_H)
-#define COMMAND_H 1
+#ifndef GDB_COMMAND_H
+#define GDB_COMMAND_H
 
-#include "gdbsupport/gdb_vecs.h"
 #include "gdbsupport/scoped_restore.h"
 
 struct completion_tracker;
@@ -46,29 +45,31 @@ enum command_class
      Note that help accepts unambiguous abbreviated class names.  */
 
   /* Special classes to help_list */
-  all_classes = -2,  /* help without <classname> */
-  all_commands = -1, /* all */
+  all_classes = 0,  /* help without <classname> */
+  all_commands = ~0, /* all */
 
   /* Classes of commands */
-  no_class = -1,
-  class_run = 0,     /* running */
-  class_vars,        /* data */
-  class_stack,       /* stack */
-  class_files,       /* files */
-  class_support,     /* support */
-  class_info,        /* status */
-  class_breakpoint,  /* breakpoints */
-  class_trace,       /* tracepoints */
-  class_alias,       /* aliases */
-  class_bookmark,
-  class_obscure,     /* obscure */
-  class_maintenance, /* internals */
-  class_tui,         /* text-user-interface */
-  class_user,        /* user-defined */
+  no_class = 1 << 0,
+  class_run = 1 << 1,     /* running */
+  class_vars = 1 << 2,        /* data */
+  class_stack = 1 << 3,       /* stack */
+  class_files = 1 << 4,       /* files */
+  class_support = 1 << 5,     /* support */
+  class_info = 1 << 6,        /* status */
+  class_breakpoint = 1 << 7,  /* breakpoints */
+  class_trace = 1 << 8,       /* tracepoints */
+  class_alias = 1 << 9,       /* aliases */
+  class_bookmark = 1 << 10,
+  class_obscure = 1 << 11,     /* obscure */
+  class_maintenance = 1 << 12, /* internals */
+  class_tui = 1 << 13,         /* text-user-interface */
+  class_user = 1 << 14,        /* user-defined */
+  class_essential = 1 << 15,    /* essential */
 
   /* Used for "show" commands that have no corresponding "set" command.  */
-  no_set_class
+  no_set_class = 1 << 16
 };
+DEF_ENUM_FLAGS_TYPE (enum command_class, command_classes);
 
 /* Types of "set" or "show" command.  */
 enum var_types
@@ -78,7 +79,7 @@ enum var_types
     var_boolean,
 
     /* "on" / "true" / "enable" or "off" / "false" / "disable" or
-       "auto.  *VAR is an ``enum auto_boolean''.  NOTE: In general a
+       "auto".  *VAR is an ``enum auto_boolean''.  NOTE: In general a
        custom show command will need to be implemented - one that for
        "auto" prints both the "auto" and the current auto-selected
        value.  */
@@ -111,7 +112,9 @@ enum var_types
     /* Enumerated type.  Can only have one of the specified values.
        *VAR is a char pointer to the name of the element that we
        find.  */
-    var_enum
+    var_enum,
+    /* Color type.  *VAR is a ui_file_style::color structure.  */
+    var_color
   };
 
 /* A structure describing an extra literal accepted and shown in place
@@ -126,7 +129,7 @@ struct literal_def
   LONGEST use;
 
   /* An optional number accepted that stands for the literal.  */
-  gdb::optional<LONGEST> val;
+  std::optional<LONGEST> val;
 };
 
 /* Return true if a setting of type VAR_TYPE is backed with type T.
@@ -183,6 +186,14 @@ template<>
 inline bool var_type_uses<const char *> (var_types t)
 {
   return t == var_enum;
+}
+
+/* Return true if a setting of type T is backed by an ui_file_style::color
+   variable.  */
+template<>
+inline bool var_type_uses<ui_file_style::color> (var_types t)
+{
+  return t == var_color;
 }
 
 template<bool is_scalar, typename T> struct setting_func_types_1;
@@ -292,8 +303,8 @@ struct setting
     /* Getters and setters are cast to and from the arbitrary `void (*) ()`
        function pointer type.  Make sure that the two types are really of the
        same size.  */
-    gdb_static_assert (sizeof (m_getter) == sizeof (getter));
-    gdb_static_assert (sizeof (m_setter) == sizeof (setter));
+    static_assert (sizeof (m_getter) == sizeof (getter));
+    static_assert (sizeof (m_setter) == sizeof (setter));
 
     m_getter = reinterpret_cast<erased_func> (getter);
     m_setter = reinterpret_cast<erased_func> (setter);
@@ -424,30 +435,30 @@ struct set_show_commands
 
 /* Const-correct variant of the above.  */
 
-extern struct cmd_list_element *add_cmd (const char *, enum command_class,
+extern struct cmd_list_element *add_cmd (const char *, command_classes,
 					 cmd_simple_func_ftype *fun,
 					 const char *,
 					 struct cmd_list_element **);
 
 /* Like add_cmd, but no command function is specified.  */
 
-extern struct cmd_list_element *add_cmd (const char *, enum command_class,
+extern struct cmd_list_element *add_cmd (const char *, command_classes,
 					 const char *,
 					 struct cmd_list_element **);
 
 extern struct cmd_list_element *add_cmd_suppress_notification
-			(const char *name, enum command_class theclass,
+			(const char *name, command_classes theclass,
 			 cmd_simple_func_ftype *fun, const char *doc,
 			 struct cmd_list_element **list,
 			 bool *suppress_notification);
 
 extern struct cmd_list_element *add_alias_cmd (const char *,
 					       cmd_list_element *,
-					       enum command_class, int,
+					       command_classes, int,
 					       struct cmd_list_element **);
 
 
-extern struct cmd_list_element *add_prefix_cmd (const char *, enum command_class,
+extern struct cmd_list_element *add_prefix_cmd (const char *, command_classes,
 						cmd_simple_func_ftype *fun,
 						const char *,
 						struct cmd_list_element **,
@@ -458,21 +469,21 @@ extern struct cmd_list_element *add_prefix_cmd (const char *, enum command_class
    simply calls help_list.  */
 
 extern struct cmd_list_element *add_basic_prefix_cmd
-  (const char *, enum command_class, const char *, struct cmd_list_element **,
+  (const char *, command_classes, const char *, struct cmd_list_element **,
    int, struct cmd_list_element **);
 
 /* Like add_prefix_cmd, but useful for "show" prefixes.  This sets the
    callback to a function that simply calls cmd_show_list.  */
 
 extern struct cmd_list_element *add_show_prefix_cmd
-  (const char *, enum command_class, const char *, struct cmd_list_element **,
+  (const char *, command_classes, const char *, struct cmd_list_element **,
    int, struct cmd_list_element **);
 
 /* Add matching set and show commands using add_basic_prefix_cmd and
    add_show_prefix_cmd.  */
 
 extern set_show_commands add_setshow_prefix_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc,
    cmd_list_element **set_subcommands_list,
    cmd_list_element **show_subcommands_list,
@@ -480,7 +491,7 @@ extern set_show_commands add_setshow_prefix_cmd
    cmd_list_element **show_list);
 
 extern struct cmd_list_element *add_prefix_cmd_suppress_notification
-			(const char *name, enum command_class theclass,
+			(const char *name, command_classes theclass,
 			 cmd_simple_func_ftype *fun,
 			 const char *doc, struct cmd_list_element **subcommands,
 			 int allow_unknown,
@@ -488,7 +499,7 @@ extern struct cmd_list_element *add_prefix_cmd_suppress_notification
 			 bool *suppress_notification);
 
 extern struct cmd_list_element *add_abbrev_prefix_cmd (const char *,
-						       enum command_class,
+						       command_classes,
 						       cmd_simple_func_ftype *fun,
 						       const char *,
 						       struct cmd_list_element
@@ -549,7 +560,7 @@ extern struct cmd_list_element *lookup_cmd (const char **,
    the section of text it matched, set *RESULT_LIST to point to the list in
    which the last word was matched, and will return a pointer to the cmd
    list element which the text matches.  It will return NULL if no match at
-   all was possible.  It will return -1 (cast appropriately, ick) if ambigous
+   all was possible.  It will return -1 (cast appropriately, ick) if ambiguous
    matches are possible; in this case *RESULT_LIST will be set to point to
    the list in which there are ambiguous choices (and *TEXT will be set to
    the ambiguous text string).
@@ -621,17 +632,17 @@ extern int lookup_cmd_composition (const char *text,
 				   struct cmd_list_element **prefix_cmd,
 				   struct cmd_list_element **cmd);
 
-extern struct cmd_list_element *add_com (const char *, enum command_class,
+extern struct cmd_list_element *add_com (const char *, command_classes,
 					 cmd_simple_func_ftype *fun,
 					 const char *);
 
 extern cmd_list_element *add_com_alias (const char *name,
 					cmd_list_element *target,
-					command_class theclass,
+					command_classes theclass,
 					int abbrev_flag);
 
 extern struct cmd_list_element *add_com_suppress_notification
-		       (const char *name, enum command_class theclass,
+		       (const char *name, command_classes theclass,
 			cmd_simple_func_ftype *fun, const char *doc,
 			bool *suppress_notification);
 
@@ -654,7 +665,7 @@ extern void complete_on_enum (completion_tracker &tracker,
 /* Functions that implement commands about CLI commands.  */
 
 extern void help_list (struct cmd_list_element *, const char *,
-		       enum command_class, struct ui_file *);
+		       command_classes, struct ui_file *);
 
 /* Method for show a set/show variable's VALUE on FILE.  */
 typedef void (show_value_ftype) (struct ui_file *file,
@@ -668,27 +679,41 @@ extern const literal_def uinteger_unlimited_literals[];
 extern const literal_def pinteger_unlimited_literals[];
 
 extern set_show_commands add_setshow_enum_cmd
-  (const char *name, command_class theclass, const char *const *enumlist,
+  (const char *name, command_classes theclass, const char *const *enumlist,
    const char **var, const char *set_doc, const char *show_doc,
    const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_enum_cmd
-  (const char *name, command_class theclass, const char *const *enumlist,
+  (const char *name, command_classes theclass, const char *const *enumlist,
    const char *set_doc, const char *show_doc,
    const char *help_doc, setting_func_types<const char *>::set set_func,
    setting_func_types<const char *>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
+extern set_show_commands add_setshow_color_cmd
+  (const char *name, command_classes theclass, ui_file_style::color *var,
+   const char *set_doc, const char *show_doc, const char *help_doc,
+   cmd_func_ftype *set_func, show_value_ftype *show_func,
+   cmd_list_element **set_list, cmd_list_element **show_list);
+
+extern set_show_commands add_setshow_color_cmd
+  (const char *name, command_classes theclass,
+   const char *set_doc, const char *show_doc, const char *help_doc,
+   setting_func_types<ui_file_style::color>::set set_func,
+   setting_func_types<ui_file_style::color>::get get_func,
+   show_value_ftype *show_func, cmd_list_element **set_list,
+   cmd_list_element **show_list);
+
 extern set_show_commands add_setshow_auto_boolean_cmd
-  (const char *name, command_class theclass, auto_boolean *var,
+  (const char *name, command_classes theclass, auto_boolean *var,
    const char *set_doc, const char *show_doc, const char *help_doc,
    cmd_func_ftype *set_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_auto_boolean_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<enum auto_boolean>::set set_func,
    setting_func_types<enum auto_boolean>::get get_func,
@@ -696,39 +721,39 @@ extern set_show_commands add_setshow_auto_boolean_cmd
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_boolean_cmd
-  (const char *name, command_class theclass, bool *var, const char *set_doc,
+  (const char *name, command_classes theclass, bool *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_boolean_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<bool>::set set_func,
    setting_func_types<bool>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_filename_cmd
-  (const char *name, command_class theclass, std::string *var, const char *set_doc,
+  (const char *name, command_classes theclass, std::string *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_filename_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<std::string>::set set_func,
    setting_func_types<std::string>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_string_cmd
-  (const char *name, command_class theclass, std::string *var, const char *set_doc,
+  (const char *name, command_classes theclass, std::string *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_string_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<std::string>::set set_func,
    setting_func_types<std::string>::get get_func,
@@ -736,26 +761,26 @@ extern set_show_commands add_setshow_string_cmd
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_string_noescape_cmd
-  (const char *name, command_class theclass, std::string *var, const char *set_doc,
+  (const char *name, command_classes theclass, std::string *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_string_noescape_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<std::string>::set set_func,
    setting_func_types<std::string>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_optional_filename_cmd
-  (const char *name, command_class theclass, std::string *var, const char *set_doc,
+  (const char *name, command_classes theclass, std::string *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_optional_filename_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<std::string>::set set_func,
    setting_func_types<std::string>::get get_func,
@@ -763,107 +788,107 @@ extern set_show_commands add_setshow_optional_filename_cmd
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_integer_cmd
-  (const char *name, command_class theclass, int *var,
+  (const char *name, command_classes theclass, int *var,
    const literal_def *extra_literals, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_integer_cmd
-  (const char *name, command_class theclass, const literal_def *extra_literals,
+  (const char *name, command_classes theclass, const literal_def *extra_literals,
    const char *set_doc, const char *show_doc, const char *help_doc,
    setting_func_types<int>::set set_func,
    setting_func_types<int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_integer_cmd
-  (const char *name, command_class theclass, int *var, const char *set_doc,
+  (const char *name, command_classes theclass, int *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_integer_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<int>::set set_func,
    setting_func_types<int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_pinteger_cmd
-  (const char *name, command_class theclass, int *var,
+  (const char *name, command_classes theclass, int *var,
    const literal_def *extra_literals, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_pinteger_cmd
-  (const char *name, command_class theclass, const literal_def *extra_literals,
+  (const char *name, command_classes theclass, const literal_def *extra_literals,
    const char *set_doc, const char *show_doc, const char *help_doc,
    setting_func_types<int>::set set_func,
    setting_func_types<int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_uinteger_cmd
-  (const char *name, command_class theclass, unsigned int *var,
+  (const char *name, command_classes theclass, unsigned int *var,
    const literal_def *extra_literals,
    const char *set_doc, const char *show_doc, const char *help_doc,
    cmd_func_ftype *set_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_uinteger_cmd
-  (const char *name, command_class theclass, const literal_def *extra_literals,
+  (const char *name, command_classes theclass, const literal_def *extra_literals,
    const char *set_doc, const char *show_doc, const char *help_doc,
    setting_func_types<unsigned int>::set set_func,
    setting_func_types<unsigned int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_uinteger_cmd
-  (const char *name, command_class theclass, unsigned int *var,
+  (const char *name, command_classes theclass, unsigned int *var,
    const char *set_doc, const char *show_doc, const char *help_doc,
    cmd_func_ftype *set_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_uinteger_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<unsigned int>::set set_func,
    setting_func_types<unsigned int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zinteger_cmd
-  (const char *name, command_class theclass, int *var, const char *set_doc,
+  (const char *name, command_classes theclass, int *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zinteger_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<int>::set set_func,
    setting_func_types<int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zuinteger_cmd
-  (const char *name, command_class theclass, unsigned int *var,
+  (const char *name, command_classes theclass, unsigned int *var,
    const char *set_doc, const char *show_doc, const char *help_doc,
    cmd_func_ftype *set_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zuinteger_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<unsigned int>::set set_func,
    setting_func_types<unsigned int>::get get_func, show_value_ftype *show_func,
    cmd_list_element **set_list, cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zuinteger_unlimited_cmd
-  (const char *name, command_class theclass, int *var, const char *set_doc,
+  (const char *name, command_classes theclass, int *var, const char *set_doc,
    const char *show_doc, const char *help_doc, cmd_func_ftype *set_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
    cmd_list_element **show_list);
 
 extern set_show_commands add_setshow_zuinteger_unlimited_cmd
-  (const char *name, command_class theclass, const char *set_doc,
+  (const char *name, command_classes theclass, const char *set_doc,
    const char *show_doc, const char *help_doc,
    setting_func_types<int>::set set_func, setting_func_types<int>::get get_func,
    show_value_ftype *show_func, cmd_list_element **set_list,
@@ -876,7 +901,7 @@ extern void cmd_show_list (struct cmd_list_element *, int);
 /* Used everywhere whenever at least one parameter is required and
    none is specified.  */
 
-extern void error_no_arg (const char *) ATTRIBUTE_NORETURN;
+[[noreturn]] extern void error_no_arg (const char *);
 
 
 /* Command line saving and repetition.
@@ -934,4 +959,4 @@ extern void not_just_help_class_command (const char *, int);
 extern void cmd_func (struct cmd_list_element *cmd,
 		      const char *args, int from_tty);
 
-#endif /* !defined (COMMAND_H) */
+#endif /* GDB_COMMAND_H */

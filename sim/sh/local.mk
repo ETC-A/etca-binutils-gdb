@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 1990-2023 Free Software Foundation, Inc.
+## Copyright (C) 1990-2026 Free Software Foundation, Inc.
 ## Written by Cygnus Support.
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -51,6 +51,8 @@ BUILT_SOURCES += \
 	%D%/ppi.c
 %C%_BUILD_OUTPUTS = \
 	%D%/gencode$(EXEEXT) \
+	%D%/code.c \
+	%D%/ppi.c \
 	%D%/table.c
 
 ## Generating modules.c requires all sources to scan.

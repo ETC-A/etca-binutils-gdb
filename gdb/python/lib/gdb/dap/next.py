@@ -1,4 +1,4 @@
-# Copyright 2022-2023 Free Software Foundation, Inc.
+# Copyright 2022-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,17 +15,18 @@
 
 import gdb
 
-from .events import StopKinds, ExecutionInvoker
+from .events import exec_and_expect_stop
 from .server import capability, request
-from .startup import in_gdb_thread, send_gdb, send_gdb_with_response
+from .startup import DAPException, exec_and_log, in_gdb_thread
 from .state import set_thread
 
 
 # Helper function to set the current thread and the scheduler-locking
 # mode.  Returns True if scheduler-locking was successfully set to
-# 'on', False in all other cases, including error.
+# 'on', False in all other cases, including error.  When SELECT is
+# True, also select that thread's newest frame.
 @in_gdb_thread
-def _handle_thread_step(thread_id, single_thread):
+def _handle_thread_step(thread_id, single_thread, select=False):
     # Ensure we're going to step the correct thread.
     set_thread(thread_id)
     if single_thread:
@@ -35,47 +36,49 @@ def _handle_thread_step(thread_id, single_thread):
         result = False
         arg = "off"
     try:
-        # This can fail, depending on the target, so catch the error
-        # and report to our caller.  We can't use exec_and_log because
-        # that does not propagate exceptions.
-        gdb.execute("set scheduler-locking " + arg, from_tty=True, to_string=True)
-    except gdb.error:
+        # This can fail, depending on the target, so catch any error.
+        exec_and_log("set scheduler-locking " + arg)
+    except DAPException:
         result = False
+    # Other DAP code may select a frame, and the "finish" command uses
+    # the selected frame.
+    if select:
+        gdb.newest_frame().select()
     return result
 
 
-@request("next")
+@request("next", response=False)
 def next(
     *, threadId: int, singleThread: bool = False, granularity: str = "statement", **args
 ):
-    send_gdb(lambda: _handle_thread_step(threadId, singleThread))
+    _handle_thread_step(threadId, singleThread)
     cmd = "next"
     if granularity == "instruction":
         cmd += "i"
-    send_gdb(ExecutionInvoker(cmd, StopKinds.STEP))
+    exec_and_expect_stop(cmd)
 
 
 @capability("supportsSteppingGranularity")
 @capability("supportsSingleThreadExecutionRequests")
-@request("stepIn")
+@request("stepIn", response=False)
 def step_in(
     *, threadId: int, singleThread: bool = False, granularity: str = "statement", **args
 ):
-    send_gdb(lambda: _handle_thread_step(threadId, singleThread))
+    _handle_thread_step(threadId, singleThread)
     cmd = "step"
     if granularity == "instruction":
         cmd += "i"
-    send_gdb(ExecutionInvoker(cmd, StopKinds.STEP))
+    exec_and_expect_stop(cmd)
 
 
 @request("stepOut")
-def step_out(*, threadId: int, singleThread: bool = False):
-    send_gdb(lambda: _handle_thread_step(threadId, singleThread))
-    send_gdb(ExecutionInvoker("finish", StopKinds.STEP))
+def step_out(*, threadId: int, singleThread: bool = False, **args):
+    _handle_thread_step(threadId, singleThread, True)
+    exec_and_expect_stop("finish &")
 
 
 @request("continue")
 def continue_request(*, threadId: int, singleThread: bool = False, **args):
-    locked = send_gdb_with_response(lambda: _handle_thread_step(threadId, singleThread))
-    send_gdb(ExecutionInvoker("continue", None))
+    locked = _handle_thread_step(threadId, singleThread)
+    exec_and_expect_stop("continue &")
     return {"allThreadsContinued": not locked}

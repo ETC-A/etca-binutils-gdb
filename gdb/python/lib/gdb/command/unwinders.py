@@ -1,5 +1,5 @@
 # Unwinder commands.
-# Copyright 2015-2023 Free Software Foundation, Inc.
+# Copyright 2015-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import gdb
 import re
+
+import gdb
 
 
 def validate_regexp(exp, idstring):
@@ -128,7 +129,7 @@ def do_enable_unwinder1(unwinders, name_re, flag):
 
 def do_enable_unwinder(arg, flag):
     """Enable/disable unwinder(s)."""
-    (locus_re, name_re) = parse_unwinder_command_args(arg)
+    locus_re, name_re = parse_unwinder_command_args(arg)
     total = 0
     if locus_re.match("global"):
         total += do_enable_unwinder1(gdb.frame_unwinders, name_re, flag)

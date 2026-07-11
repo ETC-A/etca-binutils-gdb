@@ -1,6 +1,6 @@
 /* Convert symbols from GDB to GCC
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "compile-internal.h"
 #include "compile-cplus.h"
 #include "gdbsupport/gdb_assert.h"
@@ -32,8 +31,9 @@
 #include "gdbtypes.h"
 #include "dwarf2/loc.h"
 #include "cp-support.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "compile-c.h"
+#include "inferior.h"
 
 /* Convert a given symbol, SYM, to the compiler's representation.
    INSTANCE is the compiler instance.  IS_GLOBAL is true if the
@@ -48,12 +48,12 @@ convert_one_symbol (compile_cplus_instance *instance,
 {
   /* Squash compiler warning.  */
   gcc_type sym_type = 0;
-  const char *filename = sym.symbol->symtab ()->filename;
+  const char *filename = sym.symbol->symtab ()->filename ();
   unsigned int line = sym.symbol->line ();
 
   instance->error_symbol_once (sym.symbol);
 
-  if (sym.symbol->aclass () == LOC_LABEL)
+  if (sym.symbol->loc_class () == LOC_LABEL)
     sym_type = 0;
   else
     sym_type = instance->convert_type (sym.symbol->type ());
@@ -70,7 +70,7 @@ convert_one_symbol (compile_cplus_instance *instance,
       std::string name;
       gdb::unique_xmalloc_ptr<char> symbol_name;
 
-      switch (sym.symbol->aclass ())
+      switch (sym.symbol->loc_class ())
 	{
 	case LOC_TYPEDEF:
 	  if (sym.symbol->type ()->code () == TYPE_CODE_TYPEDEF)
@@ -89,7 +89,8 @@ convert_one_symbol (compile_cplus_instance *instance,
 	    kind = GCC_CP_SYMBOL_FUNCTION;
 	    addr = sym.symbol->value_block()->start ();
 	    if (is_global && sym.symbol->type ()->is_gnu_ifunc ())
-	      addr = gnu_ifunc_resolve_addr (target_gdbarch (), addr);
+	      addr = gnu_ifunc_resolve_addr (current_inferior ()->arch (),
+					     addr);
 	  }
 	  break;
 
@@ -130,7 +131,7 @@ convert_one_symbol (compile_cplus_instance *instance,
 		     "be referenced from the current thread in "
 		     "compiled code."),
 		   sym.symbol->print_name ());
-	  /* FALLTHROUGH */
+	  [[fallthrough]];
 	case LOC_UNRESOLVED:
 	  /* 'symbol_name' cannot be used here as that one is used only for
 	     local variables from compile_dwarf_expr_to_c.
@@ -142,7 +143,7 @@ convert_one_symbol (compile_cplus_instance *instance,
 
 	    if (symbol_read_needs_frame (sym.symbol))
 	      {
-		frame = get_selected_frame (nullptr);
+		frame = get_selected_frame ();
 		if (frame == nullptr)
 		  error (_("Symbol \"%s\" cannot be used because "
 			   "there is no selected frame"),
@@ -225,7 +226,7 @@ convert_one_symbol (compile_cplus_instance *instance,
 static void
 convert_symbol_sym (compile_cplus_instance *instance,
 		    const char *identifier, struct block_symbol sym,
-		    domain_enum domain)
+		    domain_search_flags domain)
 {
   /* If we found a symbol and it is not in the  static or global
      scope, then we should first convert any static or global scope
@@ -274,7 +275,7 @@ convert_symbol_sym (compile_cplus_instance *instance,
 
 static void
 convert_symbol_bmsym (compile_cplus_instance *instance,
-		      struct bound_minimal_symbol bmsym)
+		      bound_minimal_symbol bmsym)
 {
   struct minimal_symbol *msym = bmsym.minsym;
   struct objfile *objfile = bmsym.objfile;
@@ -300,7 +301,7 @@ convert_symbol_bmsym (compile_cplus_instance *instance,
 	 function return type cannot be function  */
       type = builtin_type (objfile)->nodebug_text_symbol;
       kind = GCC_CP_SYMBOL_FUNCTION;
-      addr = gnu_ifunc_resolve_addr (target_gdbarch (), addr);
+      addr = gnu_ifunc_resolve_addr (current_inferior ()->arch (), addr);
       break;
 
     case mst_data:
@@ -353,12 +354,12 @@ gcc_cplus_convert_symbol (void *datum,
 	 This will find variables in the current scope.  */
 
       struct block_symbol sym
-	= lookup_symbol (identifier, instance->block (), VAR_DOMAIN, nullptr);
+	= lookup_symbol (identifier, instance->block (), SEARCH_VFT, nullptr);
 
       if (sym.symbol != nullptr)
 	{
 	  found = true;
-	  convert_symbol_sym (instance, identifier, sym, VAR_DOMAIN);
+	  convert_symbol_sym (instance, identifier, sym, SEARCH_VFT);
 	}
 
       /* Then use linespec.c's multi-symbol search.  This should find
@@ -366,7 +367,7 @@ gcc_cplus_convert_symbol (void *datum,
 
       symbol_searcher searcher;
       searcher.find_all_symbols (identifier, current_language,
-				 ALL_DOMAIN, nullptr, nullptr);
+				 SEARCH_ALL_DOMAINS, nullptr, nullptr);
 
       /* Convert any found symbols.  */
       for (const auto &it : searcher.matching_symbols ())
@@ -376,7 +377,7 @@ gcc_cplus_convert_symbol (void *datum,
 	    {
 	      found = true;
 	      convert_symbol_sym (instance, identifier, it,
-				  it.symbol->domain ());
+				  to_search_flags (it.symbol->domain ()));
 	    }
 	}
 
@@ -435,9 +436,10 @@ gcc_cplus_symbol_address (void *datum, struct gcc_cp_context *gcc_context,
   try
     {
       struct symbol *sym
-	= lookup_symbol (identifier, nullptr, VAR_DOMAIN, nullptr).symbol;
+	= lookup_symbol (identifier, nullptr, SEARCH_FUNCTION_DOMAIN,
+			 nullptr).symbol;
 
-      if (sym != nullptr && sym->aclass () == LOC_BLOCK)
+      if (sym != nullptr)
 	{
 	  if (compile_debug)
 	    gdb_printf (gdb_stdlog,
@@ -445,14 +447,14 @@ gcc_cplus_symbol_address (void *datum, struct gcc_cp_context *gcc_context,
 			identifier);
 	  result = sym->value_block ()->start ();
 	  if (sym->type ()->is_gnu_ifunc ())
-	    result = gnu_ifunc_resolve_addr (target_gdbarch (), result);
+	    result = gnu_ifunc_resolve_addr (current_inferior ()->arch (),
+					     result);
 	  found = 1;
 	}
       else
 	{
-	  struct bound_minimal_symbol msym;
-
-	  msym = lookup_bound_minimal_symbol (identifier);
+	  bound_minimal_symbol msym
+	    = lookup_minimal_symbol (current_program_space, identifier);
 	  if (msym.minsym != nullptr)
 	    {
 	      if (compile_debug)
@@ -462,7 +464,8 @@ gcc_cplus_symbol_address (void *datum, struct gcc_cp_context *gcc_context,
 			    identifier);
 	      result = msym.value_address ();
 	      if (msym.minsym->type () == mst_text_gnu_ifunc)
-		result = gnu_ifunc_resolve_addr (target_gdbarch (), result);
+		result = gnu_ifunc_resolve_addr (current_inferior ()->arch (),
+						 result);
 	      found = 1;
 	    }
 	}

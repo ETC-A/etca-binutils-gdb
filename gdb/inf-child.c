@@ -1,6 +1,6 @@
 /* Base/prototype target for default child (native) targets.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,7 +22,6 @@
    new prototype target and then overriding target methods as
    necessary.  */
 
-#include "defs.h"
 #include "regcache.h"
 #include "memattr.h"
 #include "symtab.h"
@@ -34,6 +33,7 @@
 #include "gdbsupport/agent.h"
 #include "gdbsupport/gdb_wait.h"
 #include "gdbsupport/filestuff.h"
+#include "cli/cli-style.h"
 
 #include <sys/types.h>
 #include <fcntl.h>
@@ -161,7 +161,8 @@ inf_child_open_target (const char *arg, int from_tty)
   current_inferior ()->push_target (target);
   inf_child_explicitly_opened = 1;
   if (from_tty)
-    gdb_printf ("Done.  Use the \"run\" command to start a process.\n");
+    gdb_printf ("Done.  Use the \"%ps\" command to start a process.\n",
+		styled_string (command_style.style (), "run"));
 }
 
 /* Implement the to_disconnect target_ops method.  */
@@ -170,7 +171,8 @@ void
 inf_child_target::disconnect (const char *args, int from_tty)
 {
   if (args != NULL)
-    error (_("Argument given to \"disconnect\"."));
+    error (_("Argument given to \"%ps\"."),
+	   styled_string (command_style.style (), "disconnect"));
 
   /* This offers to detach/kill current inferiors, and then pops all
      targets.  */
@@ -232,8 +234,8 @@ inf_child_target::pid_to_exec_file (int pid)
 
 int
 inf_child_target::fileio_open (struct inferior *inf, const char *filename,
-			       int flags, int mode, int warn_if_slow,
-			       fileio_error *target_errno)
+			       fileio_open_flags flags, fileio_mode_flags mode,
+			       bool warn_if_slow, fileio_error *target_errno)
 {
   int nat_flags;
   mode_t nat_mode;
@@ -321,6 +323,21 @@ inf_child_target::fileio_fstat (int fd, struct stat *sb, fileio_error *target_er
   return ret;
 }
 
+/* Implementation of to_fileio_lstat.  */
+
+int
+inf_child_target::fileio_lstat (struct inferior *inf, const char *filename,
+				struct stat *sb, fileio_error *target_errno)
+{
+  int ret;
+
+  ret = lstat (filename, sb);
+  if (ret == -1)
+    *target_errno = host_to_fileio_error (errno);
+
+  return ret;
+}
+
 /* Implementation of to_fileio_close.  */
 
 int
@@ -352,7 +369,7 @@ inf_child_target::fileio_unlink (struct inferior *inf, const char *filename,
 
 /* Implementation of to_fileio_readlink.  */
 
-gdb::optional<std::string>
+std::optional<std::string>
 inf_child_target::fileio_readlink (struct inferior *inf, const char *filename,
 				   fileio_error *target_errno)
 {

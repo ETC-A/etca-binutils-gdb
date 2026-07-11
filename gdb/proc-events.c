@@ -1,6 +1,6 @@
 /* Machine-independent support for Solaris /proc (process file system)
 
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
 
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
@@ -28,7 +28,6 @@
    FIXME: At present, the syscall translation table must be
    initialized, which is not true of the other translation tables.  */
 
-#include "defs.h"
 
 #include <sys/types.h>
 #include <sys/procfs.h>
@@ -564,9 +563,9 @@ proc_prettyprint_syscalls (sysset_t *sysset, int verbose)
    other signals second, with signals in each block ordered by their
    numerical values on a typical POSIX platform.  */
 
-static struct trans signal_table[] = 
+static struct trans signal_table[] =
 {
-  { 0,      "<no signal>", "no signal" }, 
+  { 0,      "<no signal>", "no signal" },
 
   /* SIGINT, SIGILL, SIGABRT, SIGFPE, SIGSEGV and SIGTERM
      are ANSI-standard signals and are always available.  */
@@ -718,7 +717,7 @@ proc_prettyfprint_fault (FILE *file, int faultno, int verbose)
 	return;
       }
 
-  fprintf (file, "Unknown hardware fault %d%c", 
+  fprintf (file, "Unknown hardware fault %d%c",
 	   faultno, verbose ? '\n' : ' ');
 }
 
@@ -760,9 +759,7 @@ proc_prettyprint_actionset (struct sigaction *actions, int verbose)
 {
 }
 
-void _initialize_proc_events ();
-void
-_initialize_proc_events ()
+INIT_GDB_FILE (proc_events)
 {
   init_syscall_table ();
 }

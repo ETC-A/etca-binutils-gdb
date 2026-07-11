@@ -1,4 +1,4 @@
-# Copyright 2015-2023 Free Software Foundation, Inc.
+# Copyright 2015-2026 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@ require allow_ada_tests
 standard_ada_testfile fun_renaming
 
 if {[gdb_compile_ada "${srcfile}" "${binfile}" executable [list debug]] != "" } {
-  return -1
+    return
 }
 
 clean_restart ${testfile}
@@ -37,49 +37,49 @@ gdb_test "print fun_rename_test_next(1)" " = 2"
 
 set test "print fun_rename_test_n(1)"
 gdb_test_multiple $test $test {
-    -re " = 2\..*$gdb_prompt $"  {
-        pass $test
+    -wrap -re " = 2"  {
+	pass $test
     }
-    -re "No definition of \"fun_rename_test_n\" in current context\..*$gdb_prompt $" {
-        if {[test_compiler_info {gcc-6*}]} {
-            fail $test
-        } else {
-            xfail $test
-        }
+    -wrap -re "No definition of \"fun_rename_test_n\" in current context\\." {
+	if {[gnat_version_compare >= 6]} {
+	    fail $test
+	} else {
+	    xfail $test
+	}
     }
 
 }
 set test "print renamed_fun_rename_test_next(1)"
 gdb_test_multiple $test $test {
-    -re " = 2\..*$gdb_prompt $" {
-        pass $test
+    -wrap -re " = 2" {
+	pass $test
     }
-    -re "No definition of \"renamed_fun_rename_test_next\" in current context\..*$gdb_prompt $" {
-        if {[test_compiler_info {gcc-6*}]} {
-            fail $test
-        } else {
-            xfail $test
-        }
+    -wrap -re "No definition of \"renamed_fun_rename_test_next\" in current context\\." {
+	if {[gnat_version_compare >= 6]} {
+	    fail $test
+	} else {
+	    xfail $test
+	}
     }
 }
 
 set test "print pack.renamed_fun_rename_test_next(1)"
 gdb_test_multiple $test $test {
-    -re " = 2\..*$gdb_prompt $" {
-        pass $test
+    -wrap -re " = 2" {
+	pass $test
     }
-    -re "No definition of \"pack\.renamed_fun_rename_test_next\" in current context\..*$gdb_prompt $" {
-        if {[test_compiler_info {gcc-6*}]} {
-            fail $test
-        } else {
-            xfail $test
-        }
+    -wrap -re "No definition of \"pack\\.renamed_fun_rename_test_next\" in current context\\." {
+	if {[gnat_version_compare >= 6]} {
+	    fail $test
+	} else {
+	    xfail $test
+	}
     }
-    -re "Type <data variable, no debug info> is not a structure or union type\..*$gdb_prompt $" {
-        if {[test_compiler_info {gcc-6*}]} {
-            fail $test
-        } else {
-            xfail $test
-        }
+    -wrap -re "Type <data variable, no debug info> is not a structure or union type\\." {
+	if {[gnat_version_compare >= 6]} {
+	    fail $test
+	} else {
+	    xfail $test
+	}
     }
 }

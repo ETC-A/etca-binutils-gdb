@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux x86.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,65 +17,63 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef I386_LINUX_TDEP_H
-#define I386_LINUX_TDEP_H
+#ifndef GDB_I386_LINUX_TDEP_H
+#define GDB_I386_LINUX_TDEP_H
 
-/* The Linux kernel pretends there is an additional "orig_eax"
-   register.  Since GDB needs access to that register to be able to
-   properly restart system calls when necessary (see
-   i386-linux-tdep.c) we need our own versions of a number of
-   functions that deal with GDB's register cache.  */
+#include "gdbsupport/x86-xstate.h"
+#include "i386-tdep.h"
 
-/* Register number for the "orig_eax" pseudo-register.  If this
-   pseudo-register contains a value >= 0 it is interpreted as the
-   system call number that the kernel is supposed to restart.  */
-#define I386_LINUX_ORIG_EAX_REGNUM (I386_PKRU_REGNUM + 1)
+/* Additional register numbers for i386 Linux, these are in addition to
+   the register numbers found in 'enum i386_regnum', see i386-tdep.h.  */
 
-/* Total number of registers for GNU/Linux.  */
-#define I386_LINUX_NUM_REGS (I386_LINUX_ORIG_EAX_REGNUM + 1)
+enum i386_linux_regnum
+{
+  /* STOP!  The values in this enum are numbered after the values in the
+     enum i386_regnum.  New entries should be placed after the ORIG_EAX
+     entry.  */
 
-/* Get XSAVE extended state xcr0 from core dump.  */
-extern uint64_t i386_linux_core_read_xcr0 (bfd *abfd);
+  /* Register number for the "orig_eax" pseudo-register.  GDB needs access
+     to this register to be able to properly restart system calls when
+     necessary (see i386-linux-tdep.c).  If this pseudo-register contains a
+     value >= 0 it is interpreted as the system call number that the kernel
+     is supposed to restart.  */
+  I386_LINUX_ORIG_EAX_REGNUM = I386_NUM_REGS,
 
-/* Handle and display information related to the MPX bound violation
-   to the user.  */
-extern void i386_linux_report_signal_info (struct gdbarch *gdbarch,
-					   struct ui_out *uiout,
-					   enum gdb_signal siggnal);
+  /* Register numbers for the three TLS GDT registers.  These contain the
+     'struct user_desc' (see 'man 2 get_thread_area') values for the three
+     TLS related Global Descriptor Table entries.  */
+  I386_LINUX_TLS_GDT_0,
+  I386_LINUX_TLS_GDT_1,
+  I386_LINUX_TLS_GDT_2,
 
-/* Return the target description according to XCR0.  */
-extern const struct target_desc *i386_linux_read_description (uint64_t xcr0);
+  /* Total number of registers for GNU/Linux.  */
+  I386_LINUX_NUM_REGS
 
-/* Format of XSAVE extended state is:
-	struct
-	{
-	  fxsave_bytes[0..463]
-	  sw_usable_bytes[464..511]
-	  xstate_hdr_bytes[512..575]
-	  avx_bytes[576..831]
-	  mpx_bytes [960..1032]
-	  avx512_k_regs[1088..1152]
-	  avx512_zmmh_regs0-7[1153..1407]
-	  avx512_zmmh_regs8-15[1408..1663]
-	  avx512_zmm_regs16-31[1664..2687]
-	  pkru[2688..2752]
-	  future_state etc
-	};
+  /* STOP! Add new entries before I386_LINUX_NUM_REGS.  */
+};
 
-  Same memory layout will be used for the coredump NT_X86_XSTATE
-  representing the XSAVE extended state registers.
+/* Read the XSAVE extended state xcr0 value from the ABFD core file.
+   If it appears to be valid, return it and fill LAYOUT with values
+   inferred from that value.
 
-  The first 8 bytes of the sw_usable_bytes[464..467] is the OS enabled
-  extended state mask, which is the same as the extended control register
-  0 (the XFEATURE_ENABLED_MASK register), XCR0.  We can use this mask
-  together with the mask saved in the xstate_hdr_bytes to determine what
-  states the processor/OS supports and what state, used or initialized,
-  the process/thread is in.  */ 
-#define I386_LINUX_XSAVE_XCR0_OFFSET 464
+   Otherwise, return 0 to indicate no state was found and leave LAYOUT
+   untouched.  */
+extern uint64_t i386_linux_core_read_xsave_info (bfd *abfd,
+						 x86_xsave_layout &layout);
+
+/* Implement the core_read_x86_xsave_layout gdbarch method.  */
+extern bool i386_linux_core_read_x86_xsave_layout (struct gdbarch *gdbarch,
+						   bfd &cbfd,
+						   x86_xsave_layout &layout);
 
 extern int i386_linux_gregset_reg_offset[];
 
-/* Return x86 siginfo type.  */
-extern struct type *x86_linux_get_siginfo_type (struct gdbarch *gdbarch);
+/* Return true if REGNUM is one of the 3 tls gdt registers.  */
 
-#endif /* i386-linux-tdep.h */
+static inline bool
+i386_is_tls_regnum_p (int regnum)
+{
+  return regnum >= I386_LINUX_TLS_GDT_0 && regnum <= I386_LINUX_TLS_GDT_2;
+}
+
+#endif /* GDB_I386_LINUX_TDEP_H */

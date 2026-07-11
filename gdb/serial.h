@@ -1,5 +1,5 @@
 /* Remote serial support interface definitions for GDB, the GNU Debugger.
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef SERIAL_H
-#define SERIAL_H
+#ifndef GDB_SERIAL_H
+#define GDB_SERIAL_H
 
 #ifdef USE_WIN32API
 #include <winsock2.h>
@@ -32,7 +32,7 @@ struct ui_file;
 /* Terminal state pointer.  This is specific to each type of
    interface.  */
 
-typedef void *serial_ttystate;
+using serial_ttystate = void *;
 struct serial;
 struct serial_ops;
 
@@ -119,14 +119,14 @@ enum serial_rc {
 
 extern int serial_readchar (struct serial *scb, int timeout);
 
-/* Write COUNT bytes from BUF to the port SCB.  Returns 0 for
-   success, non-zero for failure.  */
+/* Write COUNT bytes from BUF to the port SCB.  Throws exception on
+   error.  */
 
-extern int serial_write (struct serial *scb, const void *buf, size_t count);
+extern void serial_write (struct serial *scb, const void *buf, size_t count);
 
 /* Write a printf style string onto the serial port.  */
 
-extern void serial_printf (struct serial *desc, 
+extern void serial_printf (struct serial *desc,
 			   const char *,...) ATTRIBUTE_PRINTF (2, 3);
 
 /* Allow pending output to drain.  */
@@ -145,14 +145,15 @@ extern int serial_flush_input (struct serial *);
 
 /* Send a break between 0.25 and 0.5 seconds long.  */
 
-extern int serial_send_break (struct serial *scb);
+extern void serial_send_break (struct serial *scb);
 
 /* Turn the port into raw mode.  */
 
 extern void serial_raw (struct serial *scb);
 
 /* Return a pointer to a newly malloc'd ttystate containing the state
-   of the tty.  */
+   of the tty.  Can return NULL if the current tty state could not be
+   read, for example, if GDB's stdin is not a terminal.  */
 
 extern serial_ttystate serial_get_tty_state (struct serial *scb);
 
@@ -177,10 +178,10 @@ extern void serial_print_tty_state (struct serial *scb,
 				    serial_ttystate ttystate,
 				    struct ui_file *);
 
-/* Set the baudrate to the decimal value supplied.  Returns 0 for
-   success, -1 for failure.  */
+/* Set the baudrate to the decimal value supplied.  Throws exception
+   on error.  */
 
-extern int serial_setbaudrate (struct serial *scb, int rate);
+extern void serial_setbaudrate (struct serial *scb, int rate);
 
 /* Set the number of stop bits to the value specified.  Returns 0 for
    success, -1 for failure.  */
@@ -240,7 +241,7 @@ struct serial
        immediately forwarded to gdb_stderr.  This may be -1.
        If != -1, this descriptor should be non-blocking or
        ops->avail should be non-NULL.  */
-    int error_fd;               
+    int error_fd;
     const struct serial_ops *ops; /* Function vector */
     void *state;       		/* Local context info for open FD */
     serial_ttystate ttystate;	/* Not used (yet) */
@@ -259,23 +260,23 @@ struct serial
 struct serial_ops
   {
     const char *name;
-    int (*open) (struct serial *, const char *name);
+    void (*open) (struct serial *, const char *name);
     void (*close) (struct serial *);
     int (*fdopen) (struct serial *, int fd);
     int (*readchar) (struct serial *, int timeout);
-    int (*write) (struct serial *, const void *buf, size_t count);
+    void (*write) (struct serial *, const void *buf, size_t count);
     /* Discard pending output */
     int (*flush_output) (struct serial *);
     /* Discard pending input */
     int (*flush_input) (struct serial *);
-    int (*send_break) (struct serial *);
+    void (*send_break) (struct serial *);
     void (*go_raw) (struct serial *);
     serial_ttystate (*get_tty_state) (struct serial *);
     serial_ttystate (*copy_tty_state) (struct serial *, serial_ttystate);
     int (*set_tty_state) (struct serial *, serial_ttystate);
     void (*print_tty_state) (struct serial *, serial_ttystate,
 			     struct ui_file *);
-    int (*setbaudrate) (struct serial *, int rate);
+    void (*setbaudrate) (struct serial *, int rate);
     int (*setstopbits) (struct serial *, int num);
     /* Set the value PARITY as parity setting for serial object.
        Return 0 in the case of success.  */
@@ -326,4 +327,4 @@ extern void serial_done_wait_handle (struct serial *);
 
 #endif /* USE_WIN32API */
 
-#endif /* SERIAL_H */
+#endif /* GDB_SERIAL_H */

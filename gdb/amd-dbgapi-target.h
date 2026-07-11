@@ -1,6 +1,6 @@
 /* Target used to communicate with the AMD Debugger API.
 
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef AMD_DBGAPI_TARGET_H
-#define AMD_DBGAPI_TARGET_H 1
+#ifndef GDB_AMD_DBGAPI_TARGET_H
+#define GDB_AMD_DBGAPI_TARGET_H
 
 #include "gdbsupport/observable.h"
 
@@ -31,8 +31,7 @@ namespace detail
 
 template <typename T>
 using is_amd_dbgapi_handle
-  = gdb::Or<std::is_same<T, amd_dbgapi_address_class_id_t>,
-	    std::is_same<T, amd_dbgapi_address_space_id_t>,
+  = gdb::Or<std::is_same<T, amd_dbgapi_address_space_id_t>,
 	    std::is_same<T, amd_dbgapi_architecture_id_t>,
 	    std::is_same<T, amd_dbgapi_agent_id_t>,
 	    std::is_same<T, amd_dbgapi_breakpoint_id_t>,
@@ -53,6 +52,11 @@ using is_amd_dbgapi_handle
 
 const gdb::observers::token &
   get_amd_dbgapi_target_inferior_created_observer_token ();
+
+/* Get the token of amd-dbgapi's inferior_execd observer.  */
+
+const gdb::observers::token &
+  get_amd_dbgapi_target_inferior_execd_observer_token ();
 
 /* Comparison operators for amd-dbgapi handle types.  */
 
@@ -113,4 +117,4 @@ get_status_string (amd_dbgapi_status_t status)
   return ret;
 }
 
-#endif /* AMD_DBGAPI_TARGET_H */
+#endif /* GDB_AMD_DBGAPI_TARGET_H */

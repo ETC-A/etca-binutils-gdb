@@ -1,6 +1,6 @@
 /* GDB-specific functions for operating on agent expressions.
 
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "symtab.h"
 #include "symfile.h"
 #include "gdbtypes.h"
@@ -25,7 +24,7 @@
 #include "value.h"
 #include "expression.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "frame.h"
 #include "target.h"
 #include "ax.h"
@@ -304,7 +303,7 @@ gen_traced_pop (struct agent_expr *ax, struct axs_value *value)
 	   larger than will fit in a stack, so just mark it for
 	   collection and be done with it.  */
 	ax_reg_mask (ax, value->u.reg);
-       
+
 	/* But if the register points to a string, assume the value
 	   will fit on the stack and push it anyway.  */
 	if (string_trace)
@@ -521,14 +520,12 @@ gen_var_ref (struct agent_expr *ax, struct axs_value *value, struct symbol *var)
   value->type = check_typedef (var->type ());
   value->optimized_out = 0;
 
-  if (SYMBOL_COMPUTED_OPS (var) != NULL)
-    {
-      SYMBOL_COMPUTED_OPS (var)->tracepoint_var_ref (var, ax, value);
-      return;
-    }
+  if (const symbol_computed_ops *computed_ops = var->computed_ops ();
+      computed_ops != nullptr)
+    return computed_ops->tracepoint_var_ref (var, ax, value);
 
   /* I'm imitating the code in read_var_value.  */
-  switch (var->aclass ())
+  switch (var->loc_class ())
     {
     case LOC_CONST:		/* A constant, like an enum value.  */
       ax_const_l (ax, (LONGEST) var->value_longest ());
@@ -541,8 +538,7 @@ gen_var_ref (struct agent_expr *ax, struct axs_value *value, struct symbol *var)
       break;
 
     case LOC_CONST_BYTES:
-      internal_error (_("gen_var_ref: LOC_CONST_BYTES "
-			"symbols are not supported"));
+      error (_("gen_var_ref: LOC_CONST_BYTES symbols are not supported"));
 
       /* Variable at a fixed location in memory.  Easy.  */
     case LOC_STATIC:
@@ -587,8 +583,7 @@ gen_var_ref (struct agent_expr *ax, struct axs_value *value, struct symbol *var)
 	 this as an lvalue or rvalue, the caller will generate the
 	 right code.  */
       value->kind = axs_lvalue_register;
-      value->u.reg
-	= SYMBOL_REGISTER_OPS (var)->register_number (var, ax->gdbarch);
+      value->u.reg = var->register_ops ()->register_number (var, ax->gdbarch);
       break;
 
       /* A lot like LOC_REF_ARG, but the pointer lives directly in a
@@ -596,16 +591,15 @@ gen_var_ref (struct agent_expr *ax, struct axs_value *value, struct symbol *var)
 	 because it's just like any other case where the thing
 	 has a real address.  */
     case LOC_REGPARM_ADDR:
-      ax_reg (ax,
-	      SYMBOL_REGISTER_OPS (var)->register_number (var, ax->gdbarch));
+      ax_reg (ax, var->register_ops ()->register_number (var, ax->gdbarch));
       value->kind = axs_lvalue_memory;
       break;
 
     case LOC_UNRESOLVED:
       {
-	struct bound_minimal_symbol msym
-	  = lookup_minimal_symbol (var->linkage_name (), NULL, NULL);
-
+	bound_minimal_symbol msym
+	  = lookup_minimal_symbol (current_program_space,
+				   var->linkage_name ());
 	if (!msym.minsym)
 	  error (_("Couldn't resolve symbol `%s'."), var->print_name ());
 
@@ -1317,13 +1311,13 @@ gen_primitive_field (struct agent_expr *ax, struct axs_value *value,
 		     int offset, int fieldno, struct type *type)
 {
   /* Is this a bitfield?  */
-  if (TYPE_FIELD_PACKED (type, fieldno))
+  if (type->field (fieldno).is_packed ())
     gen_bitfield_ref (ax, value, type->field (fieldno).type (),
 		      (offset * TARGET_CHAR_BIT
 		       + type->field (fieldno).loc_bitpos ()),
 		      (offset * TARGET_CHAR_BIT
 		       + type->field (fieldno).loc_bitpos ()
-		       + TYPE_FIELD_BITSIZE (type, fieldno)));
+		       + type->field (fieldno).bitsize ()));
   else
     {
       gen_offset (ax, offset
@@ -1351,7 +1345,7 @@ gen_struct_ref_recursive (struct agent_expr *ax, struct axs_value *value,
 
       if (this_name)
 	{
-	  if (strcmp (field, this_name) == 0)
+	  if (streq (field, this_name))
 	    {
 	      /* Note that bytecodes for the struct's base (aka
 		 "this") will have been generated already, which will
@@ -1430,7 +1424,7 @@ gen_struct_ref (struct agent_expr *ax, struct axs_value *value,
 
   /* Search through fields and base classes recursively.  */
   found = gen_struct_ref_recursive (ax, value, field, 0, type);
-  
+
   if (!found)
     error (_("Couldn't find member named `%s' in struct/union/class `%s'"),
 	   field, type->name ());
@@ -1457,12 +1451,13 @@ gen_static_field (struct agent_expr *ax, struct axs_value *value,
   else
     {
       const char *phys_name = type->field (fieldno).loc_physname ();
-      struct symbol *sym = lookup_symbol (phys_name, 0, VAR_DOMAIN, 0).symbol;
+      struct symbol *sym = lookup_symbol (phys_name, 0,
+					  SEARCH_VAR_DOMAIN, 0).symbol;
 
       if (sym)
 	{
 	  gen_var_ref (ax, value, sym);
-  
+
 	  /* Don't error if the value was optimized out, we may be
 	     scanning all static fields and just want to pass over this
 	     and continue with the rest.  */
@@ -1491,7 +1486,7 @@ gen_struct_elt_for_reference (struct agent_expr *ax, struct axs_value *value,
     {
       const char *t_field_name = t->field (i).name ();
 
-      if (t_field_name && strcmp (t_field_name, fieldname) == 0)
+      if (t_field_name && streq (t_field_name, fieldname))
 	{
 	  if (t->field (i).is_static ())
 	    {
@@ -1502,10 +1497,10 @@ gen_struct_elt_for_reference (struct agent_expr *ax, struct axs_value *value,
 		       fieldname);
 	      return 1;
 	    }
-	  if (TYPE_FIELD_PACKED (t, i))
+	  if (t->field (i).is_packed ())
 	    error (_("pointers to bitfield members not allowed"));
 
-	  /* FIXME we need a way to do "want_address" equivalent */	  
+	  /* FIXME we need a way to do "want_address" equivalent */
 
 	  error (_("Cannot reference non-static field \"%s\""), fieldname);
 	}
@@ -1527,7 +1522,7 @@ gen_namespace_elt (struct agent_expr *ax, struct axs_value *value,
   int found = gen_maybe_namespace_elt (ax, value, curtype, name);
 
   if (!found)
-    error (_("No symbol \"%s\" in namespace \"%s\"."), 
+    error (_("No symbol \"%s\" in namespace \"%s\"."),
 	   name, curtype->name ());
 
   return found;
@@ -1548,7 +1543,7 @@ gen_maybe_namespace_elt (struct agent_expr *ax, struct axs_value *value,
 
   sym = cp_lookup_symbol_namespace (namespace_name, name,
 				    block_for_pc (ax->scope),
-				    VAR_DOMAIN);
+				    SEARCH_VAR_DOMAIN);
 
   if (sym.symbol == NULL)
     return 0;
@@ -1655,18 +1650,17 @@ register_operation::do_generate_ax (struct expression *exp,
 				    struct axs_value *value,
 				    struct type *cast_type)
 {
-  const char *name = std::get<0> (m_storage).c_str ();
-  int len = std::get<0> (m_storage).size ();
+  const std::string &name = std::get<0> (m_storage);
   int reg;
 
-  reg = user_reg_map_name_to_regnum (ax->gdbarch, name, len);
+  reg = user_reg_map_name_to_regnum (ax->gdbarch, name);
   if (reg == -1)
-    internal_error (_("Register $%s not available"), name);
+    internal_error (_("Register $%s not available"), name.c_str ());
   /* No support for tracing user registers yet.  */
   if (reg >= gdbarch_num_cooked_regs (ax->gdbarch))
     error (_("'%s' is a user-register; "
 	     "GDB cannot yet trace user-register contents."),
-	   name);
+	   name.c_str ());
   value->kind = axs_lvalue_register;
   value->u.reg = reg;
   value->type = register_type (ax->gdbarch, reg);
@@ -2182,7 +2176,7 @@ gen_expr_binop_rest (struct expression *exp,
       gen_binop (ax, value, value1, value2,
 		 aop_bit_or, aop_bit_or, 0, "bitwise or");
       break;
-      
+
     case BINOP_BITWISE_XOR:
       gen_binop (ax, value, value1, value2,
 		 aop_bit_xor, aop_bit_xor, 0, "bitwise exclusive-or");
@@ -2484,7 +2478,7 @@ agent_eval_command_one (const char *exp, int eval, CORE_ADDR pc)
   agent_expr_up agent;
 
   arg = exp;
-  if (!eval && strcmp (arg, "$_ret") == 0)
+  if (!eval && streq (arg, "$_ret"))
     {
       agent = gen_trace_for_return_address (pc, get_current_arch (),
 					    trace_string);
@@ -2597,7 +2591,7 @@ maint_agent_printf_command (const char *cmdrest, int from_tty)
 
   if (*cmdrest++ != '"')
     error (_("Bad format string, non-terminated '\"'."));
-  
+
   cmdrest = skip_spaces (cmdrest);
 
   if (*cmdrest != ',' && *cmdrest != 0)
@@ -2638,9 +2632,7 @@ maint_agent_printf_command (const char *cmdrest, int from_tty)
 
 /* Initialization code.  */
 
-void _initialize_ax_gdb ();
-void
-_initialize_ax_gdb ()
+INIT_GDB_FILE (ax_gdb)
 {
   add_cmd ("agent", class_maintenance, maint_agent_command,
 	   _("\
@@ -2659,7 +2651,9 @@ If not, generate remote agent bytecode for current frame pc address."),
 	   &maintenancelist);
 
   add_cmd ("agent-printf", class_maintenance, maint_agent_printf_command,
-	   _("Translate an expression into remote "
-	     "agent bytecode for evaluation and display the bytecodes."),
+	   _("\
+Translate a printf into remote agent bytecode and display the bytecodes.\n\
+Usage: maint agent-printf FORMAT, EXPR...\n\
+The expressions are translated for evaluation, not tracing."),
 	   &maintenancelist);
 }

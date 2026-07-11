@@ -1,6 +1,6 @@
 /* GDB/Scheme support for safe calls into the Guile interpreter.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,6 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
 #include "filenames.h"
 #include "guile-internal.h"
 #include "gdbsupport/pathstuff.h"
@@ -156,9 +155,7 @@ gdbscm_with_catch (void *data)
 		   d->unwind_handler, d,
 		   d->pre_unwind_handler, d);
 
-#if HAVE_GUILE_MANUAL_FINALIZATION
   scm_run_finalizers ();
-#endif
 
   return NULL;
 }

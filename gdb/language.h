@@ -1,6 +1,6 @@
 /* Source-language-related definitions for GDB.
 
-   Copyright (C) 1991-2023 Free Software Foundation, Inc.
+   Copyright (C) 1991-2026 Free Software Foundation, Inc.
 
    Contributed by the Department of Computer Science at the State University
    of New York at Buffalo.
@@ -20,8 +20,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#if !defined (LANGUAGE_H)
-#define LANGUAGE_H 1
+#ifndef GDB_LANGUAGE_H
+#define GDB_LANGUAGE_H
 
 #include "symtab.h"
 #include "gdbsupport/function-view.h"
@@ -36,7 +36,6 @@ struct value_print_options;
 struct type_print_options;
 struct lang_varobj_ops;
 struct parser_state;
-class compile_instance;
 struct completion_match_for_lcd;
 class innermost_block_tracker;
 
@@ -60,7 +59,7 @@ range_check;
 extern enum array_ordering
   {
     array_row_major, array_column_major
-  } 
+  }
 array_ordering;
 
 
@@ -321,7 +320,7 @@ struct language_defn
 
   virtual struct value *read_var_value (struct symbol *var,
 					const struct block *var_block,
-					frame_info_ptr frame) const;
+					const frame_info_ptr &frame) const;
 
   /* Return information about whether TYPE should be passed
      (and returned) by reference at the language level.  The default
@@ -347,13 +346,6 @@ struct language_defn
   virtual void language_arch_info (struct gdbarch *,
 				   struct language_arch_info *) const = 0;
 
-  /* Find the definition of the type with the given name.  */
-
-  virtual struct type *lookup_transparent_type (const char *name) const
-  {
-    return basic_lookup_transparent_type (name);
-  }
-
   /* Find all symbols in the current program space matching NAME in
      DOMAIN, according to this language's rules.
 
@@ -361,18 +353,13 @@ struct language_defn
      The caller is responsible for iterating up through superblocks
      if desired.
 
-     For each one, call CALLBACK with the symbol.  If CALLBACK
-     returns false, the iteration ends at that point.
-
-     This field may not be NULL.  If the language does not need any
-     special processing here, 'iterate_over_symbols' should be
-     used as the definition.  */
-  virtual bool iterate_over_symbols
+     For each one, call CALLBACK with the symbol.  */
+  virtual void for_each_symbol
 	(const struct block *block, const lookup_name_info &name,
-	 domain_enum domain,
-	 gdb::function_view<symbol_found_callback_ftype> callback) const
+	 domain_search_flags domain,
+	 for_each_symbol_callback_ftype callback) const
   {
-    return ::iterate_over_symbols (block, name, domain, callback);
+    ::for_each_symbol (block, name, domain, callback);
   }
 
   /* Return a pointer to the function that should be used to match a
@@ -388,37 +375,6 @@ struct language_defn
 
   symbol_name_matcher_ftype *get_symbol_name_matcher
 	(const lookup_name_info &lookup_name) const;
-
-  /* If this language allows compilation from the gdb command line,
-     then this method will return an instance of struct gcc_context
-     appropriate to the language.  If compilation for this language is
-     generally supported, but something goes wrong then an exception
-     is thrown.  If compilation is not supported for this language
-     then this method returns NULL.  */
-
-  virtual std::unique_ptr<compile_instance> get_compile_instance () const;
-
-  /* This method must be overridden if 'get_compile_instance' is
-     overridden.
-
-     This takes the user-supplied text and returns a new bit of code
-     to compile.
-
-     INST is the compiler instance being used.
-     INPUT is the user's input text.
-     GDBARCH is the architecture to use.
-     EXPR_BLOCK is the block in which the expression is being
-     parsed.
-     EXPR_PC is the PC at which the expression is being parsed.  */
-
-  virtual std::string compute_program (compile_instance *inst,
-				       const char *input,
-				       struct gdbarch *gdbarch,
-				       const struct block *expr_block,
-				       CORE_ADDR expr_pc) const
-  {
-    gdb_assert_not_reached ("language_defn::compute_program");
-  }
 
   /* Hash the given symbol search name.  */
   virtual unsigned int search_name_hash (const char *name) const;
@@ -506,6 +462,23 @@ struct language_defn
       (tracker, mode, name_match_type, text, word, "", code);
   }
 
+  /* This is called by lookup_local_symbol after checking a block.  It
+     can be used by a language to augment the local lookup, for
+     instance for searching imported namespaces.  SCOPE is the current
+     scope (from block::scope), NAME is the name being searched for,
+     BLOCK is the block being searched, and DOMAIN is the search
+     domain.  Returns a block symbol, or an empty block symbol if not
+     found.  */
+
+  virtual struct block_symbol lookup_symbol_local
+       (const char *scope,
+	const char *name,
+	const struct block *block,
+	const domain_search_flags domain) const
+  {
+    return {};
+  }
+
   /* This is a function that lookup_symbol will call when it gets to
      the part of symbol lookup where C looks up static and global
      variables.  This default implements the basic C lookup rules.  */
@@ -513,7 +486,7 @@ struct language_defn
   virtual struct block_symbol lookup_symbol_nonlocal
 	(const char *name,
 	 const struct block *block,
-	 const domain_enum domain) const;
+	 const domain_search_flags domain) const;
 
   /* Return an expression that can be used for a location
      watchpoint.  TYPE is a pointer type that points to the memory
@@ -538,12 +511,6 @@ struct language_defn
 
   virtual int parser (struct parser_state *ps) const;
 
-  /* Print the character CH (of type CHTYPE) on STREAM as part of the
-     contents of a literal string whose delimiter is QUOTER.  */
-
-  virtual void emitchar (int ch, struct type *chtype,
-			 struct ui_file *stream, int quoter) const;
-
   virtual void printchar (int ch, struct type *chtype,
 			  struct ui_file * stream) const;
 
@@ -567,6 +534,17 @@ struct language_defn
 
   /* Return true if TYPE is a string type.  */
   virtual bool is_string_type_p (struct type *type) const;
+
+  /* Return true if TYPE is array-like.  */
+  virtual bool is_array_like (struct type *type) const
+  { return false; }
+
+  /* Underlying implementation of value_to_array.  Return a value of
+     array type that corresponds to VAL.  The caller must ensure that
+     is_array_like is true for VAL's type.  Return nullptr if the type
+     cannot be handled.  */
+  virtual struct value *to_array (struct value *val) const
+  { return nullptr; }
 
   /* Return a string that is used by the 'set print max-depth' setting.
      When GDB replaces a struct or union (during value printing) that is
@@ -660,6 +638,18 @@ struct language_defn
 
   virtual const struct lang_varobj_ops *varobj_ops () const;
 
+  /* Normally a "static link" (a reference to an outer frame) is
+     represented by DW_AT_static_link in DWARF.  However, some
+     compilers do not emit this -- but do provide some
+     language-specific way to find the correct outer frame.  If the
+     ordinary search for a static link fails for a given frame, then
+     this method will be called for that frame's language.  It should
+     either return the correct outer instance, if one exists, or a
+     null frame if no such frame exists.  */
+
+  virtual frame_info_ptr follow_static_link (const frame_info_ptr &frame)
+    const;
+
 protected:
 
   /* This is the overridable part of the GET_SYMBOL_NAME_MATCHER method.
@@ -669,23 +659,22 @@ protected:
 	  (const lookup_name_info &lookup_name) const;
 };
 
+/* Return the current language.  Normally code just uses the
+   'current_language' macro.  */
+
+extern const struct language_defn *get_current_language ();
+
 /* Pointer to the language_defn for our current language.  This pointer
    always points to *some* valid struct; it can be used without checking
    it for validity.
 
-   The current language affects expression parsing and evaluation
-   (FIXME: it might be cleaner to make the evaluation-related stuff
-   separate exp_opcodes for each different set of semantics.  We
-   should at least think this through more clearly with respect to
-   what happens if the language is changed between parsing and
-   evaluation) and printing of things like types and arrays.  It does
-   *not* affect symbol-reading-- each source file in a symbol-file has
-   its own language and we should keep track of that regardless of the
-   language when symbols are read.  If we want some manual setting for
-   the language of symbol files (e.g. detecting when ".c" files are
-   C++), it should be a separate setting from the current_language.  */
+   The current language affects expression parsing and evaluation and
+   printing of things like types and values.  It does *not* affect
+   symbol-reading -- each source file in a symbol-file has its own
+   language and we should keep track of that regardless of the
+   language when symbols are read.  */
 
-extern const struct language_defn *current_language;
+#define current_language (get_current_language ())
 
 /* Pointer to the language_defn expected by the user, e.g. the language
    of main(), or the language we last mentioned in a message, or C.  */
@@ -697,7 +686,11 @@ extern const struct language_defn *expected_language;
 
 extern const char lang_frame_mismatch_warn[];
 
-/* language_mode == 
+/* Controls whether to warn on a frame language mismatch.  */
+
+extern bool warn_frame_lang_mismatch;
+
+/* language_mode ==
    language_mode_auto:   current_language automatically set upon selection
    of scope (e.g. stack frame)
    language_mode_manual: current_language set only by user.  */
@@ -750,7 +743,7 @@ struct symbol *
 					    const char *name);
 
 
-/* These macros define the behaviour of the expression 
+/* These macros define the behavior of the expression
    evaluator.  */
 
 /* Should we range check values against the domain of their type?  */
@@ -771,16 +764,9 @@ extern void language_info ();
 
 extern void set_language (enum language lang);
 
-/* Test a character to decide whether it can be printed in literal form
-   or needs to be printed in another representation.  For example,
-   in C the literal form of the character with octal value 141 is 'a'
-   and the "other representation" is '\141'.  The "other representation"
-   is program language dependent.  */
-
-#define PRINT_LITERAL_FORM(c)		\
-  ((c) >= 0x20				\
-   && ((c) < 0x7F || (c) >= 0xA0)	\
-   && (!sevenbit_strings || (c) < 0x80))
+typedef void lazily_set_language_ftype ();
+extern void lazily_set_language (lazily_set_language_ftype *fun);
+
 
 /* Error messages */
 
@@ -821,24 +807,34 @@ class scoped_restore_current_language
 {
 public:
 
-  explicit scoped_restore_current_language ()
-    : m_lang (current_language->la_language)
+  scoped_restore_current_language ();
+
+  /* Set the current language as well.  */
+  explicit scoped_restore_current_language (enum language lang);
+
+  DISABLE_COPY_AND_ASSIGN (scoped_restore_current_language);
+
+  ~scoped_restore_current_language ();
+
+  scoped_restore_current_language (scoped_restore_current_language &&other)
   {
+    m_lang = other.m_lang;
+    m_fun = other.m_fun;
+    other.dont_restore ();
   }
 
-  ~scoped_restore_current_language ()
+  /* Cancel restoring on scope exit.  */
+  void dont_restore ()
   {
-    set_language (m_lang);
+    /* This is implemented using a sentinel value.  */
+    m_lang = nullptr;
+    m_fun = nullptr;
   }
-
-  scoped_restore_current_language (const scoped_restore_current_language &)
-      = delete;
-  scoped_restore_current_language &operator=
-      (const scoped_restore_current_language &) = delete;
 
 private:
 
-  enum language m_lang;
+  const language_defn *m_lang;
+  lazily_set_language_ftype *m_fun;
 };
 
 /* If language_mode is language_mode_auto,
@@ -881,4 +877,4 @@ private:
   enum language m_lang;
 };
 
-#endif /* defined (LANGUAGE_H) */
+#endif /* GDB_LANGUAGE_H */

@@ -1,5 +1,5 @@
 # Styling related hooks.
-# Copyright (C) 2010-2023 Free Software Foundation, Inc.
+# Copyright (C) 2010-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,9 +19,10 @@
 import gdb
 
 try:
-    from pygments import formatters, lexers, highlight
-    from pygments.token import Error, Comment, Text
+    from pygments import formatters, highlight, lexers
     from pygments.filters import TokenMergeFilter
+    from pygments.token import Comment, Error, Text
+    from pygments.util import ClassNotFound
 
     _formatter = None
 
@@ -31,15 +32,18 @@ try:
             _formatter = formatters.TerminalFormatter()
         return _formatter
 
-    def colorize(filename, contents):
+    def colorize(filename, contents, lang):
         # Don't want any errors.
         try:
-            lexer = lexers.get_lexer_for_filename(filename, stripnl=False)
+            try:
+                lexer = lexers.get_lexer_by_name(lang, stripnl=False)
+            except ClassNotFound:
+                lexer = lexers.get_lexer_for_filename(filename, stripnl=False)
             formatter = get_formatter()
             return highlight(contents, lexer, formatter).encode(
                 gdb.host_charset(), "backslashreplace"
             )
-        except:
+        except Exception:
             return None
 
     class HandleNasmComments(TokenMergeFilter):
@@ -70,13 +74,12 @@ try:
             flavor = gdb.parameter("disassembly-flavor")
             if flavor == "intel" and gdbarch.name()[:4] == "i386":
                 lexer_type = "nasm"
-        except:
+        except Exception:
             # If GDB is built without i386 support then attempting to fetch
             # the 'disassembly-flavor' parameter will throw an error, which we
             # ignore.
             pass
 
-        global _asm_lexers
         if lexer_type not in _asm_lexers:
             _asm_lexers[lexer_type] = lexers.get_lexer_by_name(lexer_type)
             _asm_lexers[lexer_type].add_filter(HandleNasmComments())
@@ -89,12 +92,12 @@ try:
             lexer = __get_asm_lexer(gdbarch)
             formatter = get_formatter()
             return highlight(content, lexer, formatter).rstrip().encode()
-        except:
+        except Exception:
             return content
 
-except:
+except ImportError:
 
-    def colorize(filename, contents):
+    def colorize(filename, contents, lang):
         return None
 
     def colorize_disasm(content, gdbarch):

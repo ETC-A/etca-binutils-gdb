@@ -1,7 +1,7 @@
 /* Target-dependent code for GNU/Linux running on the Fujitsu FR-V,
    for GDB.
 
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "gdbcore.h"
 #include "target.h"
 #include "frame.h"
@@ -168,7 +168,7 @@ frv_linux_pc_in_sigtramp (struct gdbarch *gdbarch, CORE_ADDR pc,
       } __attribute__((aligned(8)));  */
 
 static LONGEST
-frv_linux_sigcontext_reg_addr (frame_info_ptr this_frame, int regno,
+frv_linux_sigcontext_reg_addr (const frame_info_ptr &this_frame, int regno,
 			       CORE_ADDR *sc_addr_cache_ptr)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -202,7 +202,7 @@ frv_linux_sigcontext_reg_addr (frame_info_ptr this_frame, int regno,
 	  /* For a realtime sigtramp frame, SP + 12 contains a pointer
 	     to a ucontext struct.  The ucontext struct contains a
 	     sigcontext struct starting 24 bytes in.  (The offset of
-	     uc_mcontext within struct ucontext is derived as follows: 
+	     uc_mcontext within struct ucontext is derived as follows:
 	     stack_t is a 12-byte struct and struct sigcontext is
 	     8-byte aligned.  This gives an offset of 8 + 12 + 4 (for
 	     padding) = 24.)  */
@@ -245,7 +245,7 @@ frv_linux_sigcontext_reg_addr (frame_info_ptr this_frame, int regno,
       return sc_addr + 48;
     case iacc0l_regnum :
       return sc_addr + 52;
-    default : 
+    default :
       if (first_gpr_regnum <= regno && regno <= last_gpr_regnum)
 	return sc_addr + 56 + 4 * (regno - first_gpr_regnum);
       else if (first_fpr_regnum <= regno && regno <= last_fpr_regnum)
@@ -258,7 +258,7 @@ frv_linux_sigcontext_reg_addr (frame_info_ptr this_frame, int regno,
 /* Signal trampolines.  */
 
 static struct trad_frame_cache *
-frv_linux_sigtramp_frame_cache (frame_info_ptr this_frame,
+frv_linux_sigtramp_frame_cache (const frame_info_ptr &this_frame,
 				void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -297,7 +297,7 @@ frv_linux_sigtramp_frame_cache (frame_info_ptr this_frame,
 }
 
 static void
-frv_linux_sigtramp_frame_this_id (frame_info_ptr this_frame,
+frv_linux_sigtramp_frame_this_id (const frame_info_ptr &this_frame,
 				  void **this_cache,
 				  struct frame_id *this_id)
 {
@@ -307,7 +307,7 @@ frv_linux_sigtramp_frame_this_id (frame_info_ptr this_frame,
 }
 
 static struct value *
-frv_linux_sigtramp_frame_prev_register (frame_info_ptr this_frame,
+frv_linux_sigtramp_frame_prev_register (const frame_info_ptr &this_frame,
 					void **this_cache, int regnum)
 {
   /* Make sure we've initialized the cache.  */
@@ -318,7 +318,7 @@ frv_linux_sigtramp_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 frv_linux_sigtramp_frame_sniffer (const struct frame_unwind *self,
-				  frame_info_ptr this_frame,
+				  const frame_info_ptr &this_frame,
 				  void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -332,16 +332,16 @@ frv_linux_sigtramp_frame_sniffer (const struct frame_unwind *self,
   return 0;
 }
 
-static const struct frame_unwind frv_linux_sigtramp_frame_unwind =
-{
+static const struct frame_unwind_legacy frv_linux_sigtramp_frame_unwind (
   "frv linux sigtramp",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   frv_linux_sigtramp_frame_this_id,
   frv_linux_sigtramp_frame_prev_register,
   NULL,
   frv_linux_sigtramp_frame_sniffer
-};
+);
 
 /* The FRV kernel defines ELF_NGREG as 46.  We add 2 in order to include
    the loadmap addresses in the register set.  (See below for more info.)  */
@@ -409,7 +409,7 @@ static const struct regcache_map_entry frv_linux_fpregmap[] =
 
 /* Unpack an frv_elf_gregset_t into GDB's register cache.  */
 
-static void 
+static void
 frv_linux_supply_gregset (const struct regset *regset,
 			  struct regcache *regcache,
 			  int regnum, const void *gregs, size_t len)
@@ -460,7 +460,7 @@ frv_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   linux_init_abi (info, gdbarch, 0);
 
   /* Set the sigtramp frame sniffer.  */
-  frame_unwind_append_unwinder (gdbarch, &frv_linux_sigtramp_frame_unwind); 
+  frame_unwind_append_unwinder (gdbarch, &frv_linux_sigtramp_frame_unwind);
 
   set_gdbarch_iterate_over_regset_sections
     (gdbarch, frv_linux_iterate_over_regset_sections);
@@ -482,9 +482,7 @@ frv_linux_elf_osabi_sniffer (bfd *abfd)
     return GDB_OSABI_UNKNOWN;
 }
 
-void _initialize_frv_linux_tdep ();
-void
-_initialize_frv_linux_tdep ()
+INIT_GDB_FILE (frv_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_frv, 0, GDB_OSABI_LINUX,
 			  frv_linux_init_abi);

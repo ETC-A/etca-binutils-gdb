@@ -1,4 +1,4 @@
-# Copyright 2015-2023 Free Software Foundation, Inc.
+# Copyright 2015-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -40,27 +40,27 @@ Dwarf::assemble $asm_file {
 	[function_range frame3 [list ${srcdir}/${subdir}/$srcfile]]
 
     # Very simple info for this test program.  We don't care about
-    # this information being correct (w.r.t. funtion / argument types)
+    # this information being correct (w.r.t. function / argument types)
     # just so long as the compilation using makes use of the
     # .debug_ranges data then the test achieves its objective.
     cu { label cu_label } {
 	compile_unit {
-	    {language @DW_LANG_C}
-	    {name dw-ranges-base.c}
-	    {stmt_list $L DW_FORM_sec_offset}
-	    {ranges ${ranges_label} DW_FORM_sec_offset}
+	    DW_AT_language @DW_LANG_C
+	    DW_AT_name dw-ranges-base.c
+	    DW_AT_stmt_list $L DW_FORM_sec_offset
+	    DW_AT_ranges ${ranges_label} DW_FORM_sec_offset
 	} {
 	    subprogram {
-		{external 1 flag}
-		{name main}
+		DW_AT_external 1 flag
+		DW_AT_name main
 	    }
 	    subprogram {
-		{external 1 flag}
-		{name frame2}
+		DW_AT_external 1 flag
+		DW_AT_name frame2
 	    }
 	    subprogram {
-		{external 1 flag}
-		{name frame3}
+		DW_AT_external 1 flag
+		DW_AT_name frame3
 	    }
 	}
     }
@@ -79,24 +79,18 @@ Dwarf::assemble $asm_file {
 	    DW_LNS_advance_line 10
 	    DW_LNS_copy
 	    DW_LNS_advance_pc [lindex $main_func 1]
-	    DW_LNS_advance_line 19
-	    DW_LNS_copy
 	    DW_LNE_end_sequence
 
 	    DW_LNE_set_address [lindex $frame2_func 0]
 	    DW_LNS_advance_line 20
 	    DW_LNS_copy
 	    DW_LNS_advance_pc [lindex $frame2_func 1]
-	    DW_LNS_advance_line 29
-	    DW_LNS_copy
 	    DW_LNE_end_sequence
 
 	    DW_LNE_set_address [lindex $frame3_func 0]
 	    DW_LNS_advance_line 30
 	    DW_LNS_copy
 	    DW_LNS_advance_pc [lindex $frame3_func 1]
-	    DW_LNS_advance_line 39
-	    DW_LNS_copy
 	    DW_LNE_end_sequence
 	}
     }
@@ -124,11 +118,11 @@ Dwarf::assemble $asm_file {
 
 if { [prepare_for_testing "failed to prepare" ${testfile} \
 	  [list $srcfile $asm_file] {nodebug}] } {
-    return -1
+    return
 }
 
-if ![runto_main] {
-    return -1
+if {![runto_main]} {
+    return
 }
 
 # Make use of the line numbers we faked in the .debug_line table above.
@@ -169,12 +163,12 @@ gdb_test_multiple "maint info line-table gdb.dwarf2/dw2-ranges-base.c" \
 	    exp_continue
 	}
 	-re "^$gdb_prompt $" {
-	    gdb_assert [expr $end_seq_count == 3] $gdb_test_name
+	    gdb_assert [expr {$end_seq_count == 3}] $gdb_test_name
 	}
 	-re ".*linetable: \\(\\(struct linetable \\*\\) 0x0\\):\r\nNo line table.\r\n" {
 	    exp_continue
 	}
-	-re ".*linetable: \\(\\(struct linetable \\*\\) $hex\\):\r\nINDEX\[ \t\]+LINE\[ \t\]+REL-ADDRESS\[ \t\]+UNREL-ADDRESS\[ \t\]+IS-STMT\[ \t\]PROLOGUE-END *\r\n" {
+	-re ".*linetable: \\(\\(struct linetable \\*\\) $hex\\):\r\nINDEX\[ \t\]+LINE\[ \t\]+REL-ADDRESS\[ \t\]+UNREL-ADDRESS\[ \t\]+IS-STMT\[ \t\]PROLOGUE-END\[ \t\]EPILOGUE-BEGIN *\r\n" {
 	    exp_continue
 	}
     }

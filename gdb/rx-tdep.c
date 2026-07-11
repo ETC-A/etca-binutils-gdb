@@ -1,6 +1,6 @@
 /* Target-dependent code for the Renesas RX for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -19,8 +19,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "extract-store-integer.h"
 #include "prologue-value.h"
 #include "target.h"
 #include "regcache.h"
@@ -36,6 +36,7 @@
 #include "remote.h"
 #include "target-descriptions.h"
 #include "gdbarch.h"
+#include "inferior.h"
 
 #include "elf/rx.h"
 #include "elf-bfd.h"
@@ -142,7 +143,7 @@ check_for_saved (void *result_untyped, pv_t addr, CORE_ADDR size, pv_t value)
   if (value.kind == pvk_register
       && value.k == 0
       && pv_is_register (addr, RX_SP_REGNUM)
-      && size == register_size (target_gdbarch (), value.reg))
+      && size == register_size (current_inferior ()->arch (), value.reg))
     result->reg_offset[value.reg] = addr.k;
 }
 
@@ -198,7 +199,7 @@ rx_analyze_prologue (CORE_ADDR start_pc, CORE_ADDR limit_pc,
       result->reg_offset[rn] = 1;
     }
 
-  pv_area stack (RX_SP_REGNUM, gdbarch_addr_bit (target_gdbarch ()));
+  pv_area stack (RX_SP_REGNUM, gdbarch_addr_bit (current_inferior ()->arch ()));
 
   if (frame_type == RX_FRAME_TYPE_FAST_INTERRUPT)
     {
@@ -382,7 +383,7 @@ rx_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
    return that struct as the value of this function.  */
 
 static struct rx_prologue *
-rx_analyze_frame_prologue (frame_info_ptr this_frame,
+rx_analyze_frame_prologue (const frame_info_ptr &this_frame,
 			   enum rx_frame_type frame_type,
 			   void **this_prologue_cache)
 {
@@ -390,7 +391,7 @@ rx_analyze_frame_prologue (frame_info_ptr this_frame,
     {
       CORE_ADDR func_start, stop_addr;
 
-      *this_prologue_cache = FRAME_OBSTACK_ZALLOC (struct rx_prologue);
+      *this_prologue_cache = frame_obstack_zalloc<rx_prologue> ();
 
       func_start = get_frame_func (this_frame);
       stop_addr = get_frame_pc (this_frame);
@@ -411,7 +412,7 @@ rx_analyze_frame_prologue (frame_info_ptr this_frame,
    instruction.  */
 
 static enum rx_frame_type
-rx_frame_type (frame_info_ptr this_frame, void **this_cache)
+rx_frame_type (const frame_info_ptr &this_frame, void **this_cache)
 {
   const char *name;
   CORE_ADDR pc, start_pc, lim_pc;
@@ -432,9 +433,9 @@ rx_frame_type (frame_info_ptr this_frame, void **this_cache)
 
   /* No cached value; scan the function.  The frame type is cached in
      rx_analyze_prologue / rx_analyze_frame_prologue.  */
-  
+
   pc = get_frame_pc (this_frame);
-  
+
   /* Attempt to find the last address in the function.  If it cannot
      be determined, set the limit to be a short ways past the frame's
      pc.  */
@@ -465,7 +466,7 @@ rx_frame_type (frame_info_ptr this_frame, void **this_cache)
    base.  */
 
 static CORE_ADDR
-rx_frame_base (frame_info_ptr this_frame, void **this_cache)
+rx_frame_base (const frame_info_ptr &this_frame, void **this_cache)
 {
   enum rx_frame_type frame_type = rx_frame_type (this_frame, this_cache);
   struct rx_prologue *p
@@ -492,7 +493,7 @@ rx_frame_base (frame_info_ptr this_frame, void **this_cache)
 /* Implement the "frame_this_id" method for unwinding frames.  */
 
 static void
-rx_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+rx_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		  struct frame_id *this_id)
 {
   *this_id = frame_id_build (rx_frame_base (this_frame, this_cache),
@@ -502,7 +503,7 @@ rx_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 /* Implement the "frame_prev_register" method for unwinding frames.  */
 
 static struct value *
-rx_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
+rx_frame_prev_register (const frame_info_ptr &this_frame, void **this_cache,
 			int regnum)
 {
   enum rx_frame_type frame_type = rx_frame_type (this_frame, this_cache);
@@ -576,7 +577,7 @@ exception_frame_p (enum rx_frame_type frame_type)
 
 static int
 rx_frame_sniffer_common (const struct frame_unwind *self,
-			 frame_info_ptr this_frame,
+			 const frame_info_ptr &this_frame,
 			 void **this_cache,
 			 int (*sniff_p)(enum rx_frame_type) )
 {
@@ -609,7 +610,7 @@ rx_frame_sniffer_common (const struct frame_unwind *self,
 
 static int
 rx_frame_sniffer (const struct frame_unwind *self,
-		  frame_info_ptr this_frame,
+		  const frame_info_ptr &this_frame,
 		  void **this_cache)
 {
   return rx_frame_sniffer_common (self, this_frame, this_cache,
@@ -620,7 +621,7 @@ rx_frame_sniffer (const struct frame_unwind *self,
 
 static int
 rx_exception_sniffer (const struct frame_unwind *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     void **this_cache)
 {
   return rx_frame_sniffer_common (self, this_frame, this_cache,
@@ -630,29 +631,31 @@ rx_exception_sniffer (const struct frame_unwind *self,
 /* Data structure for normal code using instruction-based prologue
    analyzer.  */
 
-static const struct frame_unwind rx_frame_unwind = {
+static const struct frame_unwind_legacy rx_frame_unwind (
   "rx prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   rx_frame_this_id,
   rx_frame_prev_register,
   NULL,
   rx_frame_sniffer
-};
+);
 
 /* Data structure for exception code using instruction-based prologue
    analyzer.  */
 
-static const struct frame_unwind rx_exception_unwind = {
+static const struct frame_unwind_legacy rx_exception_unwind (
   "rx exception",
   /* SIGTRAMP_FRAME could be used here, but backtraces are less informative.  */
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   rx_frame_this_id,
   rx_frame_prev_register,
   NULL,
   rx_exception_sniffer
-};
+);
 
 /* Implement the "push_dummy_call" gdbarch method.  */
 static CORE_ADDR
@@ -923,7 +926,7 @@ rx_return_value (struct gdbarch *gdbarch,
 
 constexpr gdb_byte rx_break_insn[] = { 0x00 };
 
-typedef BP_MANIPULATION (rx_break_insn) rx_breakpoint;
+using rx_breakpoint = BP_MANIPULATION (rx_break_insn);
 
 /* Implement the dwarf_reg_to_regnum" gdbarch method.  */
 
@@ -972,7 +975,7 @@ rx_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     }
 
   if (tdesc == NULL)
-      tdesc = tdesc_rx;
+    tdesc = tdesc_rx.get ();
 
   /* Check any target description for validity.  */
   if (tdesc_has_registers (tdesc))
@@ -1015,7 +1018,7 @@ rx_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_skip_prologue (gdbarch, rx_skip_prologue);
 
   /* Target builtin data types.  */
-  set_gdbarch_char_signed (gdbarch, 0);
+  set_gdbarch_char_signed (gdbarch, false);
   set_gdbarch_short_bit (gdbarch, 16);
   set_gdbarch_int_bit (gdbarch, 32);
   set_gdbarch_long_bit (gdbarch, 32);
@@ -1053,16 +1056,14 @@ rx_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_return_value (gdbarch, rx_return_value);
 
   /* Virtual tables.  */
-  set_gdbarch_vbit_in_delta (gdbarch, 1);
+  set_gdbarch_vbit_in_delta (gdbarch, true);
 
   return gdbarch;
 }
 
 /* Register the above initialization routine.  */
 
-void _initialize_rx_tdep ();
-void
-_initialize_rx_tdep ()
+INIT_GDB_FILE (rx_tdep)
 {
   gdbarch_register (bfd_arch_rx, rx_gdbarch_init);
   initialize_tdesc_rx ();

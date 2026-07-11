@@ -1,6 +1,6 @@
 /* Common target dependent code for GDB on ARM systems.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "gdbsupport/common-regcache.h"
 #include "arm.h"
 
@@ -47,7 +46,7 @@ thumb_insn_size (unsigned short inst1)
 int
 condition_true (unsigned long cond, unsigned long status_reg)
 {
-  if (cond == INST_AL || cond == INST_NV)
+  if (condition_always_true (cond))
     return 1;
 
   switch (cond)
@@ -153,7 +152,7 @@ arm_instruction_changes_pc (uint32_t this_instr)
 	    return 0;
 	  }
 	/* Data processing instruction.  */
-	/* Fall through.  */
+	[[fallthrough]];
 
       case 0x1:
 	if (bits (this_instr, 12, 15) == 15)
@@ -322,7 +321,7 @@ thumb2_instruction_changes_pc (unsigned short inst1, unsigned short inst2)
 /* See arm.h.  */
 
 unsigned long
-shifted_reg_val (struct regcache *regcache, unsigned long inst,
+shifted_reg_val (reg_buffer_common *regcache, unsigned long inst,
 		 int carry, unsigned long pc_val, unsigned long status_reg)
 {
   unsigned long res, shift;
@@ -374,7 +373,7 @@ shifted_reg_val (struct regcache *regcache, unsigned long inst,
 
 /* See arch/arm.h.  */
 
-target_desc *
+target_desc_up
 arm_create_target_description (arm_fp_type fp_type, bool tls)
 {
   target_desc_up tdesc = allocate_target_description ();
@@ -414,18 +413,18 @@ arm_create_target_description (arm_fp_type fp_type, bool tls)
   if (tls)
     regnum = create_feature_arm_arm_tls (tdesc.get (), regnum);
 
-  return tdesc.release ();
+  return tdesc;
 }
 
 /* See arch/arm.h.  */
 
-target_desc *
+target_desc_up
 arm_create_mprofile_target_description (arm_m_profile_type m_type)
 {
-  target_desc *tdesc = allocate_target_description ().release ();
+  target_desc_up tdesc = allocate_target_description ();
 
 #ifndef IN_PROCESS_AGENT
-  set_tdesc_architecture (tdesc, "arm");
+  set_tdesc_architecture (tdesc.get (), "arm");
 #endif
 
   long regnum = 0;
@@ -433,27 +432,27 @@ arm_create_mprofile_target_description (arm_m_profile_type m_type)
   switch (m_type)
     {
     case ARM_M_TYPE_M_PROFILE:
-      regnum = create_feature_arm_arm_m_profile (tdesc, regnum);
+      regnum = create_feature_arm_arm_m_profile (tdesc.get (), regnum);
       break;
 
     case ARM_M_TYPE_VFP_D16:
-      regnum = create_feature_arm_arm_m_profile (tdesc, regnum);
-      regnum = create_feature_arm_arm_vfpv2 (tdesc, regnum);
+      regnum = create_feature_arm_arm_m_profile (tdesc.get (), regnum);
+      regnum = create_feature_arm_arm_vfpv2 (tdesc.get (), regnum);
       break;
 
     case ARM_M_TYPE_WITH_FPA:
-      regnum = create_feature_arm_arm_m_profile_with_fpa (tdesc, regnum);
+      regnum = create_feature_arm_arm_m_profile_with_fpa (tdesc.get (), regnum);
       break;
 
     case ARM_M_TYPE_MVE:
-      regnum = create_feature_arm_arm_m_profile (tdesc, regnum);
-      regnum = create_feature_arm_arm_vfpv2 (tdesc, regnum);
-      regnum = create_feature_arm_arm_m_profile_mve (tdesc, regnum);
+      regnum = create_feature_arm_arm_m_profile (tdesc.get (), regnum);
+      regnum = create_feature_arm_arm_vfpv2 (tdesc.get (), regnum);
+      regnum = create_feature_arm_arm_m_profile_mve (tdesc.get (), regnum);
       break;
 
     case ARM_M_TYPE_SYSTEM:
-      regnum = create_feature_arm_arm_m_profile (tdesc, regnum);
-      regnum = create_feature_arm_arm_m_system (tdesc, regnum);
+      regnum = create_feature_arm_arm_m_profile (tdesc.get (), regnum);
+      regnum = create_feature_arm_arm_m_system (tdesc.get (), regnum);
       break;
 
     default:

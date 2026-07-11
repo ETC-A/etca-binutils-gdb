@@ -1,7 +1,7 @@
 /*  This file is part of the program psim.
 
     Copyright (C) 1994-1997, Andrew Cagney <cagney@highland.com.au>
-    Copyright (C) 1997-2023 Free Software Foundation, Inc.
+    Copyright (C) 1997-2026 Free Software Foundation, Inc.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -48,6 +48,6 @@ mn10300_core_signal ((SD), (CPU), (CIA), (MAP), (NR_BYTES), (ADDR), (TRANSFER), 
 #include "mn10300-sim.h"
 #endif
 
-extern SIM_CORE_SIGNAL_FN mn10300_core_signal;
+extern SIM_CORE_SIGNAL_FN mn10300_core_signal ATTRIBUTE_NORETURN;
 
 #endif

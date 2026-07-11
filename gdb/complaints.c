@@ -1,6 +1,6 @@
 /* Support for complaint handling during symbol reading in GDB.
 
-   Copyright (C) 1990-2023 Free Software Foundation, Inc.
+   Copyright (C) 1990-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,17 +17,18 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "complaints.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
+#include "run-on-main-thread.h"
+#include "top.h"
+#include "gdbsupport/cxx-thread.h"
 #include "gdbsupport/selftest.h"
-#include <unordered_map>
-#include <mutex>
+#include "gdbsupport/unordered_map.h"
 
 /* Map format strings to counters.  */
 
-static std::unordered_map<const char *, int> counters;
+static gdb::unordered_map<const char *, int> counters;
 
 /* How many complaints about a particular thing should be printed
    before we stop whining about it?  Default is no whining at all,
@@ -35,9 +36,7 @@ static std::unordered_map<const char *, int> counters;
 
 int stop_whining = 0;
 
-#if CXX_STD_THREAD
-static std::mutex complaint_mutex;
-#endif /* CXX_STD_THREAD */
+static gdb::mutex complaint_mutex;
 
 /* See complaints.h.  */
 
@@ -47,17 +46,16 @@ complaint_internal (const char *fmt, ...)
   va_list args;
 
   {
-#if CXX_STD_THREAD
-    std::lock_guard<std::mutex> guard (complaint_mutex);
-#endif
+    gdb::lock_guard<gdb::mutex> guard (complaint_mutex);
     if (++counters[fmt] > stop_whining)
       return;
   }
 
   va_start (args, fmt);
 
-  if (deprecated_warning_hook)
-    (*deprecated_warning_hook) (fmt, args);
+  warning_hook_handler handler = get_warning_hook_handler ();
+  if (handler != nullptr)
+    handler->warn (fmt, args);
   else
     {
       gdb_puts (_("During symbol reading: "), gdb_stderr);
@@ -73,61 +71,53 @@ complaint_internal (const char *fmt, ...)
 void
 clear_complaints ()
 {
+  gdb::lock_guard<gdb::mutex> guard (complaint_mutex);
   counters.clear ();
 }
 
 /* See complaints.h.  */
 
-complaint_interceptor *complaint_interceptor::g_complaint_interceptor;
-
-/* See complaints.h.  */
-
 complaint_interceptor::complaint_interceptor ()
-  : m_saved_warning_hook (deprecated_warning_hook)
+  : m_saved_warning_hook (this)
 {
-  /* These cannot be stacked.  */
-  gdb_assert (g_complaint_interceptor == nullptr);
-  g_complaint_interceptor = this;
-  deprecated_warning_hook = issue_complaint;
 }
 
 /* A helper that wraps a warning hook.  */
 
 static void
-wrap_warning_hook (void (*hook) (const char *, va_list), ...)
+wrap_warning_hook (warning_hook_handler hook, ...)
 {
   va_list args;
   va_start (args, hook);
-  hook ("%s", args);
+  hook->warn ("%s", args);
   va_end (args);
 }
 
 /* See complaints.h.  */
 
-complaint_interceptor::~complaint_interceptor ()
+void
+re_emit_complaints (const complaint_collection &complaints)
 {
-  for (const std::string &str : m_complaints)
+  gdb_assert (is_main_thread ());
+
+  for (const std::string &str : complaints)
     {
-      if (m_saved_warning_hook)
-	wrap_warning_hook (m_saved_warning_hook, str.c_str ());
+      warning_hook_handler handler = get_warning_hook_handler ();
+      if (handler != nullptr)
+	wrap_warning_hook (handler, str.c_str ());
       else
 	gdb_printf (gdb_stderr, _("During symbol reading: %s\n"),
 		    str.c_str ());
     }
-
-  g_complaint_interceptor = nullptr;
-  deprecated_warning_hook = m_saved_warning_hook;
 }
 
 /* See complaints.h.  */
 
 void
-complaint_interceptor::issue_complaint (const char *fmt, va_list args)
+complaint_interceptor::warn (const char *fmt, va_list args)
 {
-#if CXX_STD_THREAD
-  std::lock_guard<std::mutex> guard (complaint_mutex);
-#endif
-  g_complaint_interceptor->m_complaints.insert (string_vprintf (fmt, args));
+  gdb::lock_guard<gdb::mutex> guard (complaint_mutex);
+  m_complaints.insert (string_vprintf (fmt, args));
 }
 
 static void
@@ -147,7 +137,7 @@ namespace selftests {
 static void
 test_complaints ()
 {
-  std::unordered_map<const char *, int> tmp;
+  gdb::unordered_map<const char *, int> tmp;
   scoped_restore reset_counters = make_scoped_restore (&counters, tmp);
   scoped_restore reset_stop_whining = make_scoped_restore (&stop_whining, 2);
 
@@ -183,14 +173,12 @@ test_complaints ()
 }
 
 
-} // namespace selftests
+} /* namespace selftests */
 #endif /* GDB_SELF_TEST */
 
-void _initialize_complaints ();
-void
-_initialize_complaints ()
+INIT_GDB_FILE (complaints)
 {
-  add_setshow_zinteger_cmd ("complaints", class_support, 
+  add_setshow_zinteger_cmd ("complaints", class_support,
 			    &stop_whining, _("\
 Set max number of complaints about incorrect symbols."), _("\
 Show max number of complaints about incorrect symbols."), NULL,

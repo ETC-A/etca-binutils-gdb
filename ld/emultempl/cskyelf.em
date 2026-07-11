@@ -1,5 +1,5 @@
 # This shell script emits a C file. -*- C -*-
-#   Copyright (C) 2013-2023 Free Software Foundation, Inc.
+#   Copyright (C) 2013-2026 Free Software Foundation, Inc.
 #
 # This file is part of GNU Binutils.
 #
@@ -151,7 +151,7 @@ csky_elf_create_output_section_statements (void)
 	  bfd_get_arch (link_info.output_bfd),
 	  bfd_get_mach (link_info.output_bfd)))
     {
-      einfo (_("%F%P: can not create BFD: %E\n"));
+      fatal (_("%P: can not create BFD: %E\n"));
       return;
     }
 
@@ -235,7 +235,7 @@ gld${EMULATION_NAME}_after_allocation (void)
      ie. doesn't affect any code, so we can delay resizing the
      sections.  It's likely we'll resize everything in the process of
      adding stubs.  */
-  if (bfd_elf_discard_info (link_info.output_bfd, &link_info))
+  if (bfd_elf_discard_info (&link_info))
     need_laying_out = 1;
 
   /* If generating a relocatable output file, then we don't
@@ -288,12 +288,6 @@ EOF
 
 # This code gets inserted into the generic elf32.sc linker script
 # and allows us to define our own command line switches.
-PARSE_AND_LIST_PROLOGUE='
-#define OPTION_BRANCH_STUB		301
-#define OPTION_NO_BRANCH_STUB		302
-#define OPTION_STUBGROUP_SIZE		303
-'
-
 PARSE_AND_LIST_LONGOPTS='
   {"branch-stub",	no_argument,       NULL, OPTION_BRANCH_STUB},
   {"no-branch-stub",	no_argument,       NULL, OPTION_NO_BRANCH_STUB},
@@ -324,7 +318,7 @@ PARSE_AND_LIST_ARGS_CASES='
 
       group_size = bfd_scan_vma (optarg, &end, 0);
       if (*end)
-	einfo (_("%F%P: invalid number `%s'\''\n"), optarg);
+	fatal (_("%P: invalid number `%s'\''\n"), optarg);
     }
     break;
 '

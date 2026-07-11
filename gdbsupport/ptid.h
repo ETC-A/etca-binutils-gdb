@@ -1,6 +1,6 @@
 /* The ptid_t type and common functions operating on it.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_PTID_H
-#define COMMON_PTID_H
+#ifndef GDBSUPPORT_PTID_H
+#define GDBSUPPORT_PTID_H
 
 /* The ptid struct is a collection of the various "ids" necessary for
    identifying the inferior process/thread being debugged.  This
@@ -35,6 +35,7 @@
 #include <functional>
 #include <string>
 #include "gdbsupport/common-types.h"
+#include "gdbsupport/function-view.h"
 
 class ptid_t
 {
@@ -130,6 +131,12 @@ public:
 	    || *this == filter);
   }
 
+  /* Return a remote-protocol-compatible string representation of this
+     ptid.  The MULTI argument controls whether the multi-process
+     representation is used.  */
+
+  std::string to_rsp_string (bool multi) const;
+
   /* Return a string representation of the ptid.
 
      This is only meant to be used in debug messages.  */
@@ -146,6 +153,16 @@ public:
   static constexpr ptid_t make_minus_one ()
   { return ptid_t (-1, 0, 0); }
 
+  /* Extract a PTID from BUF.  If non-null, OBUF is set to one past
+     the last parsed char.  FOR_REMOTE is true for "gdbserver" style
+     parsing, that is, applying a special meaning to "-1" (see RSP
+     docs for details).  DEFAULT_PID is called when the parsed string
+     does not provide a process ID; it should return the default PID
+     to use.  This function throws on error.  */
+
+  static ptid_t parse (const char *buf, const char **obuf, bool for_remote,
+		       gdb::function_view<pid_type ()> default_pid);
+
 private:
   /* Process id.  */
   pid_type m_pid;
@@ -157,9 +174,10 @@ private:
   tid_type m_tid;
 };
 
-/* Functor to hash a ptid.  */
-
-struct hash_ptid
+namespace std
+{
+template<>
+struct hash<ptid_t>
 {
   size_t operator() (const ptid_t &ptid) const
   {
@@ -170,6 +188,7 @@ struct hash_ptid
 	    + long_hash (ptid.tid ()));
   }
 };
+}
 
 /* The null or zero ptid, often used to indicate no process. */
 
@@ -180,4 +199,4 @@ extern const ptid_t null_ptid;
 
 extern const ptid_t minus_one_ptid;
 
-#endif /* COMMON_PTID_H */
+#endif /* GDBSUPPORT_PTID_H */

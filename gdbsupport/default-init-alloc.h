@@ -1,4 +1,4 @@
-/* Copyright (C) 2017-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,8 +15,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_DEFAULT_INIT_ALLOC_H
-#define COMMON_DEFAULT_INIT_ALLOC_H
+#ifndef GDBSUPPORT_DEFAULT_INIT_ALLOC_H
+#define GDBSUPPORT_DEFAULT_INIT_ALLOC_H
+
+#if __has_include(<memory_resource>)
+#include <memory_resource>
+#endif
 
 namespace gdb {
 
@@ -29,7 +33,14 @@ namespace gdb {
    adapter that given an allocator A, overrides 'A::construct()'.  'A'
    defaults to std::allocator<T>.  */
 
-template<typename T, typename A = std::allocator<T>>
+template<typename T,
+	 typename A
+#ifdef __cpp_lib_polymorphic_allocator
+	 = std::pmr::polymorphic_allocator<T>
+#else
+	 = std::allocator<T>
+#endif
+	 >
 class default_init_allocator : public A
 {
 public:
@@ -41,11 +52,11 @@ public:
   struct rebind
   {
     /* A couple helpers just to make it a bit more readable.  */
-    typedef std::allocator_traits<A> traits_;
-    typedef typename traits_::template rebind_alloc<U> alloc_;
+    using traits_ = std::allocator_traits<A>;
+    using alloc_ = typename traits_::template rebind_alloc<U>;
 
     /* This is what we're after.  */
-    typedef default_init_allocator<U, alloc_> other;
+    using other = default_init_allocator<U, alloc_>;
   };
 
   /* Make the base allocator's construct method(s) visible.  */
@@ -64,4 +75,4 @@ public:
 
 } /* namespace gdb */
 
-#endif /* COMMON_DEFAULT_INIT_ALLOC_H */
+#endif /* GDBSUPPORT_DEFAULT_INIT_ALLOC_H */

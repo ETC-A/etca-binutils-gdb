@@ -1,6 +1,6 @@
 /* Serial interface for local (hardwired) serial ports on Windows systems
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "serial.h"
 #include "ser-base.h"
 #include "ser-tcp.h"
@@ -48,7 +47,7 @@ static CancelIo_ftype *CancelIo;
 
 /* Open up a real live device for serial I/O.  */
 
-static int
+static void
 ser_windows_open (struct serial *scb, const char *name)
 {
   HANDLE h;
@@ -59,22 +58,18 @@ ser_windows_open (struct serial *scb, const char *name)
 		  OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
   if (h == INVALID_HANDLE_VALUE)
     {
-      errno = ENOENT;
-      return -1;
+      std::string msg = string_printf(_("could not open file: %s"),
+				      name);
+      throw_winerror_with_name (msg.c_str (), GetLastError ());
     }
 
   scb->fd = _open_osfhandle ((intptr_t) h, O_RDWR);
   if (scb->fd < 0)
-    {
-      errno = ENOENT;
-      return -1;
-    }
+    error (_("could not get underlying file descriptor"));
 
   if (!SetCommMask (h, EV_RXCHAR))
-    {
-      errno = EINVAL;
-      return -1;
-    }
+    throw_winerror_with_name (_("error calling SetCommMask"),
+			      GetLastError ());
 
   timeouts.ReadIntervalTimeout = MAXDWORD;
   timeouts.ReadTotalTimeoutConstant = 0;
@@ -82,10 +77,8 @@ ser_windows_open (struct serial *scb, const char *name)
   timeouts.WriteTotalTimeoutConstant = 0;
   timeouts.WriteTotalTimeoutMultiplier = 0;
   if (!SetCommTimeouts (h, &timeouts))
-    {
-      errno = EINVAL;
-      return -1;
-    }
+    throw_winerror_with_name (_("error calling SetCommTimeouts"),
+			      GetLastError ());
 
   state = XCNEW (struct ser_windows_state);
   scb->state = state;
@@ -95,8 +88,6 @@ ser_windows_open (struct serial *scb, const char *name)
 
   /* Create a (currently unused) handle to record exceptions.  */
   state->except_event = CreateEvent (0, TRUE, FALSE, 0);
-
-  return 0;
 }
 
 /* Wait for the output to drain away, as opposed to flushing (discarding)
@@ -126,21 +117,21 @@ ser_windows_flush_input (struct serial *scb)
   return (PurgeComm (h, PURGE_RXCLEAR) != 0) ? 0 : -1;
 }
 
-static int
+static void
 ser_windows_send_break (struct serial *scb)
 {
   HANDLE h = (HANDLE) _get_osfhandle (scb->fd);
 
   if (SetCommBreak (h) == 0)
-    return -1;
+    throw_winerror_with_name ("error calling SetCommBreak",
+			      GetLastError ());
 
   /* Delay for 250 milliseconds.  */
   Sleep (250);
 
-  if (ClearCommBreak (h))
-    return -1;
-
-  return 0;
+  if (ClearCommBreak (h) == 0)
+    throw_winerror_with_name ("error calling ClearCommBreak",
+			      GetLastError ());
 }
 
 static void
@@ -226,18 +217,19 @@ ser_windows_setparity (struct serial *scb, int parity)
   return (SetCommState (h, &state) != 0) ? 0 : -1;
 }
 
-static int
+static void
 ser_windows_setbaudrate (struct serial *scb, int rate)
 {
   HANDLE h = (HANDLE) _get_osfhandle (scb->fd);
   DCB state;
 
   if (GetCommState (h, &state) == 0)
-    return -1;
+    throw_winerror_with_name ("call to GetCommState failed", GetLastError ());
 
   state.BaudRate = rate;
 
-  return (SetCommState (h, &state) != 0) ? 0 : -1;
+  if (SetCommState (h, &state) == 0)
+    throw_winerror_with_name ("call to SetCommState failed", GetLastError ());
 }
 
 static void
@@ -289,10 +281,10 @@ ser_windows_wait_handle (struct serial *scb, HANDLE *read, HANDLE *except)
      cleared, and we get a duplicated event, if the last batch
      of characters included at least two arriving close together.  */
   if (!SetCommMask (h, 0))
-    warning (_("ser_windows_wait_handle: reseting mask failed"));
+    warning (_("ser_windows_wait_handle: resetting mask failed"));
 
   if (!SetCommMask (h, EV_RXCHAR))
-    warning (_("ser_windows_wait_handle: reseting mask failed (2)"));
+    warning (_("ser_windows_wait_handle: resetting mask failed (2)"));
 
   /* There's a potential race condition here; we must check cbInQue
      and not wait if that's nonzero.  */
@@ -340,7 +332,11 @@ ser_windows_read_prim (struct serial *scb, size_t count)
     {
       if (GetLastError () != ERROR_IO_PENDING
 	  || !GetOverlappedResult (h, &ov, &bytes_read, TRUE))
-	bytes_read = -1;
+	{
+	  ULONGEST err = GetLastError ();
+	  CloseHandle (ov.hEvent);
+	  throw_winerror_with_name (_("error while reading"), err);
+	}
     }
 
   CloseHandle (ov.hEvent);
@@ -361,7 +357,7 @@ ser_windows_write_prim (struct serial *scb, const void *buf, size_t len)
     {
       if (GetLastError () != ERROR_IO_PENDING
 	  || !GetOverlappedResult (h, &ov, &bytes_written, TRUE))
-	bytes_written = -1;
+	throw_winerror_with_name ("error while writing", GetLastError ());
     }
 
   CloseHandle (ov.hEvent);
@@ -436,13 +432,13 @@ select_thread_wait (struct ser_console_state *state)
      the started state, or that we exit this thread.  */
   wait_events[0] = state->start_select;
   wait_events[1] = state->exit_select;
-  if (WaitForMultipleObjects (2, wait_events, FALSE, INFINITE) 
+  if (WaitForMultipleObjects (2, wait_events, FALSE, INFINITE)
       != WAIT_OBJECT_0)
     /* Either the EXIT_SELECT event was signaled (requesting that the
        thread exit) or an error has occurred.  In either case, we exit
        the thread.  */
     ExitThread (0);
-  
+
   /* We are now in the started state.  */
   SetEvent (state->have_started);
 }
@@ -857,9 +853,9 @@ struct pipe_state_destroyer
   }
 };
 
-typedef std::unique_ptr<pipe_state, pipe_state_destroyer> pipe_state_up;
+using pipe_state_up = std::unique_ptr<pipe_state, pipe_state_destroyer>;
 
-static int
+static void
 pipe_windows_open (struct serial *scb, const char *name)
 {
   FILE *pex_stderr;
@@ -882,10 +878,10 @@ pipe_windows_open (struct serial *scb, const char *name)
 
   ps->pex = pex_init (PEX_USE_PIPES, "target remote pipe", NULL);
   if (! ps->pex)
-    return -1;
+    error (_("could not start pipeline"));
   ps->input = pex_input_pipe (ps->pex, 1);
   if (! ps->input)
-    return -1;
+    error (_("could not find input pipe"));
 
   {
     int err;
@@ -912,17 +908,15 @@ pipe_windows_open (struct serial *scb, const char *name)
 
   ps->output = pex_read_output (ps->pex, 1);
   if (! ps->output)
-    return -1;
+    error (_("could not find output pipe"));
   scb->fd = fileno (ps->output);
 
   pex_stderr = pex_read_err (ps->pex, 1);
   if (! pex_stderr)
-    return -1;
+    error (_("could not find error pipe"));
   scb->error_fd = fileno (pex_stderr);
 
   scb->state = ps.release ();
-
-  return 0;
 }
 
 static int
@@ -971,16 +965,16 @@ pipe_windows_read (struct serial *scb, size_t count)
   DWORD bytes_read;
 
   if (pipeline_out == INVALID_HANDLE_VALUE)
-    return -1;
+    error (_("could not find file number for pipe"));
 
   if (! PeekNamedPipe (pipeline_out, NULL, 0, NULL, &available, NULL))
-    return -1;
+    throw_winerror_with_name (_("could not peek into pipe"), GetLastError ());
 
   if (count > available)
     count = available;
 
   if (! ReadFile (pipeline_out, scb->buf, count, &bytes_read, NULL))
-    return -1;
+    throw_winerror_with_name (_("could not read from pipe"), GetLastError ());
 
   return bytes_read;
 }
@@ -995,14 +989,14 @@ pipe_windows_write (struct serial *scb, const void *buf, size_t count)
 
   int pipeline_in_fd = fileno (ps->input);
   if (pipeline_in_fd < 0)
-    return -1;
+    error (_("could not find file number for pipe"));
 
   pipeline_in = (HANDLE) _get_osfhandle (pipeline_in_fd);
   if (pipeline_in == INVALID_HANDLE_VALUE)
-    return -1;
+    error (_("could not find handle for pipe"));
 
   if (! WriteFile (pipeline_in, buf, count, &written, NULL))
-    return -1;
+    throw_winerror_with_name (_("could not write to pipe"), GetLastError ());
 
   return written;
 }
@@ -1064,7 +1058,7 @@ gdb_pipe (int pdes[2])
 struct net_windows_state
 {
   struct ser_console_state base;
-  
+
   HANDLE sock_event;
 };
 
@@ -1190,15 +1184,12 @@ net_windows_done_wait_handle (struct serial *scb)
   stop_select_thread (&state->base);
 }
 
-static int
+static void
 net_windows_open (struct serial *scb, const char *name)
 {
   struct net_windows_state *state;
-  int ret;
 
-  ret = net_open (scb, name);
-  if (ret != 0)
-    return ret;
+  net_open (scb, name);
 
   state = XCNEW (struct net_windows_state);
   scb->state = state;
@@ -1209,8 +1200,6 @@ net_windows_open (struct serial *scb, const char *name)
 
   /* Start the thread.  */
   create_select_thread (net_windows_select_thread, scb, &state->base);
-
-  return 0;
 }
 
 
@@ -1349,9 +1338,7 @@ static const struct serial_ops tcp_ops =
   net_windows_done_wait_handle
 };
 
-void _initialize_ser_windows ();
-void
-_initialize_ser_windows ()
+INIT_GDB_FILE (ser_windows)
 {
   WSADATA wsa_data;
 

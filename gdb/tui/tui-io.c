@@ -1,6 +1,6 @@
 /* TUI support I/O functions.
 
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -19,11 +19,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "exceptions.h"
 #include "target.h"
 #include "gdbsupport/event-loop.h"
 #include "event-top.h"
-#include "command.h"
 #include "top.h"
 #include "ui.h"
 #include "tui/tui.h"
@@ -33,7 +32,6 @@
 #include "tui/tui-win.h"
 #include "tui/tui-wingeneral.h"
 #include "tui/tui-file.h"
-#include "tui/tui-out.h"
 #include "ui-out.h"
 #include "cli-out.h"
 #include <fcntl.h>
@@ -44,12 +42,14 @@
 #include "gdbsupport/filestuff.h"
 #include "completer.h"
 #include "gdb_curses.h"
-#include <map>
+#include "gdbsupport/unordered_map.h"
 #include "pager.h"
 #include "gdbsupport/gdb-checked-static-cast.h"
+#include "logging-file.h"
+#include "gdbsupport/selftest.h"
 
 /* This redefines CTRL if it is not already defined, so it must come
-   after terminal state releated include files like <term.h> and
+   after terminal state related include files like <term.h> and
    "gdb_curses.h".  */
 #include "readline/readline.h"
 
@@ -65,17 +65,12 @@ key_is_start_sequence (int ch)
   return (ch == 27);
 }
 
-/* Use definition from readline 4.3.  */
-#undef CTRL_CHAR
-#define CTRL_CHAR(c) \
-     ((c) < control_character_threshold && (((c) & 0x80) == 0))
-
 /* This file controls the IO interactions between gdb and curses.
    When the TUI is enabled, gdb has two modes a curses and a standard
    mode.
 
    In curses mode, the gdb outputs are made in a curses command
-   window.  For this, the gdb_stdout and gdb_stderr are redirected to
+   window.  For this, the redirectable stdout and stderr are set to
    the specific ui_file implemented by TUI.  The output is handled by
    tui_puts().  The input is also controlled by curses with
    tui_getc().  The readline library uses this function to get its
@@ -166,7 +161,7 @@ do_tui_putc (WINDOW *w, char c)
 static void
 update_cmdwin_start_line ()
 {
-  TUI_CMD_WIN->start_line = getcury (TUI_CMD_WIN->handle.get ());
+  tui_cmd_win ()->start_line = getcury (tui_cmd_win ()->handle.get ());
 }
 
 /* Print a character in the curses command window.  The output is
@@ -176,13 +171,23 @@ update_cmdwin_start_line ()
 static void
 tui_putc (char c)
 {
-  do_tui_putc (TUI_CMD_WIN->handle.get (), c);
+  do_tui_putc (tui_cmd_win ()->handle.get (), c);
   update_cmdwin_start_line ();
 }
 
+/* Hasher for colors.  */
+
+struct color_hash
+{
+  size_t operator() (const ui_file_style::color &color) const noexcept
+  {
+    return color.hash ();
+  }
+};
+
 /* This maps colors to their corresponding color index.  */
 
-static std::map<ui_file_style::color, int> color_map;
+static gdb::unordered_map<ui_file_style::color, int, color_hash> color_map;
 
 /* This holds a pair of colors and is used to track the mapping
    between a color pair index and the actual colors.  */
@@ -192,16 +197,27 @@ struct color_pair
   int fg;
   int bg;
 
-  bool operator< (const color_pair &o) const
+  bool operator== (const color_pair &other) const noexcept
   {
-    return fg < o.fg || (fg == o.fg && bg < o.bg);
+    return fg == other.fg && bg == other.bg;
+  }
+};
+
+struct color_pair_hash
+{
+  using is_avalanching = void;
+
+  size_t operator() (const color_pair &val) const noexcept
+  {
+    static_assert (std::has_unique_object_representations_v<color_pair>);
+    return ankerl::unordered_dense::detail::wyhash::hash (&val, sizeof (val));
   }
 };
 
 /* This maps pairs of colors to their corresponding color pair
    index.  */
 
-static std::map<color_pair, int> color_pair_map;
+static gdb::unordered_map<color_pair, int, color_pair_hash> color_pair_map;
 
 /* This is indexed by ANSI color offset from the base color, and holds
    the corresponding curses color constant.  */
@@ -235,8 +251,7 @@ get_color (const ui_file_style::color &color, int *result)
 	  int next = color_map.size () + 8;
 	  if (next >= COLORS)
 	    return false;
-	  uint8_t rgb[3];
-	  color.get_rgb (rgb);
+	  rgb_color rgb = color.get_rgb ();
 	  /* We store RGB as 0..255, but curses wants 0..1000.  */
 	  if (init_color (next, rgb[0] * 1000 / 255, rgb[1] * 1000 / 255,
 			  rgb[2] * 1000 / 255) == ERR)
@@ -300,6 +315,10 @@ tui_apply_style (WINDOW *w, ui_file_style style)
   wattron (w, A_NORMAL);
   wattroff (w, A_BOLD);
   wattroff (w, A_DIM);
+#ifdef  A_ITALIC
+  wattroff (w, A_ITALIC);
+#endif
+  wattroff (w, A_UNDERLINE);
   wattroff (w, A_REVERSE);
   if (last_color_pair != -1)
     wattroff (w, COLOR_PAIR (last_color_pair));
@@ -346,6 +365,14 @@ tui_apply_style (WINDOW *w, ui_file_style style)
     default:
       gdb_assert_not_reached ("invalid intensity");
     }
+
+#ifdef  A_ITALIC
+  if (style.is_italic ())
+    wattron (w, A_ITALIC);
+#endif
+
+  if (style.is_underline ())
+    wattron (w, A_UNDERLINE);
 
   if (style.is_reverse ())
     wattron (w, A_REVERSE);
@@ -459,7 +486,7 @@ void
 tui_puts (const char *string, WINDOW *w)
 {
   if (w == nullptr)
-    w = TUI_CMD_WIN->handle.get ();
+    w = tui_cmd_win ()->handle.get ();
 
   while (true)
     {
@@ -510,7 +537,7 @@ tui_puts (const char *string, WINDOW *w)
       string = next;
     }
 
-  if (TUI_CMD_WIN != nullptr && w == TUI_CMD_WIN->handle.get ())
+  if (tui_cmd_win () != nullptr && w == tui_cmd_win ()->handle.get ())
     update_cmdwin_start_line ();
 }
 
@@ -554,7 +581,7 @@ tui_puts_internal (WINDOW *w, const char *string, int *height)
 	}
     }
 
-  if (TUI_CMD_WIN != nullptr && w == TUI_CMD_WIN->handle.get ())
+  if (tui_cmd_win () != nullptr && w == tui_cmd_win ()->handle.get ())
     update_cmdwin_start_line ();
   if (saw_nl)
     wrefresh (w);
@@ -566,15 +593,7 @@ tui_puts_internal (WINDOW *w, const char *string, int *height)
 void
 tui_redisplay_readline (void)
 {
-  int prev_col;
-  int height;
-  int col;
-  int c_pos;
-  int c_line;
-  int in;
-  WINDOW *w;
   const char *prompt;
-  int start_line;
 
   /* Detect when we temporarily left SingleKey and now the readline
      edit buffer is empty, automatically restore the SingleKey
@@ -589,22 +608,21 @@ tui_redisplay_readline (void)
     prompt = "";
   else
     prompt = rl_display_prompt;
-  
-  c_pos = -1;
-  c_line = -1;
-  w = TUI_CMD_WIN->handle.get ();
-  start_line = TUI_CMD_WIN->start_line;
+
+  int c_pos = -1;
+  int c_line = -1;
+  WINDOW *w = tui_cmd_win ()->handle.get ();
+  int start_line = tui_cmd_win ()->start_line;
   wmove (w, start_line, 0);
-  prev_col = 0;
-  height = 1;
+  int height = 1;
   if (prompt != nullptr)
     tui_puts_internal (w, prompt, &height);
 
-  prev_col = getcurx (w);
-  for (in = 0; in <= rl_end; in++)
+  int prev_col = getcurx (w);
+  for (int in = 0; in <= rl_end; in++)
     {
       unsigned char c;
-      
+
       if (in == rl_point)
 	{
 	  getyx (w, c_line, c_pos);
@@ -614,15 +632,15 @@ tui_redisplay_readline (void)
 	break;
 
       c = (unsigned char) rl_line_buffer[in];
-      if (CTRL_CHAR (c) || c == RUBOUT)
+      if (c_iscntrl (c))
 	{
 	  waddch (w, '^');
-	  waddch (w, CTRL_CHAR (c) ? UNCTRL (c) : '?');
+	  waddch (w, c_unctrl (c));
 	}
       else if (c == '\t')
 	{
 	  /* Expand TABs, since ncurses on MS-Windows doesn't.  */
-	  col = getcurx (w);
+	  int col = getcurx (w);
 	  do
 	    {
 	      waddch (w, ' ');
@@ -634,20 +652,19 @@ tui_redisplay_readline (void)
 	  waddch (w, c);
 	}
       if (c == '\n')
-	TUI_CMD_WIN->start_line = getcury (w);
-      col = getcurx (w);
+	tui_cmd_win ()->start_line = getcury (w);
+      int col = getcurx (w);
       if (col < prev_col)
 	height++;
       prev_col = col;
     }
   wclrtobot (w);
-  TUI_CMD_WIN->start_line = getcury (w);
+  tui_cmd_win ()->start_line = getcury (w);
   if (c_line >= 0)
     wmove (w, c_line, c_pos);
-  TUI_CMD_WIN->start_line -= height - 1;
+  tui_cmd_win ()->start_line -= height - 1;
 
   wrefresh (w);
-  fflush(stdout);
 }
 
 /* Readline callback to prepare the terminal.  It is called once each
@@ -657,7 +674,8 @@ static void
 tui_prep_terminal (int notused1)
 {
 #ifdef NCURSES_MOUSE_VERSION
-  mousemask (ALL_MOUSE_EVENTS, NULL);
+  if (tui_enable_mouse)
+    mousemask (ALL_MOUSE_EVENTS, NULL);
 #endif
 }
 
@@ -718,7 +736,7 @@ tui_mld_puts (const struct match_list_displayer *displayer, const char *s)
 static void
 tui_mld_flush (const struct match_list_displayer *displayer)
 {
-  wrefresh (TUI_CMD_WIN->handle.get ());
+  wrefresh (tui_cmd_win ()->handle.get ());
 }
 
 /* TUI version of displayer.erase_entire_line.  */
@@ -726,7 +744,7 @@ tui_mld_flush (const struct match_list_displayer *displayer)
 static void
 tui_mld_erase_entire_line (const struct match_list_displayer *displayer)
 {
-  WINDOW *w = TUI_CMD_WIN->handle.get ();
+  WINDOW *w = tui_cmd_win ()->handle.get ();
   int cur_y = getcury (w);
 
   wmove (w, cur_y, 0);
@@ -764,7 +782,7 @@ gdb_wgetch (WINDOW *win)
 static int
 tui_mld_getc (FILE *fp)
 {
-  WINDOW *w = TUI_CMD_WIN->handle.get ();
+  WINDOW *w = tui_cmd_win ()->handle.get ();
   int c = gdb_wgetch (w);
 
   return c;
@@ -801,6 +819,10 @@ tui_rl_display_match_list (char **matches, int len, int max)
   gdb_display_match_list (matches, len, max, &displayer);
 }
 
+/* Whether the IO is setup for curses (1) or non-curses (0).  */
+
+static int tui_io_mode;
+
 /* Setup the IO for curses or non-curses mode.
    - In non-curses mode, readline and gdb use the standard input and
    standard output/error directly.
@@ -813,6 +835,14 @@ void
 tui_setup_io (int mode)
 {
   extern int _rl_echoing_p;
+
+  if (tui_io_mode == mode)
+    {
+      /* Nothing to do.  Also, this makes sure that we don't try to restore
+	 things before having saved them. */
+      return;
+    }
+  tui_io_mode = mode;
 
   if (mode)
     {
@@ -839,17 +869,16 @@ tui_setup_io (int mode)
       rl_already_prompted = 0;
 
       /* Keep track of previous gdb output.  */
-      tui_old_stdout = gdb_stdout;
-      tui_old_stderr = gdb_stderr;
-      tui_old_stdlog = gdb_stdlog;
+      tui_old_stdout = *redirectable_stdout ();
+      tui_old_stderr = *redirectable_stderr ();
+      tui_old_stdlog = *redirectable_stdlog ();
       tui_old_uiout = gdb::checked_static_cast<cli_ui_out *> (current_uiout);
 
       /* Reconfigure gdb output.  */
-      gdb_stdout = tui_stdout;
-      gdb_stderr = tui_stderr;
-      gdb_stdlog = tui_stdlog;
-      gdb_stdtarg = gdb_stderr;
-      gdb_stdtargerr = gdb_stderr;
+      *redirectable_stdout () = tui_stdout;
+      *redirectable_stderr () = tui_stderr;
+      *redirectable_stdlog () = tui_stdlog;
+      *redirectable_stdtarg () = tui_stderr;
       current_uiout = tui_out;
 
       /* Save tty for SIGCONT.  */
@@ -858,11 +887,10 @@ tui_setup_io (int mode)
   else
     {
       /* Restore gdb output.  */
-      gdb_stdout = tui_old_stdout;
-      gdb_stderr = tui_old_stderr;
-      gdb_stdlog = tui_old_stdlog;
-      gdb_stdtarg = gdb_stderr;
-      gdb_stdtargerr = gdb_stderr;
+      *redirectable_stdout () = tui_old_stdout;
+      *redirectable_stderr () = tui_old_stderr;
+      *redirectable_stdlog () = tui_old_stdlog;
+      *redirectable_stdtarg () = tui_old_stderr;
       current_uiout = tui_old_uiout;
 
       /* Restore readline.  */
@@ -913,13 +941,18 @@ tui_initialize_io (void)
 #endif
 
   /* Create tui output streams.  */
-  tui_stdout = new pager_file (new tui_file (stdout, true));
-  tui_stderr = new tui_file (stderr, false);
-  tui_stdlog = new timestamped_file (tui_stderr);
-  tui_out = new tui_ui_out (tui_stdout);
+  tui_stdout = new pager_file (std::make_unique<logging_file<ui_file_up>>
+			       (std::make_unique<tui_file> (stdout, true)));
+  ui_file *err_out = new tui_file (stderr, false);
+  /* Let tui_stderr own ERR_OUT.  */
+  tui_stderr = new logging_file<ui_file_up> (ui_file_up (err_out));
+  tui_stdlog = (new timestamped_file
+		(std::make_unique<logging_file<ui_file *>> (err_out, true)));
+  tui_out = new cli_ui_out (tui_stdout, 0);
 
-  /* Create the default UI.  */
-  tui_old_uiout = new cli_ui_out (gdb_stdout);
+  /* Using redirectable_stdout here is a hack.  This should probably
+     be done when constructing the interpreter instead.  */
+  tui_old_uiout = new cli_ui_out (*redirectable_stdout ());
 
 #ifdef TUI_USE_PIPE_FOR_READLINE
   /* Temporary solution for readline writing to stdout: redirect
@@ -1048,7 +1081,7 @@ tui_inject_newline_into_command_window ()
 {
   gdb_assert (tui_active);
 
-  WINDOW *w = TUI_CMD_WIN->handle.get ();
+  WINDOW *w = tui_cmd_win ()->handle.get ();
 
   /* When hitting return with an empty input, gdb executes the last
      command.  If we emit a newline, this fills up the command window
@@ -1073,8 +1106,8 @@ tui_inject_newline_into_command_window ()
       int px, py;
       getyx (w, py, px);
       px += rl_end - rl_point;
-      py += px / TUI_CMD_WIN->width;
-      px %= TUI_CMD_WIN->width;
+      py += px / tui_cmd_win ()->width;
+      px %= tui_cmd_win ()->width;
       wmove (w, py, px);
       tui_putc ('\n');
     }
@@ -1108,7 +1141,7 @@ tui_getc_1 (FILE *fp)
   int ch;
   WINDOW *w;
 
-  w = TUI_CMD_WIN->handle.get ();
+  w = tui_cmd_win ()->handle.get ();
 
 #ifdef TUI_USE_PIPE_FOR_READLINE
   /* Flush readline output.  */
@@ -1196,7 +1229,10 @@ tui_getc_1 (FILE *fp)
 	 Compare keyname instead.  */
       if (ch >= KEY_MAX)
 	{
-	  auto name = gdb::string_view (keyname (ch));
+	  std::string_view name;
+	  const char *name_str = keyname (ch);
+	  if (name_str != nullptr)
+	    name = std::string_view (name_str);
 
 	  /* The following sequences are hardcoded in readline as
 	     well.  */
@@ -1292,4 +1328,37 @@ tui_getc (FILE *fp)
 	 character.  */
       return 0;
     }
+}
+
+#if GDB_SELF_TEST
+namespace selftests {
+namespace tui {
+namespace io {
+
+static void
+run_tests ()
+{
+  if (!tui_active)
+    {
+      /* Calling tui_setup_io (0) when tui is disabled should have no effect.  */
+      tui_setup_io (0);
+
+      /* If the output streams are reduced to nullptrs, then the self-test
+	 infrastructure will crash when trying to report these failures.  */
+      SELF_CHECK (*redirectable_stdout () != nullptr);
+      SELF_CHECK (*redirectable_stderr () != nullptr);
+      SELF_CHECK (*redirectable_stdlog () != nullptr);
+    }
+}
+
+} /* namespace io */
+} /* namespace tui */
+} /* namespace selftests */
+#endif /* GDB_SELF_TEST */
+
+INIT_GDB_FILE (tui_io)
+{
+#if GDB_SELF_TEST
+  selftests::register_test ("tui-io", selftests::tui::io::run_tests);
+#endif
 }

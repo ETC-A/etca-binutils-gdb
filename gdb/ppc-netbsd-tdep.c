@@ -1,6 +1,6 @@
 /* Target-dependent code for NetBSD/powerpc.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    Contributed by Wasabi Systems, Inc.
 
@@ -19,7 +19,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbtypes.h"
 #include "osabi.h"
 #include "regcache.h"
@@ -29,7 +28,6 @@
 
 #include "ppc-tdep.h"
 #include "netbsd-tdep.h"
-#include "ppc-tdep.h"
 #include "solib-svr4.h"
 
 /* Register offsets from <machine/reg.h>.  */
@@ -97,7 +95,7 @@ extern const struct tramp_frame ppcnbsd2_sigtramp;
 
 static void
 ppcnbsd_sigtramp_cache_init (const struct tramp_frame *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     struct trad_frame_cache *this_cache,
 			     CORE_ADDR func)
 {
@@ -181,8 +179,7 @@ ppcnbsd_init_abi (struct gdbarch_info info,
   set_gdbarch_return_value (gdbarch, ppcnbsd_return_value);
 
   /* NetBSD uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_ilp32_solib_ops);
 
   set_gdbarch_iterate_over_regset_sections
     (gdbarch, ppcnbsd_iterate_over_regset_sections);
@@ -191,9 +188,7 @@ ppcnbsd_init_abi (struct gdbarch_info info,
   tramp_frame_prepend_unwinder (gdbarch, &ppcnbsd2_sigtramp);
 }
 
-void _initialize_ppcnbsd_tdep ();
-void
-_initialize_ppcnbsd_tdep ()
+INIT_GDB_FILE (ppcnbsd_tdep)
 {
   gdbarch_register_osabi (bfd_arch_powerpc, 0, GDB_OSABI_NETBSD,
 			  ppcnbsd_init_abi);

@@ -1,6 +1,6 @@
 /* Top level stuff for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "annotate.h"
+#include "exceptions.h"
+#include "gdbsupport/common-inferior.h"
 #include "top.h"
 #include "ui.h"
 #include "target.h"
@@ -28,7 +30,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <ctype.h>
 #include "gdbsupport/event-loop.h"
 #include "ui-out.h"
 
@@ -56,6 +57,11 @@
 #include "gdbsupport/alt-stack.h"
 #include "observable.h"
 #include "serial.h"
+#include "cli-out.h"
+#include "bt-utils.h"
+#include "terminal.h"
+#include "logging-file.h"
+#include "filesystem.h"
 
 /* The selected interpreter.  */
 std::string interpreter_p;
@@ -75,11 +81,6 @@ static int gdb_datadir_provided = 0;
    the possibly relocated path to python's lib directory.  */
 std::string python_libdir;
 
-/* Target IO streams.  */
-struct ui_file *gdb_stdtargin;
-struct ui_file *gdb_stdtarg;
-struct ui_file *gdb_stdtargerr;
-
 /* True if --batch or --batch-silent was seen.  */
 int batch_flag = 0;
 
@@ -96,13 +97,6 @@ int return_child_result_value = -1;
 /* GDB as it has been invoked from the command line (i.e. argv[0]).  */
 static char *gdb_program_name;
 
-/* Return read only pointer to GDB_PROGRAM_NAME.  */
-const char *
-get_gdb_program_name (void)
-{
-  return gdb_program_name;
-}
-
 static void print_gdb_help (struct ui_file *);
 
 /* Set the data-directory parameter to NEW_DATADIR.
@@ -115,12 +109,7 @@ set_gdb_data_directory (const char *new_datadir)
   struct stat st;
 
   if (stat (new_datadir, &st) < 0)
-    {
-      int save_errno = errno;
-
-      gdb_printf (gdb_stderr, "Warning: ");
-      print_sys_errmsg (new_datadir, save_errno);
-    }
+    warning_filename_and_errno (new_datadir, errno);
   else if (!S_ISDIR (st.st_mode))
     warning (_("%ps is not a directory."),
 	     styled_string (file_name_style.style (), new_datadir));
@@ -132,7 +121,7 @@ set_gdb_data_directory (const char *new_datadir)
      "../foo" and "../foo" doesn't exist then we'll record $(pwd)/../foo which
      isn't canonical, but that's ok.  */
   if (!IS_ABSOLUTE_PATH (gdb_datadir.c_str ()))
-    gdb_datadir = gdb_abspath (gdb_datadir.c_str ());
+    gdb_datadir = gdb_abspath (gdb_datadir);
 }
 
 /* Relocate a file or directory.  PROGNAME is the name by which gdb
@@ -366,7 +355,7 @@ get_init_files (std::vector<std::string> *system_gdbinit,
 {
   /* Cache the file lookup object so we only actually search for the files
      once.  */
-  static gdb::optional<gdb_initfile_finder> init_files;
+  static std::optional<gdb_initfile_finder> init_files;
   if (!init_files.has_value ())
     init_files.emplace (GDBINIT, SYSTEM_GDBINIT, SYSTEM_GDBINIT_RELOCATABLE,
 			SYSTEM_GDBINIT_DIR, SYSTEM_GDBINIT_DIR_RELOCATABLE,
@@ -386,7 +375,7 @@ get_earlyinit_files (std::string *home_gdbearlyinit)
 {
   /* Cache the file lookup object so we only actually search for the files
      once.  */
-  static gdb::optional<gdb_initfile_finder> init_files;
+  static std::optional<gdb_initfile_finder> init_files;
   if (!init_files.has_value ())
     init_files.emplace (GDBEARLYINIT, nullptr, false, nullptr, false, false);
 
@@ -409,7 +398,7 @@ start_event_loop ()
 
       try
 	{
-	  result = gdb_do_one_event ();
+	  result = current_interpreter ()->do_one_event ();
 	}
       catch (const gdb_exception_forced_quit &ex)
 	{
@@ -430,6 +419,7 @@ start_event_loop ()
 	     get around to resetting the prompt, which leaves readline
 	     in a messed-up state.  Reset it here.  */
 	  current_ui->prompt_state = PROMPT_NEEDED;
+	  current_ui->line_buffer.clear ();
 	  top_level_interpreter ()->on_command_error ();
 	  /* This call looks bizarre, but it is required.  If the user
 	     entered a command that caused an error,
@@ -470,7 +460,7 @@ captured_command_loop ()
 
   /* Give the interpreter a chance to print a prompt, if necessary  */
   if (ui->prompt_state != PROMPT_BLOCKED)
-    interp_pre_command_loop (top_level_interpreter ());
+    top_level_interpreter ()->pre_command_loop ();
 
   /* Now it's time to start the event loop.  */
   start_event_loop ();
@@ -626,8 +616,19 @@ captured_main_1 (struct captured_main_args *context)
   char **argv = context->argv;
 
   static int quiet = 0;
-  static int set_args = 0;
   static int inhibit_home_gdbinit = 0;
+
+  /* Has the user passed inferior arguments on the command line.  */
+  enum {
+    /* No arguments passed.  */
+    NO_ARGS,
+
+    /* Arguments passed with --args.  */
+    SET_ESC_ARGS,
+
+    /* Arguments passed with --no-escape-args.  */
+    SET_NO_ESC_ARGS
+  } set_args = NO_ARGS;
 
   /* Pointers to various arguments from command line.  */
   char *symarg = NULL;
@@ -654,6 +655,10 @@ captured_main_1 (struct captured_main_args *context)
   int save_auto_load;
   int ret = 1;
 
+  /* Check for environment variables which might cause GDB to start with
+     styling disabled.  */
+  disable_styling_from_environment ();
+
 #ifdef HAVE_USEFUL_SBRK
   /* Set this before constructing scoped_command_stats.  */
   lim_at_start = (char *) sbrk (0);
@@ -678,19 +683,27 @@ captured_main_1 (struct captured_main_args *context)
   /* Ensure stderr is unbuffered.  A Cygwin pty or pipe is implemented
      as a Windows pipe, and Windows buffers on pipes.  */
   setvbuf (stderr, NULL, _IONBF, BUFSIZ);
+
+  windows_initialize_console ();
 #endif
 
   /* Note: `error' cannot be called before this point, because the
      caller will crash when trying to print the exception.  */
   main_ui = new ui (stdin, stdout, stderr);
+  gdb_internal_backtrace_init_str ();
   current_ui = main_ui;
 
-  gdb_stdtarg = gdb_stderr;
-  gdb_stdtargerr = gdb_stderr;
-  gdb_stdtargin = gdb_stdin;
+  /* Put a CLI based uiout in place early.  If the early initialization
+     files trigger any I/O then it isn't hard to reach parts of GDB that
+     assume current_uiout is not nullptr.  Maybe we should just install the
+     CLI interpreter initially, then switch to the application requested
+     interpreter later?  But that would (potentially) result in an
+     interpreter being instantiated "just in case".  For now this feels
+     like the least effort way to protect GDB from crashing.  */
+  auto temp_uiout = std::make_unique<cli_ui_out> (gdb_stdout);
+  current_uiout = temp_uiout.get ();
 
-  if (bfd_init () != BFD_INIT_MAGIC)
-    error (_("fatal error: libbfd ABI mismatch"));
+  gdb_bfd_init ();
 
 #ifdef __MINGW32__
   /* On Windows, argv[0] is not necessarily set to absolute form when
@@ -702,10 +715,10 @@ captured_main_1 (struct captured_main_args *context)
 
   /* Prefix warning messages with the command name.  */
   gdb::unique_xmalloc_ptr<char> tmp_warn_preprint
-    = xstrprintf ("%s: warning: ", gdb_program_name);
+    = xstrprintf ("%s: ", gdb_program_name);
   warning_pre_print = tmp_warn_preprint.get ();
 
-  current_directory = getcwd (NULL, 0);
+  current_directory = gdb_getcwd (NULL, 0);
   if (current_directory == NULL)
     perror_warning_with_name (_("error finding working directory"));
 
@@ -718,6 +731,11 @@ captured_main_1 (struct captured_main_args *context)
 
   debug_file_directory
     = relocate_gdb_directory (DEBUGDIR, DEBUGDIR_RELOCATABLE);
+
+#ifdef ADDITIONAL_DEBUG_DIRS
+  debug_file_directory = (debug_file_directory + DIRNAME_SEPARATOR
+			  + ADDITIONAL_DEBUG_DIRS);
+#endif
 
   gdb_datadir = relocate_gdb_directory (GDB_DATADIR,
 					GDB_DATADIR_RELOCATABLE);
@@ -735,7 +753,7 @@ captured_main_1 (struct captured_main_args *context)
 
   /* There will always be an interpreter.  Either the one passed into
      this captured main, or one specified by the user at start up, or
-     the console.  Initialize the interpreter to the one requested by 
+     the console.  Initialize the interpreter to the one requested by
      the application.  */
   interpreter_p = context->interpreter_p;
 
@@ -758,7 +776,12 @@ captured_main_1 (struct captured_main_args *context)
       OPT_EIX,
       OPT_EIEX,
       OPT_READNOW,
-      OPT_READNEVER
+      OPT_READNEVER,
+      OPT_SET_ESC_ARGS,
+      OPT_SET_NO_ESC_ARGS,
+#ifdef USE_WIN32API
+      OPT_BINARY_OUTPUT,
+#endif
     };
     /* This struct requires int* in the struct, but write_files is a bool.
        So use this temporary int that we write back after argument parsing.  */
@@ -831,9 +854,13 @@ captured_main_1 (struct captured_main_args *context)
       {"windows", no_argument, NULL, OPT_WINDOWS},
       {"statistics", no_argument, 0, OPT_STATISTICS},
       {"write", no_argument, &write_files_1, 1},
-      {"args", no_argument, &set_args, 1},
+      {"args", no_argument, nullptr, OPT_SET_ESC_ARGS},
+      {"no-escape-args", no_argument, nullptr, OPT_SET_NO_ESC_ARGS},
       {"l", required_argument, 0, 'l'},
       {"return-child-result", no_argument, &return_child_result, 1},
+#ifdef USE_WIN32API
+      {"binary-output", no_argument, 0, OPT_BINARY_OUTPUT},
+#endif
       {0, no_argument, 0, 0}
     };
 
@@ -841,9 +868,14 @@ captured_main_1 (struct captured_main_args *context)
       {
 	int option_index;
 
+	/* If the previous argument was --args or --no-escape-args, then
+	   stop argument processing.  */
+	if (set_args != NO_ARGS)
+	  break;
+
 	c = getopt_long_only (argc, argv, "",
 			      long_options, &option_index);
-	if (c == EOF || set_args)
+	if (c == EOF)
 	  break;
 
 	/* Long option that takes an argument.  */
@@ -924,9 +956,15 @@ captured_main_1 (struct captured_main_args *context)
 	  case OPT_EIEX:
 	    cmdarg_vec.emplace_back (CMDARG_EARLYINIT_COMMAND, optarg);
 	    break;
+	  case OPT_SET_ESC_ARGS:
+	    set_args = SET_ESC_ARGS;
+	    break;
+	  case OPT_SET_NO_ESC_ARGS:
+	    set_args = SET_NO_ESC_ARGS;
+	    break;
 	  case 'B':
 	    batch_flag = batch_silent = 1;
-	    gdb_stdout = new null_file ();
+	    current_ui->m_ui_stdout = new null_file ();
 	    break;
 	  case 'D':
 	    if (optarg[0] == '\0')
@@ -1007,6 +1045,12 @@ captured_main_1 (struct captured_main_args *context)
 	    }
 	    break;
 
+#ifdef USE_WIN32API
+	  case OPT_BINARY_OUTPUT:
+	    set_output_translation_mode_binary ();
+	    break;
+#endif
+
 	  case '?':
 	    error (_("Use `%s --help' for a complete list of options."),
 		   gdb_program_name);
@@ -1019,7 +1063,7 @@ captured_main_1 (struct captured_main_args *context)
 	quiet = 1;
 
 	/* Disable all output styling when running in batch mode.  */
-	cli_styling = 0;
+	disable_cli_styling ();
       }
   }
 
@@ -1043,6 +1087,10 @@ captured_main_1 (struct captured_main_args *context)
   execute_cmdargs (&cmdarg_vec, CMDARG_EARLYINIT_FILE,
 		   CMDARG_EARLYINIT_COMMAND, &ret);
 
+  /* Set the thread pool size here, so the size can be influenced by the
+     early initialization commands.  */
+  update_thread_pool_size ();
+
   /* Initialize the extension languages.  */
   ext_lang_initialization ();
 
@@ -1053,7 +1101,7 @@ captured_main_1 (struct captured_main_args *context)
 
   /* Now that gdb_init has created the initial inferior, we're in
      position to set args for that inferior.  */
-  if (set_args)
+  if (set_args != NO_ARGS)
     {
       /* The remaining options are the command-line options for the
 	 inferior.  The first one is the sym/exec file, and the rest
@@ -1065,9 +1113,9 @@ captured_main_1 (struct captured_main_args *context)
       symarg = argv[optind];
       execarg = argv[optind];
       ++optind;
-      current_inferior ()->set_args
-	(gdb::array_view<char * const> (&argv[optind], argc - optind));
-    }
+      gdb::array_view<char * const> arg_view (&argv[optind], argc - optind);
+      current_inferior ()->set_args (arg_view, (set_args == SET_ESC_ARGS));
+   }
   else
     {
       /* OK, that's all the options.  */
@@ -1111,7 +1159,7 @@ captured_main_1 (struct captured_main_args *context)
 
   /* Do these (and anything which might call wrap_here or *_filtered)
      after initialize_all_files() but before the interpreter has been
-     installed.  Otherwize the help/version messages will be eaten by
+     installed.  Otherwise the help/version messages will be eaten by
      the interpreter's output handler.  */
 
   if (print_version)
@@ -1136,15 +1184,18 @@ captured_main_1 (struct captured_main_args *context)
 
   /* Install the default UI.  All the interpreters should have had a
      look at things by now.  Initialize the default interpreter.  */
-  set_top_level_interpreter (interpreter_p.c_str ());
+  set_top_level_interpreter (interpreter_p.c_str (), false);
+
+  /* The interpreter should have installed the real uiout by now.  */
+  gdb_assert (current_uiout != temp_uiout.get ());
+  temp_uiout = nullptr;
 
   if (!quiet)
     {
-      /* Print all the junk at the top, with trailing "..." if we are
-	 about to read a symbol file (possibly slowly).  */
+      /* Print the version, copyright information, and hint text.  */
       print_gdb_version (gdb_stdout, true);
-      if (symarg)
-	gdb_printf ("..");
+      gdb_printf ("\n");
+      print_gdb_hints (gdb_stdout);
       gdb_printf ("\n");
       gdb_flush (gdb_stdout);	/* Force to screen during slow
 				   operations.  */
@@ -1152,7 +1203,7 @@ captured_main_1 (struct captured_main_args *context)
 
   /* Set off error and warning messages with a blank line.  */
   tmp_warn_preprint.reset ();
-  warning_pre_print = _("\nwarning: ");
+  warning_pre_print = "\n";
 
   /* Read and execute the system-wide gdbinit file, if it exists.
      This is done *before* all the command line arguments are
@@ -1190,9 +1241,7 @@ captured_main_1 (struct captured_main_args *context)
   save_auto_load = global_auto_load;
   global_auto_load = 0;
 
-  if (execarg != NULL
-      && symarg != NULL
-      && strcmp (execarg, symarg) == 0)
+  if (execarg != nullptr && symarg != nullptr && streq (execarg, symarg))
     {
       /* The exec file and the symbol-file are the same.  If we can't
 	 open it, better only print one error message.
@@ -1219,7 +1268,8 @@ captured_main_1 (struct captured_main_args *context)
 
   if (corearg != NULL)
     {
-      ret = catch_command_errors (core_file_command, corearg,
+      ret = catch_command_errors (core_file_command,
+				  make_quoted_string (corearg).c_str (),
 				  !batch_flag);
     }
   else if (pidarg != NULL)
@@ -1232,21 +1282,23 @@ captured_main_1 (struct captured_main_args *context)
 	 If pid_or_core_arg's first character is a digit, try attach
 	 first and then corefile.  Otherwise try just corefile.  */
 
-      if (isdigit (pid_or_core_arg[0]))
+      if (c_isdigit (pid_or_core_arg[0]))
 	{
 	  ret = catch_command_errors (attach_command, pid_or_core_arg,
 				      !batch_flag);
 	  if (ret == 0)
-	    ret = catch_command_errors (core_file_command,
-					pid_or_core_arg,
-					!batch_flag);
+	    ret = catch_command_errors
+	      (core_file_command,
+	       make_quoted_string (pid_or_core_arg).c_str (),
+	       !batch_flag);
 	}
       else
 	{
 	  /* Can't be a pid, better be a corefile.  */
-	  ret = catch_command_errors (core_file_command,
-				      pid_or_core_arg,
-				      !batch_flag);
+	  ret = catch_command_errors
+	    (core_file_command,
+	     make_quoted_string (pid_or_core_arg).c_str (),
+	     !batch_flag);
 	}
     }
 
@@ -1254,7 +1306,7 @@ captured_main_1 (struct captured_main_args *context)
     current_inferior ()->set_tty (ttyarg);
 
   /* Error messages should no longer be distinguished with extra output.  */
-  warning_pre_print = _("warning: ");
+  warning_pre_print = "";
 
   /* Read the .gdbinit file in the current directory, *if* it isn't
      the same as the $HOME/.gdbinit file (it should exist, also).  */
@@ -1282,15 +1334,11 @@ captured_main_1 (struct captured_main_args *context)
      We wait until now because it is common to add to the source search
      path in local_gdbinit.  */
   global_auto_load = save_auto_load;
-  for (objfile *objfile : current_program_space->objfiles ())
+  for (objfile &objfile : current_program_space->objfiles ())
     load_auto_scripts_for_objfile (objfile);
 
   /* Process '-x' and '-ex' options.  */
   execute_cmdargs (&cmdarg_vec, CMDARG_FILE, CMDARG_COMMAND, &ret);
-
-  /* Read in the old history after all the command files have been
-     read.  */
-  init_history ();
 
   if (batch_flag)
     {
@@ -1300,13 +1348,19 @@ captured_main_1 (struct captured_main_args *context)
       /* We have hit the end of the batch file.  */
       quit_force (exit_arg, 0);
     }
+
+  /* We are starting an interactive session.  */
+
+  /* Read in the history.  This is after all the command files have been read,
+     so that the user can change the history file via a .gdbinit file.  This
+     is also after the batch_flag check, because we don't need the history in
+     batch mode.  */
+  init_history ();
 }
 
 static void
-captured_main (void *data)
+captured_main (captured_main_args *context)
 {
-  struct captured_main_args *context = (struct captured_main_args *) data;
-
   captured_main_1 (context);
 
   /* NOTE: cagney/1999-11-07: There is probably no reason for not
@@ -1375,6 +1429,7 @@ This is the GNU debugger.  Usage:\n\n\
   gdb_puts (_("\
 Selection of debuggee and its files:\n\n\
   --args             Arguments after executable-file are passed to inferior.\n\
+  --no-escape-args   Like --args, but arguments are not escaped.\n\
   --core=COREFILE    Analyze the core dump COREFILE.\n\
   --exec=EXECFILE    Use EXECFILE as the executable.\n\
   --pid=PID          Attach to running process PID.\n\
@@ -1432,8 +1487,13 @@ Remote debugging options:\n\n\
 Other options:\n\n\
   --cd=DIR           Change current directory to DIR.\n\
   --data-directory=DIR, -D\n\
-		     Set GDB's data-directory to DIR.\n\
-"), stream);
+		     Set GDB's data-directory to DIR.\n"
+#ifdef USE_WIN32API
+"\
+  --binary-output    Set the translation mode of stdout/stderr to binary,\n\
+		     disabling CRLF translation.\n"
+#endif
+), stream);
   gdb_puts (_("\n\
 At startup, GDB reads the following early init files and executes their\n\
 commands:\n\
@@ -1473,10 +1533,11 @@ At startup, GDB reads the following init files and executes their commands:\n\
       && local_gdbinit.empty ())
     gdb_printf (stream, _("\
    None found.\n"));
-  gdb_puts (_("\n\
-For more information, type \"help\" from within GDB, or consult the\n\
+  gdb_printf (stream, _("\n\
+For more information, type \"%ps\" from within GDB, or consult the\n\
 GDB manual (available as on-line info or a printed manual).\n\
-"), stream);
+"),
+	      styled_string (command_style.style (), "help"));
   if (REPORT_BUGS_TO[0] && stream == gdb_stdout)
     gdb_printf (stream, _("\n\
 Report bugs to %ps.\n\

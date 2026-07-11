@@ -1,6 +1,6 @@
 /* Linux-specific functions to retrieve OS data.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,12 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "linux-osdata.h"
 
 #include <sys/types.h>
 #include <sys/sysinfo.h>
-#include <ctype.h>
 #include <utmp.h>
 #include <time.h>
 #include <unistd.h>
@@ -37,6 +35,7 @@
 #include <sys/stat.h>
 #include "gdbsupport/filestuff.h"
 #include <algorithm>
+#include "linux-procfs.h"
 
 #define NAMELEN(dirent) strlen ((dirent)->d_name)
 
@@ -44,55 +43,26 @@
    so that reading pid values embedded in /proc works
    consistently.  */
 
-typedef long long  PID_T;
+using PID_T = long long ;
 
 /* Define TIME_T to be at least as large as time_t, so that reading
    time values embedded in /proc works consistently.  */
 
-typedef long long TIME_T;
+using TIME_T = long long;
 
 #define MAX_PID_T_STRLEN  (sizeof ("-9223372036854775808") - 1)
 
-/* Returns the CPU core that thread PTID is currently running on.  */
-
-/* Compute and return the processor core of a given thread.  */
+/* See linux-osdata.h.  */
 
 int
 linux_common_core_of_thread (ptid_t ptid)
 {
-  char filename[sizeof ("/proc//task//stat") + 2 * MAX_PID_T_STRLEN];
+  std::optional<std::string> field
+    = linux_proc_get_stat_field (ptid, LINUX_PROC_STAT_PROCESSOR);
   int core;
 
-  sprintf (filename, "/proc/%lld/task/%lld/stat",
-	   (PID_T) ptid.pid (), (PID_T) ptid.lwp ());
-
-  gdb::optional<std::string> content = read_text_file_to_string (filename);
-  if (!content.has_value ())
+  if (!field.has_value () || sscanf (field->c_str (), "%d", &core) == 0)
     return -1;
-
-  /* ps command also relies on no trailing fields ever contain ')'.  */
-  std::string::size_type pos = content->find_last_of (')');
-  if (pos == std::string::npos)
-    return -1;
-
-  /* If the first field after program name has index 0, then core number is
-     the field with index 36 (so, the 37th).  There's no constant for that
-     anywhere.  */
-  for (int i = 0; i < 37; ++i)
-    {
-      /* Find separator.  */
-      pos = content->find_first_of (' ', pos);
-      if (pos == std::string::npos)
-	return {};
-
-      /* Find beginning of field.  */
-      pos = content->find_first_not_of (' ', pos);
-      if (pos == std::string::npos)
-	return {};
-    }
-
-  if (sscanf (&(*content)[pos], "%d", &core) == 0)
-    core = -1;
 
   return core;
 }
@@ -234,7 +204,7 @@ get_cores_used_by_process (PID_T pid, int *cores, const int num_cores)
 	  PID_T tid;
 	  int core;
 
-	  if (!isdigit (dp->d_name[0])
+	  if (!c_isdigit (dp->d_name[0])
 	      || NAMELEN (dp) > MAX_PID_T_STRLEN)
 	    continue;
 
@@ -257,10 +227,10 @@ get_cores_used_by_process (PID_T pid, int *cores, const int num_cores)
 
 /* get_core_array_size helper that uses /sys/devices/system/cpu/possible.  */
 
-static gdb::optional<size_t>
+static std::optional<size_t>
 get_core_array_size_using_sys_possible ()
 {
-  gdb::optional<std::string> possible
+  std::optional<std::string> possible
     = read_text_file_to_string ("/sys/devices/system/cpu/possible");
 
   if (!possible.has_value ())
@@ -310,7 +280,7 @@ get_core_array_size ()
      we are in a container that has access to a subset of the host's cores.
      It will return a size that considers all the CPU cores available to the
      host.  If that fails for some reason, fall back to sysconf.  */
-  gdb::optional<size_t> count = get_core_array_size_using_sys_possible ();
+  std::optional<size_t> count = get_core_array_size_using_sys_possible ();
   if (count.has_value ())
     return *count;
 
@@ -339,7 +309,7 @@ linux_xfer_osdata_processes ()
 	  std::string cores_str;
 	  int i;
 
-	  if (!isdigit (dp->d_name[0])
+	  if (!c_isdigit (dp->d_name[0])
 	      || NAMELEN (dp) > MAX_PID_T_STRLEN)
 	    continue;
 
@@ -448,7 +418,7 @@ linux_xfer_osdata_processgroups ()
 	{
 	  PID_T pid, pgid;
 
-	  if (!isdigit (dp->d_name[0])
+	  if (!c_isdigit (dp->d_name[0])
 	      || NAMELEN (dp) > MAX_PID_T_STRLEN)
 	    continue;
 
@@ -512,7 +482,7 @@ linux_xfer_osdata_threads ()
 	  struct stat statbuf;
 	  char procentry[sizeof ("/proc/4294967295")];
 
-	  if (!isdigit (dp->d_name[0])
+	  if (!c_isdigit (dp->d_name[0])
 	      || NAMELEN (dp) > sizeof ("4294967295") - 1)
 	    continue;
 
@@ -542,7 +512,7 @@ linux_xfer_osdata_threads ()
 		      PID_T tid;
 		      int core;
 
-		      if (!isdigit (dp2->d_name[0])
+		      if (!c_isdigit (dp2->d_name[0])
 			  || NAMELEN (dp2) > sizeof ("4294967295") - 1)
 			continue;
 
@@ -616,7 +586,7 @@ linux_xfer_osdata_cpus ()
 
 	      value[i] = '\0';
 
-	      if (strcmp (key, "processor") == 0)
+	      if (streq (key, "processor"))
 		{
 		  if (first_item)
 		    buffer += "<item>";
@@ -662,7 +632,7 @@ linux_xfer_osdata_fds ()
 	  struct stat statbuf;
 	  char procentry[sizeof ("/proc/4294967295")];
 
-	  if (!isdigit (dp->d_name[0])
+	  if (!c_isdigit (dp->d_name[0])
 	      || NAMELEN (dp) > sizeof ("4294967295") - 1)
 	    continue;
 
@@ -691,7 +661,7 @@ linux_xfer_osdata_fds ()
 		      char buf[1000];
 		      ssize_t rslt;
 
-		      if (!isdigit (dp2->d_name[0]))
+		      if (!c_isdigit (dp2->d_name[0]))
 			continue;
 
 		      std::string fdname
@@ -1422,7 +1392,7 @@ linux_common_xfer_osdata (const char *annex, gdb_byte *readbuf,
 
       for (i = 0; osdata_table[i].type; ++i)
 	{
-	  if (strcmp (annex, osdata_table[i].type) == 0)
+	  if (streq (annex, osdata_table[i].type))
 	    return common_getter (&osdata_table[i],
 				  readbuf, offset, len);
 	}

@@ -1,11 +1,10 @@
 /* THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi:set ro:
   Original: powerpc-603.xml */
 
-#include "defs.h"
 #include "osabi.h"
 #include "target-descriptions.h"
 
-const struct target_desc *tdesc_powerpc_603;
+const_target_desc_up tdesc_powerpc_603;
 static void
 initialize_tdesc_powerpc_603 (void)
 {
@@ -149,5 +148,5 @@ initialize_tdesc_powerpc_603 (void)
   tdesc_create_reg (feature, "icmp", 129, 1, NULL, 32, "int");
   tdesc_create_reg (feature, "rpa", 130, 1, NULL, 32, "int");
 
-  tdesc_powerpc_603 = result.release ();
+  tdesc_powerpc_603 = std::move (result);
 }

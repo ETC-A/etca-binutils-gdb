@@ -1,6 +1,6 @@
 /* Minimal symbol table definitions for GDB.
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef MINSYMS_H
-#define MINSYMS_H
+#ifndef GDB_MINSYMS_H
+#define GDB_MINSYMS_H
 
+#include "gdbsupport/function-view.h"
+#include <deque>
+
+struct program_space;
 struct type;
 
 /* Several lookup functions return both a minimal symbol and the
@@ -77,8 +81,6 @@ struct bound_minimal_symbol
    as opaque and use functions provided by minsyms.c to inspect them.
 */
 
-struct msym_bunch;
-
 /* An RAII-based object that is used to record minimal symbols while
    they are being read.  */
 class minimal_symbol_reader
@@ -91,8 +93,6 @@ class minimal_symbol_reader
 
   explicit minimal_symbol_reader (struct objfile *);
 
-  ~minimal_symbol_reader ();
-
   /* Install the minimal symbols that have been collected into the
      given objfile.  */
 
@@ -100,13 +100,13 @@ class minimal_symbol_reader
 
   /* Record a new minimal symbol.  This is the "full" entry point;
      simpler convenience entry points are also provided below.
-   
+
      This returns a new minimal symbol.  It is ok to modify the returned
      minimal symbol (though generally not necessary).  It is not ok,
      though, to stash the pointer anywhere; as minimal symbols may be
      moved after creation.  The memory for the returned minimal symbol
      is still owned by the minsyms.c code, and should not be freed.
-   
+
      Arguments are:
 
      NAME - the symbol's name
@@ -118,21 +118,11 @@ class minimal_symbol_reader
      SECTION - the symbol's section
   */
 
-  struct minimal_symbol *record_full (gdb::string_view name,
+  struct minimal_symbol *record_full (std::string_view name,
 				      bool copy_name,
 				      unrelocated_addr address,
 				      enum minimal_symbol_type ms_type,
 				      int section);
-
-  /* Like record_full, but:
-     - computes the length of NAME
-     - passes COPY_NAME = true,
-     - and passes a default SECTION, depending on the type
-
-     This variant does not return the new symbol.  */
-
-  void record (const char *name, unrelocated_addr address,
-	       enum minimal_symbol_type ms_type);
 
   /* Like record_full, but:
      - computes the length of NAME
@@ -153,19 +143,10 @@ class minimal_symbol_reader
 
   struct objfile *m_objfile;
 
-  /* Bunch currently being filled up.
-     The next field points to chain of filled bunches.  */
-
-  struct msym_bunch *m_msym_bunch;
-
-  /* Number of slots filled in current bunch.  */
-
-  int m_msym_bunch_index;
-
-  /* Total number of minimal symbols recorded so far for the
-     objfile.  */
-
-  int m_msym_count;
+  /* The minimal symbols recorded so far.  This uses a deque instead of e.g. a
+     vector, because references to minimal symbols need to stay valid across
+     calls to record_full.  */
+  std::deque<minimal_symbol> m_msyms;
 };
 
 
@@ -194,7 +175,7 @@ unsigned int msymbol_hash_iw (const char *);
    requirements.  */
 
 #define SYMBOL_HASH_NEXT(hash, c)			\
-  ((hash) * 67 + TOLOWER ((unsigned char) (c)) - 113)
+  ((hash) * 67 + c_tolower (c) - 113)
 
 
 
@@ -205,16 +186,12 @@ unsigned int msymbol_hash_iw (const char *);
    symbols are still preferred).  Returns a bound minimal symbol that
    matches, or an empty bound minimal symbol if no match is found.  */
 
-struct bound_minimal_symbol lookup_minimal_symbol (const char *,
-						   const char *,
-						   struct objfile *);
+bound_minimal_symbol lookup_minimal_symbol (program_space *pspace,
+					    const char *name,
+					    objfile *obj = nullptr,
+					    const char *sfile = nullptr);
 
-/* Like lookup_minimal_symbol, but searches all files and
-   objfiles.  */
-
-struct bound_minimal_symbol lookup_bound_minimal_symbol (const char *);
-
-/* Look through all the current minimal symbol tables and find the
+/* Look through all the minimal symbol tables in PSPACE and find the
    first minimal symbol that matches NAME and has text type.  If OBJF
    is non-NULL, limit the search to that objfile.  Returns a bound
    minimal symbol that matches, or an "empty" bound minimal symbol
@@ -222,27 +199,29 @@ struct bound_minimal_symbol lookup_bound_minimal_symbol (const char *);
 
    This function only searches the mangled (linkage) names.  */
 
-struct bound_minimal_symbol lookup_minimal_symbol_text (const char *,
-							struct objfile *);
+bound_minimal_symbol lookup_minimal_symbol_text (program_space *pspace,
+						 const char *name,
+						 objfile *objf);
 
 /* Look through the minimal symbols in OBJF (and its separate debug
    objfiles) for a global (not file-local) minsym whose linkage name
    is NAME.  This is somewhat similar to lookup_minimal_symbol_text,
    only data symbols (not text symbols) are considered, and a non-NULL
-   objfile is not accepted.  Returns a bound minimal symbol that
-   matches, or an "empty" bound minimal symbol otherwise.  */
+   objfile is not accepted.  The boolean argument allows matching the
+   static types of data symbols also.  Returns a bound minimal symbol
+   that matches, or an "empty" bound minimal symbol otherwise.  */
 
-extern struct bound_minimal_symbol lookup_minimal_symbol_linkage
-  (const char *name, struct objfile *objf)
+extern bound_minimal_symbol lookup_minimal_symbol_linkage
+  (const char *name, struct objfile *objf, bool match_static_type)
   ATTRIBUTE_NONNULL (1) ATTRIBUTE_NONNULL (2);
 
 /* A variant of lookup_minimal_symbol_linkage that iterates over all
-   objfiles.  If ONLY_MAIN is true, then only an objfile with
+   objfiles of PSPACE.  If ONLY_MAIN is true, then only an objfile with
    OBJF_MAINLINE will be considered.  */
 
-extern struct bound_minimal_symbol lookup_minimal_symbol_linkage
-  (const char *name, bool only_main)
-  ATTRIBUTE_NONNULL (1);
+extern bound_minimal_symbol lookup_minimal_symbol_linkage
+  (program_space *pspace, const char *name, bool match_static_type,
+   bool only_main) ATTRIBUTE_NONNULL (1);
 
 /* Look through all the current minimal symbol tables and find the
    first minimal symbol that matches NAME and PC.  If OBJF is non-NULL,
@@ -287,30 +266,50 @@ enum class lookup_msym_prefer
    then the contents will be set to reference the closest symbol before
    PC_IN.  */
 
-struct bound_minimal_symbol lookup_minimal_symbol_by_pc_section
+bound_minimal_symbol lookup_minimal_symbol_by_pc_section
   (CORE_ADDR pc_in,
    struct obj_section *section,
    lookup_msym_prefer prefer = lookup_msym_prefer::TEXT,
    bound_minimal_symbol *previous = nullptr);
 
-/* Backward compatibility: search through the minimal symbol table 
+/* Backward compatibility: search through the minimal symbol table
    for a matching PC (no section given).
-   
+
    This is a wrapper that calls lookup_minimal_symbol_by_pc_section
    with a NULL section argument.  */
 
-struct bound_minimal_symbol lookup_minimal_symbol_by_pc (CORE_ADDR);
+bound_minimal_symbol lookup_minimal_symbol_by_pc (CORE_ADDR);
 
-/* Iterate over all the minimal symbols in the objfile OBJF which
-   match NAME.  Both the ordinary and demangled names of each symbol
-   are considered.  The caller is responsible for canonicalizing NAME,
-   should that need to be done.
+/* Callback type for function for_each_minimal_symbol.  */
 
-   For each matching symbol, CALLBACK is called with the symbol.  */
+using for_each_minimal_symbol_callback_ftype
+  = gdb::function_view<void (struct minimal_symbol *)>;
 
-void iterate_over_minimal_symbols
-    (struct objfile *objf, const lookup_name_info &name,
-     gdb::function_view<bool (struct minimal_symbol *)> callback);
+/* Call CALLBACK for all minimal symbols in objfile OBJF which match NAME.
+
+   Both the ordinary and demangled names of each symbol are considered.  The
+   caller is responsible for canonicalizing NAME, should that need to be
+   done.  */
+
+void for_each_minimal_symbol (struct objfile *objf,
+			      const lookup_name_info &name,
+			      for_each_minimal_symbol_callback_ftype callback);
+
+/* Callback type for function find_minimal_symbol.  */
+
+using find_minimal_symbol_callback_ftype
+  = gdb::function_view<bool (struct minimal_symbol *)>;
+
+/* Find the first minimal symbol for objfile OBJF which matches NAME and for
+   which CALLBACK returns true.
+
+   Both the ordinary and demangled names of each symbol are considered.  The
+   caller is responsible for canonicalizing NAME, should that need to be
+   done.  */
+
+minimal_symbol *find_minimal_symbol
+  (struct objfile *objf, const lookup_name_info &name,
+   find_minimal_symbol_callback_ftype callback);
 
 /* Compute the upper bound of MINSYM.  The upper bound is the last
    address thought to be part of the symbol.  If the symbol has a
@@ -318,7 +317,7 @@ void iterate_over_minimal_symbols
    symbol in the same section, or the end of the section, as the end
    of the function.  */
 
-CORE_ADDR minimal_symbol_upper_bound (struct bound_minimal_symbol minsym);
+CORE_ADDR minimal_symbol_upper_bound (bound_minimal_symbol minsym);
 
 /* Return the type of MSYMBOL, a minimal symbol of OBJFILE.  If
    ADDRESS_P is not NULL, set it to the MSYMBOL's resolved
@@ -327,4 +326,4 @@ CORE_ADDR minimal_symbol_upper_bound (struct bound_minimal_symbol minsym);
 type *find_minsym_type_and_address (minimal_symbol *msymbol, objfile *objf,
 				    CORE_ADDR *address_p);
 
-#endif /* MINSYMS_H */
+#endif /* GDB_MINSYMS_H */

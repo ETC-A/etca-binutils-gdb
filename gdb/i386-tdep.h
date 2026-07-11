@@ -1,6 +1,6 @@
 /* Target-dependent code for the i386.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,12 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef I386_TDEP_H
-#define I386_TDEP_H
+#ifndef GDB_I386_TDEP_H
+#define GDB_I386_TDEP_H
 
 #include "gdbarch.h"
 #include "infrun.h"
 #include "expression.h"
+#include "gdbsupport/x86-xstate.h"
 
 class frame_info_ptr;
 struct gdbarch;
@@ -68,56 +69,57 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   size_t sizeof_fpregset = 0;
 
   /* Register number for %st(0).  The register numbers for the other
-     registers follow from this one.  Set this to -1 to indicate the
-     absence of an FPU.  */
-  int st0_regnum = 0;
+     registers follow from this one.  Set this to a value >= 0 if FPU is
+     present.  */
+  int st0_regnum = -1;
 
   /* Number of MMX registers.  */
   int num_mmx_regs = 0;
 
-  /* Register number for %mm0.  Set this to -1 to indicate the absence
-     of MMX support.  */
-  int mm0_regnum = 0;
+  /* Register number for %mm0.  Set this to a value >= 0 if MMX is
+     supported.  */
+  int mm0_regnum = -1;
 
   /* Number of pseudo YMM registers.  */
   int num_ymm_regs = 0;
 
-  /* Register number for %ymm0.  Set this to -1 to indicate the absence
-     of pseudo YMM register support.  */
-  int ymm0_regnum = 0;
+  /* Register number for %ymm0.  Set this to a value >= 0 if pseudo YMM
+     registers are supported.  */
+  int ymm0_regnum = -1;
 
   /* Number of AVX512 OpMask registers (K-registers)  */
   int num_k_regs = 0;
 
-  /* Register number for %k0.  Set this to -1 to indicate the absence
-     of AVX512 OpMask register support.  */
-  int k0_regnum = 0;
+  /* Register number for %k0.  Set this to a value >= 0 if AVX512 OpMask
+     is supported.  */
+  int k0_regnum = -1;
 
   /* Number of pseudo ZMM registers ($zmm0-$zmm31).  */
   int num_zmm_regs = 0;
 
-  /* Register number for %zmm0.  Set this to -1 to indicate the absence
-     of pseudo ZMM register support.  */
-  int zmm0_regnum = 0;
+  /* Register number for %zmm0.  Set this to a value >= 0 if pseudo ZMM
+     registers are supported.  */
+  int zmm0_regnum = -1;
 
   /* Number of byte registers.  */
   int num_byte_regs = 0;
 
-  /* Register pseudo number for %al.  */
-  int al_regnum = 0;
+  /* Register pseudo number for %al.  If supported, set this to a
+     value >= 0.  */
+  int al_regnum = -1;
 
   /* Number of pseudo word registers.  */
   int num_word_regs = 0;
 
-  /* Register number for %ax.  */
-  int ax_regnum = 0;
+  /* Register number for %ax.  If supported, set this to a value >= 0.  */
+  int ax_regnum = -1;
 
   /* Number of pseudo dword registers.  */
   int num_dword_regs = 0;
 
-  /* Register number for %eax.  Set this to -1 to indicate the absence
-     of pseudo dword register support.  */
-  int eax_regnum = 0;
+  /* Register number for %eax.  Set this to a value >= 0 if pseudo dword
+     registers are supported.  */
+  int eax_regnum = -1;
 
   /* Number of core registers.  */
   int num_core_regs = 0;
@@ -128,14 +130,16 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   /* Number of SSE registers added in AVX512.  */
   int num_xmm_avx512_regs = 0;
 
-  /* Register number of XMM16, the first XMM register added in AVX512.  */
-  int xmm16_regnum = 0;
+  /* Register number of XMM16, the first XMM register added in AVX512.
+     Set this to a value >= 0 if XMM registers are supported.  */
+  int xmm16_regnum = -1;
 
   /* Number of YMM registers added in AVX512.  */
   int num_ymm_avx512_regs = 0;
 
-  /* Register number of YMM16, the first YMM register added in AVX512.  */
-  int ymm16_regnum = 0;
+  /* Register number of YMM16, the first YMM register added in AVX512.
+     Set this to a value >= 0 if YMM registers are supported.  */
+  int ymm16_regnum = -1;
 
   /* Bits of the extended control register 0 (the XFEATURE_ENABLED_MASK
      register), excluding the x87 bit, which are supported by this GDB.  */
@@ -145,41 +149,29 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   /* Offset of XCR0 in XSAVE extended state.  */
   int xsave_xcr0_offset = 0;
 
+  /* Layout of the XSAVE area extended region.  */
+  x86_xsave_layout xsave_layout;
+
   /* Register names.  */
   const char * const *register_names = nullptr;
 
-  /* Register number for %ymm0h.  Set this to -1 to indicate the absence
-     of upper YMM register support.  */
-  int ymm0h_regnum = 0;
+  /* Register number for %ymm0h.  Set this to a value >= 0 if they are
+     supported.  */
+  int ymm0h_regnum = -1;
 
   /* Upper YMM register names.  Only used for tdesc_numbered_register.  */
   const char * const *ymmh_register_names = nullptr;
 
-  /* Register number for %ymm16h.  Set this to -1 to indicate the absence
-  of support for YMM16-31.  */
-  int ymm16h_regnum = 0;
+  /* Register number for %ymm16h.  Set this to a value >= 0 if they are
+     supported.  */
+  int ymm16h_regnum = -1;
 
   /* YMM16-31 register names.  Only used for tdesc_numbered_register.  */
   const char * const *ymm16h_register_names = nullptr;
 
-  /* Register number for %bnd0r.  Set this to -1 to indicate the absence
-     bound registers.  */
-  int bnd0r_regnum = 0;
-
-  /* Register number for pseudo register %bnd0.  Set this to -1 to indicate the absence
-     bound registers.  */
-  int bnd0_regnum = 0;
-
-  /* Register number for %bndcfgu. Set this to -1 to indicate the absence
-     bound control registers.  */
-  int bndcfgu_regnum = 0;
-
-  /* MPX register names.  Only used for tdesc_numbered_register.  */
-  const char * const *mpx_register_names = nullptr;
-
-  /* Register number for %zmm0h.  Set this to -1 to indicate the absence
-     of ZMM_HI256 register support.  */
-  int zmm0h_regnum = 0;
+  /* Register number for %zmm0h.  Set this to a value >= 0 if ZMM_HI256
+     registers are supported.  */
+  int zmm0h_regnum = -1;
 
   /* OpMask register names.  */
   const char * const *k_register_names = nullptr;
@@ -196,15 +188,20 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   /* Number of PKEYS registers.  */
   int num_pkeys_regs = 0;
 
-  /* Register number for PKRU register.  */
-  int pkru_regnum = 0;
+  /* Register number for PKRU register.  If supported, set this to a value
+     >= 0.  */
+  int pkru_regnum = -1;
 
   /* PKEYS register names.  */
   const char * const *pkeys_register_names = nullptr;
 
-  /* Register number for %fsbase.  Set this to -1 to indicate the
-     absence of segment base registers.  */
-  int fsbase_regnum = 0;
+  /* Register number for the shadow stack pointer register.  If supported,
+     set this to a value >= 0.  */
+  int ssp_regnum = -1;
+
+  /* Register number for %fsbase.  If supported, set this to a value
+     >= 0.  */
+  int fsbase_regnum = -1;
 
   /* Target description.  */
   const struct target_desc *tdesc = nullptr;
@@ -223,10 +220,10 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   CORE_ADDR sigtramp_end = 0;
 
   /* Detect sigtramp.  */
-  int (*sigtramp_p) (frame_info_ptr) = nullptr;
+  int (*sigtramp_p) (const frame_info_ptr &) = nullptr;
 
   /* Get address of sigcontext for sigtramp.  */
-  CORE_ADDR (*sigcontext_addr) (frame_info_ptr) = nullptr;
+  CORE_ADDR (*sigcontext_addr) (const frame_info_ptr &) = nullptr;
 
   /* Offset of registers in `struct sigcontext'.  */
   int *sc_reg_offset = 0;
@@ -242,7 +239,11 @@ struct i386_gdbarch_tdep : gdbarch_tdep_base
   struct type *i386_ymm_type = nullptr;
   struct type *i386_zmm_type = nullptr;
   struct type *i387_ext_type = nullptr;
-  struct type *i386_bnd_type = nullptr;
+
+  /* If the registers containing the i386 Linux TLS related global
+     descriptor table information are available.  This is used to decide
+     whether to add the NT_386_TLS note to the core file or not.  */
+  bool i386_linux_tls = false;
 
   /* Process record/replay target.  */
   /* The map for registers because the AMD64's registers order
@@ -291,9 +292,11 @@ enum i386_regnum
   I386_FS_REGNUM,		/* %fs */
   I386_GS_REGNUM,		/* %gs */
   I386_ST0_REGNUM,		/* %st(0) */
-  I386_MXCSR_REGNUM = 40,	/* %mxcsr */ 
+  I386_MXCSR_REGNUM = 40,	/* %mxcsr */
   I386_YMM0H_REGNUM,		/* %ymm0h */
   I386_YMM7H_REGNUM = I386_YMM0H_REGNUM + 7,
+  /* MPX is deprecated.  Yet we keep this to not give the registers below
+     a new number.  That could break older gdbservers.  */
   I386_BND0R_REGNUM,
   I386_BND3R_REGNUM = I386_BND0R_REGNUM + 3,
   I386_BNDCFGU_REGNUM,
@@ -303,8 +306,16 @@ enum i386_regnum
   I386_ZMM0H_REGNUM,		/* %zmm0h */
   I386_ZMM7H_REGNUM = I386_ZMM0H_REGNUM + 7,
   I386_PKRU_REGNUM,
+  I386_PL3_SSP_REGNUM,
   I386_FSBASE_REGNUM,
-  I386_GSBASE_REGNUM
+  I386_GSBASE_REGNUM,
+
+  I386_NUM_REGS,	/* Calculated from last *_REGNUM entry.  */
+  I386_SSE_NUM_REGS = I386_MXCSR_REGNUM + 1,
+  I386_AVX_NUM_REGS = I386_YMM7H_REGNUM + 1,
+  I386_AVX512_NUM_REGS = I386_ZMM7H_REGNUM + 1,
+  I386_PKEYS_NUM_REGS = I386_PKRU_REGNUM + 1
+  /* STOP!  New *_REGNUM entries should be added before I386_NUM_REGS.  */
 };
 
 /* Register numbers of RECORD_REGMAP.  */
@@ -335,17 +346,11 @@ enum record_i386_regnum
   X86_RECORD_ES_REGNUM,
   X86_RECORD_FS_REGNUM,
   X86_RECORD_GS_REGNUM,
+  X86_RECORD_XMM0_REGNUM,
 };
 
 #define I386_NUM_GREGS	16
 #define I386_NUM_XREGS  9
-
-#define I386_SSE_NUM_REGS	(I386_MXCSR_REGNUM + 1)
-#define I386_AVX_NUM_REGS	(I386_YMM7H_REGNUM + 1)
-#define I386_MPX_NUM_REGS	(I386_BNDSTATUS_REGNUM + 1)
-#define I386_AVX512_NUM_REGS	(I386_ZMM7H_REGNUM + 1)
-#define I386_PKEYS_NUM_REGS	(I386_PKRU_REGNUM + 1)
-#define I386_NUM_REGS		(I386_GSBASE_REGNUM + 1)
 
 /* Size of the largest register.  */
 #define I386_MAX_REGISTER_SIZE	64
@@ -361,7 +366,6 @@ extern int i386_xmm_regnum_p (struct gdbarch *gdbarch, int regnum);
 extern int i386_xmm_avx512_regnum_p (struct gdbarch * gdbarch, int regnum);
 extern int i386_ymm_regnum_p (struct gdbarch *gdbarch, int regnum);
 extern int i386_ymm_avx512_regnum_p (struct gdbarch *gdbarch, int regnum);
-extern int i386_bnd_regnum_p (struct gdbarch *gdbarch, int regnum);
 extern int i386_k_regnum_p (struct gdbarch *gdbarch, int regnum);
 extern int i386_zmm_regnum_p (struct gdbarch *gdbarch, int regnum);
 extern int i386_zmmh_regnum_p (struct gdbarch *gdbarch, int regnum);
@@ -372,18 +376,17 @@ extern const char *i386_pseudo_register_name (struct gdbarch *gdbarch,
 extern struct type *i386_pseudo_register_type (struct gdbarch *gdbarch,
 					       int regnum);
 
-extern void i386_pseudo_register_read_into_value (struct gdbarch *gdbarch,
-						  readable_regcache *regcache,
-						  int regnum,
-						  struct value *result);
+extern value *i386_pseudo_register_read_value (gdbarch *gdbarch,
+					       const frame_info_ptr &next_frame,
+					       int regnum);
 
-extern void i386_pseudo_register_write (struct gdbarch *gdbarch,
-					struct regcache *regcache,
-					int regnum, const gdb_byte *buf);
+extern void i386_pseudo_register_write (gdbarch *gdbarch,
+					const frame_info_ptr &next_frame, int regnum,
+					gdb::array_view<const gdb_byte> buf);
 
-extern int i386_ax_pseudo_register_collect (struct gdbarch *gdbarch,
-					    struct agent_expr *ax,
-					    int regnum);
+extern void i386_ax_pseudo_register_collect (struct gdbarch *gdbarch,
+					     struct agent_expr *ax,
+					     int regnum);
 
 /* Segment selectors.  */
 #define I386_SEL_RPL	0x0003  /* Requester's Privilege Level mask.  */
@@ -395,7 +398,7 @@ extern int i386_ax_pseudo_register_collect (struct gdbarch *gdbarch,
 #define I386_MAX_INSN_LEN (16)
 
 /* Functions exported from i386-tdep.c.  */
-extern CORE_ADDR i386_pe_skip_trampoline_code (frame_info_ptr frame,
+extern CORE_ADDR i386_pe_skip_trampoline_code (const frame_info_ptr &frame,
 					       CORE_ADDR pc, char *name);
 extern CORE_ADDR i386_skip_main_prologue (struct gdbarch *gdbarch,
 					  CORE_ADDR pc);
@@ -414,11 +417,11 @@ extern CORE_ADDR i386_thiscall_push_dummy_call (struct gdbarch *gdbarch,
 						bool thiscall);
 
 /* Return whether the THIS_FRAME corresponds to a sigtramp routine.  */
-extern int i386_sigtramp_p (frame_info_ptr this_frame);
+extern int i386_sigtramp_p (const frame_info_ptr &this_frame);
 
 /* Return non-zero if REGNUM is a member of the specified group.  */
-extern int i386_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
-				     const struct reggroup *group);
+extern bool i386_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
+				      const struct reggroup *group);
 
 /* Supply register REGNUM from the general-purpose register set REGSET
    to register cache REGCACHE.  If REGNUM is -1, do this for all
@@ -462,12 +465,11 @@ extern int i386_svr4_reg_to_regnum (struct gdbarch *gdbarch, int reg);
 
 extern int i386_process_record (struct gdbarch *gdbarch,
 				struct regcache *regcache, CORE_ADDR addr);
-extern const struct target_desc *i386_target_description (uint64_t xcr0,
-							  bool segments);
 
-/* Return true iff the current target is MPX enabled.  */
-extern int i386_mpx_enabled (void);
-
+/* Return the target description for the specified xsave features as
+   defined in XSTATE_BV and SEGMENTS.  */
+extern const struct target_desc *i386_target_description
+  (uint64_t xstate_bv, bool segments);
 
 /* Functions and variables exported from i386-bsd-tdep.c.  */
 
@@ -479,10 +481,10 @@ extern int i386bsd_sc_reg_offset[];
 
 /* SystemTap related functions.  */
 
-extern int i386_stap_is_single_operand (struct gdbarch *gdbarch,
-					const char *s);
+extern bool i386_stap_is_single_operand (struct gdbarch *gdbarch,
+					 const char *s);
 
 extern expr::operation_up i386_stap_parse_special_token
      (struct gdbarch *gdbarch, struct stap_parse_info *p);
 
-#endif /* i386-tdep.h */
+#endif /* GDB_I386_TDEP_H */

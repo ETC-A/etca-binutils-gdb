@@ -1,6 +1,6 @@
 /* Target-dependent code for OpenBSD/amd64.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
@@ -45,7 +45,7 @@ static const int amd64obsd_page_size = 4096;
    routine.  */
 
 static int
-amd64obsd_sigtramp_p (frame_info_ptr this_frame)
+amd64obsd_sigtramp_p (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   CORE_ADDR start_pc = (pc & ~(amd64obsd_page_size - 1));
@@ -98,7 +98,7 @@ amd64obsd_sigtramp_p (frame_info_ptr this_frame)
    address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-amd64obsd_sigcontext_addr (frame_info_ptr this_frame)
+amd64obsd_sigcontext_addr (const frame_info_ptr &this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   ULONGEST offset = (pc & (amd64obsd_page_size - 1));
@@ -315,7 +315,7 @@ amd64obsd_collect_uthread (const struct regcache *regcache,
 #define amd64obsd_tf_reg_offset amd64obsd_sc_reg_offset
 
 static struct trad_frame_cache *
-amd64obsd_trapframe_cache (frame_info_ptr this_frame, void **this_cache)
+amd64obsd_trapframe_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -362,17 +362,17 @@ amd64obsd_trapframe_cache (frame_info_ptr this_frame, void **this_cache)
 }
 
 static void
-amd64obsd_trapframe_this_id (frame_info_ptr this_frame,
+amd64obsd_trapframe_this_id (const frame_info_ptr &this_frame,
 			     void **this_cache, struct frame_id *this_id)
 {
   struct trad_frame_cache *cache =
     amd64obsd_trapframe_cache (this_frame, this_cache);
-  
+
   trad_frame_get_id (cache, this_id);
 }
 
 static struct value *
-amd64obsd_trapframe_prev_register (frame_info_ptr this_frame,
+amd64obsd_trapframe_prev_register (const frame_info_ptr &this_frame,
 				   void **this_cache, int regnum)
 {
   struct trad_frame_cache *cache =
@@ -383,7 +383,7 @@ amd64obsd_trapframe_prev_register (frame_info_ptr this_frame,
 
 static int
 amd64obsd_trapframe_sniffer (const struct frame_unwind *self,
-			     frame_info_ptr this_frame,
+			     const frame_info_ptr &this_frame,
 			     void **this_prologue_cache)
 {
   ULONGEST cs;
@@ -396,25 +396,24 @@ amd64obsd_trapframe_sniffer (const struct frame_unwind *self,
     return 0;
 
   find_pc_partial_function (get_frame_pc (this_frame), &name, NULL, NULL);
-  return (name && ((strcmp (name, "calltrap") == 0)
-		   || (strcmp (name, "osyscall1") == 0)
-		   || (strcmp (name, "Xsyscall") == 0)
-		   || (startswith (name, "Xintr"))));
+  return (name != nullptr
+	  && (streq (name, "calltrap") || streq (name, "osyscall1")
+	      || streq (name, "Xsyscall") || startswith (name, "Xintr")));
 }
 
-static const struct frame_unwind amd64obsd_trapframe_unwind =
-{
+static const struct frame_unwind_legacy amd64obsd_trapframe_unwind (
   /* FIXME: kettenis/20051219: This really is more like an interrupt
      frame, but SIGTRAMP_FRAME would print <signal handler called>,
      which really is not what we want here.  */
   "amd64 openbsd trap",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   amd64obsd_trapframe_this_id,
   amd64obsd_trapframe_prev_register,
   NULL,
   amd64obsd_trapframe_sniffer
-};
+);
 
 
 static void
@@ -443,16 +442,13 @@ amd64obsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   bsd_uthread_set_collect_uthread (gdbarch, amd64obsd_collect_uthread);
 
   /* OpenBSD uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_svr4_lp64_solib_ops);
 
   /* Unwind kernel trap frames correctly.  */
   frame_unwind_prepend_unwinder (gdbarch, &amd64obsd_trapframe_unwind);
 }
 
-void _initialize_amd64obsd_tdep ();
-void
-_initialize_amd64obsd_tdep ()
+INIT_GDB_FILE (amd64obsd_tdep)
 {
   /* The OpenBSD/amd64 native dependent code makes this assumption.  */
   gdb_assert (ARRAY_SIZE (amd64obsd_r_reg_offset) == AMD64_NUM_GREGS);

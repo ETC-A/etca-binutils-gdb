@@ -1,5 +1,5 @@
 /* Mach-O object file format for gas, the assembler.
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -76,7 +76,7 @@ extern void obj_mach_o_frob_label (symbolS *);
 #define obj_frob_symbol(s, punt) punt = obj_mach_o_frob_symbol(s)
 extern int obj_mach_o_frob_symbol (struct symbol *);
 
-#define OBJ_PROCESS_STAB(SEG,W,S,T,O,D)	obj_mach_o_process_stab(W,S,T,O,D)
+#define OBJ_PROCESS_STAB(W,S,T,O,D)	obj_mach_o_process_stab(W,S,T,O,D)
 extern void obj_mach_o_process_stab (int, const char *,int, int, int);
 
 struct obj_mach_o_frag_data
@@ -87,9 +87,6 @@ struct obj_mach_o_frag_data
 
 #define OBJ_FRAG_TYPE struct obj_mach_o_frag_data
 
-#define md_pre_output_hook obj_mach_o_pre_output_hook()
-extern void obj_mach_o_pre_output_hook(void);
-
 #define md_pre_relax_hook obj_mach_o_pre_relax_hook()
 extern void obj_mach_o_pre_relax_hook (void);
 
@@ -99,9 +96,9 @@ extern void obj_mach_o_post_relax_hook (void);
 #define obj_frob_file_after_relocs obj_mach_o_frob_file_after_relocs
 extern void obj_mach_o_frob_file_after_relocs (void);
 
-#define SET_SECTION_RELOCS(sec, relocs, n) \
+#define FINALIZE_SECTION_RELOCS(sec, relocs, n) \
   obj_mach_o_reorder_section_relocs (sec, relocs, n)
-extern void obj_mach_o_reorder_section_relocs (asection *, arelent **,
+extern bool obj_mach_o_reorder_section_relocs (asection *, arelent **,
 					       unsigned int);
 
 /* Emit relocs for local subtracts, to cater for subsections-via-symbols.  */
@@ -111,9 +108,8 @@ extern int obj_mach_o_allow_local_subtract (expressionS *, expressionS *,
 					    segT);
 
 struct fix;
-extern int obj_mach_o_in_different_subsection (symbolS *a, symbolS *b);
-extern int obj_mach_o_force_reloc (struct fix *fix);
-extern int obj_mach_o_force_reloc_sub_same (struct fix *fix, segT seg);
-extern int obj_mach_o_force_reloc_sub_local (struct fix *fix, segT seg);
+extern bool obj_mach_o_force_reloc (segT, struct fix *);
+extern bool obj_mach_o_force_reloc_sub_same (segT, struct fix *, segT);
+extern bool obj_mach_o_force_reloc_sub_local (segT, struct fix *, segT);
 
 #endif /* _OBJ_MACH_O_H */

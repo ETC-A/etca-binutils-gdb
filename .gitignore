@@ -6,6 +6,7 @@
 *~
 .#*
 *#
+.*.swp
 
 *.flt
 *.gmo
@@ -36,11 +37,12 @@ TAGS.sub
 .local.vimrc
 .lvimrc
 
-.clang-format
 .clang-tidy
 .clangd
 .cache
 compile_commands.json
+.vscode
+.devcontainer/
 
 .gdbinit
 .gdb_history
@@ -72,3 +74,4 @@ stamp-*
 /mpc*
 /gmp*
 /isl*
+/gettext*

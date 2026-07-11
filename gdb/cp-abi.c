@@ -1,6 +1,6 @@
 /* Generic code for supporting multiple C++ ABI's
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,12 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "language.h"
 #include "value.h"
 #include "cp-abi.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "ui-out.h"
 static struct cp_abi_ops *find_cp_abi (const char *short_name);
 
@@ -153,7 +152,7 @@ cplus_make_method_ptr (struct type *type, gdb_byte *contents,
 }
 
 CORE_ADDR
-cplus_skip_trampoline (frame_info_ptr frame,
+cplus_skip_trampoline (const frame_info_ptr &frame,
 		       CORE_ADDR stop_pc)
 {
   if (current_cp_abi.skip_trampoline == NULL)
@@ -285,7 +284,7 @@ set_cp_abi_as_auto_default (const char *short_name)
   /* Since we copy the current ABI into current_cp_abi instead of
      using a pointer, if auto is currently the default, we need to
      reset it.  */
-  if (strcmp (current_cp_abi.shortname, "auto") == 0)
+  if (streq (current_cp_abi.shortname, "auto"))
     switch_to_cp_abi ("auto");
 }
 
@@ -297,7 +296,7 @@ find_cp_abi (const char *short_name)
   int i;
 
   for (i = 0; i < num_cp_abis; i++)
-    if (strcmp (cp_abis[i]->shortname, short_name) == 0)
+    if (streq (cp_abis[i]->shortname, short_name))
       return cp_abis[i];
 
   return NULL;
@@ -385,9 +384,7 @@ show_cp_abi_cmd (const char *args, int from_tty)
   uiout->text (").\n");
 }
 
-void _initialize_cp_abi ();
-void
-_initialize_cp_abi ()
+INIT_GDB_FILE (cp_abi)
 {
   struct cmd_list_element *c;
 

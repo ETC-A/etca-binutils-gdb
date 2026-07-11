@@ -1,5 +1,5 @@
 /* Support for printing Pascal types for GDB, the GNU debugger.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,9 +18,8 @@
 
 /* This file is derived from p-typeprint.c */
 
-#include "defs.h"
-#include "gdbsupport/gdb_obstack.h"
-#include "bfd.h"		/* Binary File Description */
+#include "event-top.h"
+#include "bfd.h"
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "expression.h"
@@ -31,7 +30,6 @@
 #include "p-lang.h"
 #include "typeprint.h"
 #include "gdb-demangle.h"
-#include <ctype.h>
 #include "cli/cli-style.h"
 
 /* See language.h.  */
@@ -55,7 +53,8 @@ pascal_language::print_type (struct type *type, const char *varstring,
       type_print_varspec_prefix (type, stream, show, 0, flags);
     }
   /* first the name */
-  gdb_puts (varstring, stream);
+  if (varstring != nullptr)
+    gdb_puts (varstring, stream);
 
   if ((varstring != NULL && *varstring != '\0')
       && !(code == TYPE_CODE_FUNC
@@ -138,13 +137,13 @@ pascal_language::type_print_method_args (const char *physname,
     {
       gdb_puts (" (", stream);
       /* We must demangle this.  */
-      while (isdigit (physname[0]))
+      while (c_isdigit (physname[0]))
 	{
 	  int len = 0;
 	  int i, j;
 	  char *argname;
 
-	  while (isdigit (physname[len]))
+	  while (c_isdigit (physname[len]))
 	    {
 	      len++;
 	    }
@@ -486,7 +485,9 @@ pascal_language::type_print_base (struct type *type, struct ui_file *stream, int
 
 	      if (HAVE_CPLUS_STRUCT (type))
 		{
-		  if (TYPE_FIELD_PROTECTED (type, i))
+		  field &fld = type->field (i);
+
+		  if (fld.is_protected ())
 		    {
 		      if (section_type != s_protected)
 			{
@@ -495,7 +496,7 @@ pascal_language::type_print_base (struct type *type, struct ui_file *stream, int
 				      level + 2, "");
 			}
 		    }
-		  else if (TYPE_FIELD_PRIVATE (type, i))
+		  else if (fld.is_private ())
 		    {
 		      if (section_type != s_private)
 			{
@@ -522,15 +523,14 @@ pascal_language::type_print_base (struct type *type, struct ui_file *stream, int
 				 type->field (i).name (),
 				 stream, show - 1, level + 4, flags);
 	      if (!type->field (i).is_static ()
-		  && TYPE_FIELD_PACKED (type, i))
+		  && type->field (i).is_packed ())
 		{
 		  /* It is a bitfield.  This code does not attempt
 		     to look at the bitpos and reconstruct filler,
 		     unnamed fields.  This would lead to misleading
 		     results if the compiler does not put out fields
 		     for such things (I don't know what it does).  */
-		  gdb_printf (stream, " : %d",
-			      TYPE_FIELD_BITSIZE (type, i));
+		  gdb_printf (stream, " : %d", type->field (i).bitsize ());
 		}
 	      gdb_printf (stream, ";\n");
 	    }
@@ -689,7 +689,7 @@ pascal_language::type_print_base (struct type *type, struct ui_file *stream, int
       break;
 
     case TYPE_CODE_ERROR:
-      gdb_printf (stream, "%s", TYPE_ERROR_NAME (type));
+      gdb_printf (stream, "%s", type->error_name ());
       break;
 
       /* this probably does not work for enums.  */

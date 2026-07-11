@@ -1,6 +1,6 @@
 // dwp.cc -- DWARF packaging utility
 
-// Copyright (C) 2012-2023 Free Software Foundation, Inc.
+// Copyright (C) 2012-2026 Free Software Foundation, Inc.
 // Written by Cary Coutant <ccoutant@google.com>.
 
 // This file is part of dwp, the DWARF packaging utility.
@@ -1838,6 +1838,9 @@ Dwp_output_file::finalize()
 {
   unsigned char* buf;
 
+  if (this->fd_ == NULL)
+    return;
+
   // Write the accumulated output sections.
   for (unsigned int i = 0; i < this->sections_.size(); i++)
     {
@@ -1919,11 +1922,8 @@ Dwp_output_file::finalize()
   this->write_ehdr();
 
   // Close the file.
-  if (this->fd_ != NULL)
-    {
-      if (::fclose(this->fd_) != 0)
-	gold_fatal(_("%s: %s"), this->name_, strerror(errno));
-    }
+  if (::fclose(this->fd_) != 0)
+    gold_fatal(_("%s: %s"), this->name_, strerror(errno));
   this->fd_ = NULL;
 }
 
@@ -2334,7 +2334,7 @@ print_version()
 {
   // This output is intended to follow the GNU standards.
   printf("GNU dwp %s\n", BFD_VERSION_STRING);
-  printf(_("Copyright (C) 2023 Free Software Foundation, Inc.\n"));
+  printf(_("Copyright (C) 2026 Free Software Foundation, Inc.\n"));
   printf(_("\
 This program is free software; you may redistribute it under the terms of\n\
 the GNU General Public License version 3 or (at your option) any later version.\n\

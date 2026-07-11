@@ -1,6 +1,6 @@
 /* Self tests for scoped_fd for GDB, the GNU debugger.
 
-   Copyright (C) 2018-2023 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "gdbsupport/filestuff.h"
 #include "gdbsupport/scoped_fd.h"
@@ -75,7 +74,7 @@ test_to_file ()
   SELF_CHECK (sfd.get () >= 0);
 
   unlink (filename);
-  
+
   gdb_file_up file = sfd.to_file ("rw");
   SELF_CHECK (file != nullptr);
   SELF_CHECK (sfd.get () == -1);
@@ -93,9 +92,7 @@ run_tests ()
 } /* namespace scoped_fd */
 } /* namespace selftests */
 
-void _initialize_scoped_fd_selftests ();
-void
-_initialize_scoped_fd_selftests ()
+INIT_GDB_FILE (scoped_fd_selftests)
 {
   selftests::register_test ("scoped_fd",
 			    selftests::scoped_fd::run_tests);

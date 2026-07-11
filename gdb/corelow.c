@@ -1,6 +1,6 @@
 /* Core dump and executable file functions below target vector, for GDB.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include <signal.h>
 #include <fcntl.h>
-#include "frame.h"		/* required by inferior.h */
+#include "exceptions.h"
+#include "frame.h"
 #include "inferior.h"
 #include "infrun.h"
 #include "symtab.h"
@@ -35,9 +35,7 @@
 #include "regset.h"
 #include "symfile.h"
 #include "exec.h"
-#include "readline/tilde.h"
 #include "solib.h"
-#include "solist.h"
 #include "filenames.h"
 #include "progspace.h"
 #include "objfiles.h"
@@ -47,16 +45,135 @@
 #include "build-id.h"
 #include "gdbsupport/pathstuff.h"
 #include "gdbsupport/scoped_fd.h"
-#include "debuginfod-support.h"
-#include <unordered_map>
-#include <unordered_set>
-#include "gdbcmd.h"
+#include "gdbsupport/x86-xstate.h"
+#include "gdbsupport/unordered_map.h"
+#include "gdbsupport/unordered_set.h"
+#include "cli/cli-cmds.h"
 #include "xml-tdesc.h"
 #include "memtag.h"
+#include "cli/cli-style.h"
+#include "observable.h"
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
 #endif
+
+/* Forward declarations.  */
+
+static void core_target_open (const char *arg, int from_tty);
+
+/* A mem_range and the build-id associated with the file mapped into the
+   given range.  */
+
+struct mem_range_and_build_id
+{
+  mem_range_and_build_id (mem_range &&r, const bfd_build_id *id)
+    : range (r),
+      build_id (id)
+  { /* Nothing.  */ }
+
+  /* A range of memory addresses.  */
+  mem_range range;
+
+  /* The build-id of the file mapped into RANGE.  */
+  const bfd_build_id *build_id;
+};
+
+/* An instance of this class is created within the core_target and is used
+   to hold all the information that relating to mapped files, their address
+   ranges, and their corresponding build-ids.  */
+
+struct mapped_file_info
+{
+  /* See comment on function definition.  */
+
+  void add (const char *soname, const char *expected_filename,
+	    const char *actual_filename, std::vector<mem_range> &&ranges,
+	    const bfd_build_id *build_id);
+
+  /* See comment on function definition.  */
+
+  std::optional <core_target_mapped_file_info>
+  lookup (const char *filename, const std::optional<CORE_ADDR> &addr);
+
+private:
+
+  /* Helper for ::lookup.  BUILD_ID is a build-id that was found in
+     one of the data structures within this class.  Lookup the
+     corresponding filename in m_build_id_to_filename_map and return a pair
+     containing the build-id and filename.
+
+     If no corresponding filename is found in m_build_id_to_filename_map
+     then the returned pair contains BUILD_ID and an empty string.
+
+     If BUILD_ID is nullptr then the returned pair contains nullptr and an
+     empty string.  */
+
+  struct core_target_mapped_file_info
+  make_result (const bfd_build_id *build_id)
+  {
+    if (build_id != nullptr)
+      {
+      auto it = m_build_id_to_filename_map.find (build_id);
+      if (it != m_build_id_to_filename_map.end ())
+	return { build_id, it->second };
+    }
+
+    return { build_id, {} };
+  }
+
+  /* A type that maps a string to a build-id.  */
+  using string_to_build_id_map
+    = gdb::unordered_string_map<const bfd_build_id *>;
+
+  /* A type that maps a build-id to a string.  */
+  using build_id_to_string_map
+    = gdb::unordered_map<const bfd_build_id *, std::string>;
+
+  /* When loading a core file, the build-ids are extracted based on the
+     file backed mappings.  This map associates the name of a file that was
+     mapped into the core file with the corresponding build-id.  The
+     build-id pointers in this map will never be nullptr as we only record
+     files if they have a build-id.  */
+
+  string_to_build_id_map m_filename_to_build_id_map;
+
+  /* Map a build-id pointer back to the name of the file that was mapped
+     into the inferior's address space.  If we lookup a matching build-id
+     using either a soname or an address then this map allows us to also
+     provide a full path to a file with a matching build-id.  */
+
+  build_id_to_string_map m_build_id_to_filename_map;
+
+  /* If the file that was mapped into the core file was a shared library
+     then it might have a DT_SONAME tag in its .dynamic section, this tag
+     contains the name of a shared object.  When opening a shared library,
+     if it's basename appears in this map then we can use the corresponding
+     build-id.
+
+     In the rare case that two different files have the same DT_SONAME
+     value then the build-id pointer in this map will be nullptr, this
+     indicates that it's not possible to find a build-id based on the given
+     DT_SONAME value.  */
+
+  string_to_build_id_map m_soname_to_build_id_map;
+
+  /* This vector maps memory ranges onto an associated build-id.  The
+     ranges are those of the files mapped into the core file.
+
+     Entries in this vector must not overlap, and are sorted be increasing
+     memory address.  Within each entry the build-id pointer will not be
+     nullptr.
+
+     While building this vector the entries are not sorted, they are
+     sorted once after the table has finished being built.  */
+
+  std::vector<mem_range_and_build_id> m_address_to_build_id_list;
+
+  /* False if address_to_build_id_list is unsorted, otherwise true.  */
+
+  bool m_address_to_build_id_list_sorted = false;
+};
 
 /* The core file target.  */
 
@@ -70,7 +187,8 @@ Specify the filename of the core file.")
 class core_target final : public process_stratum_target
 {
 public:
-  core_target ();
+  /* CBFD is the open core file BFD object.  */
+  explicit core_target (gdb_bfd_ref_ptr cbfd);
 
   const target_info &info () const override
   { return core_target_info; }
@@ -109,6 +227,12 @@ public:
   bool fetch_memtags (CORE_ADDR address, size_t len,
 		      gdb::byte_vector &tags, int type) override;
 
+  /* If the architecture supports it, check if ADDRESS is within a memory range
+     mapped with tags.  For example,  MTE tags for AArch64.  */
+  bool is_address_tagged (gdbarch *gdbarch, CORE_ADDR address) override;
+
+  x86_xsave_layout fetch_x86_xsave_layout () override;
+
   /* A few helpers.  */
 
   /* Getter, see variable definition.  */
@@ -128,10 +252,41 @@ public:
   /* See definition.  */
   void info_proc_mappings (struct gdbarch *gdbarch);
 
+  std::optional <core_target_mapped_file_info>
+  lookup_mapped_file_info (const char *filename,
+			   const std::optional<CORE_ADDR> &addr)
+  {
+    return m_mapped_file_info.lookup (filename, addr);
+  }
+
+  /* Return a string containing the expected executable filename obtained
+     from the mapped file information within the core file.  The filename
+     returned will be for the mapped file whose ELF headers are mapped at
+     the lowest address (i.e. which GDB encounters first).
+
+     If no suitable filename can be found then the returned string will be
+     empty.
+
+     If there are no build-ids embedded into the core file then the
+     returned string will be empty.
+
+     If a non-empty string is returned then there is no guarantee that the
+     named file exists on disk, or if it does exist on disk, then the
+     on-disk file might have a different build-id to the desired
+     build-id.  */
+  const std::string &
+  expected_exec_filename () const
+  {
+    return m_expected_exec_filename;
+  }
+
+  bfd *core_bfd () const
+  { return m_core_bfd.get (); }
+
 private: /* per-core data */
 
   /* Get rid of the core inferior.  */
-  void clear_core ();
+  void exit_core_file_inferior ();
 
   /* The core's section table.  Note that these target sections are
      *not* mapped in the current address spaces' set of target
@@ -139,37 +294,74 @@ private: /* per-core data */
      shared library bfds.  The core bfd sections are an implementation
      detail of the core target, just like ptrace is for unix child
      targets.  */
-  target_section_table m_core_section_table;
+  std::vector<target_section> m_core_section_table;
 
   /* File-backed address space mappings: some core files include
      information about memory mapped files.  */
-  target_section_table m_core_file_mappings;
+  std::vector<target_section> m_core_file_mappings;
 
   /* Unavailable mappings.  These correspond to pathnames which either
      weren't found or could not be opened.  Knowing these addresses can
      still be useful.  */
   std::vector<mem_range> m_core_unavailable_mappings;
 
-  /* Build m_core_file_mappings.  Called from the constructor.  */
-  void build_file_mappings ();
+  /* Data structure that holds information mapping filenames and address
+     ranges to the corresponding build-ids as well as the reverse build-id
+     to filename mapping.  */
+  mapped_file_info m_mapped_file_info;
 
-  /* Helper method for xfer_partial.  */
-  enum target_xfer_status xfer_memory_via_mappings (gdb_byte *readbuf,
-						    const gdb_byte *writebuf,
-						    ULONGEST offset,
-						    ULONGEST len,
-						    ULONGEST *xfered_len);
+  /* Build m_core_file_mappings and m_mapped_file_info.  Called from the
+     constructor.  */
+  void build_file_mappings ();
 
   /* FIXME: kettenis/20031023: Eventually this field should
      disappear.  */
   struct gdbarch *m_core_gdbarch = NULL;
+
+  /* If not empty then this contains the name of the executable discovered
+     when processing the memory-mapped file information.  This will only
+     be set if we find a mapped with a suitable build-id.  */
+  std::string m_expected_exec_filename;
+
+  /* The core file BFD object.  */
+  gdb_bfd_ref_ptr m_core_bfd;
 };
 
-core_target::core_target ()
+/* If INF is connected to a core target, then return a pointer to the
+   core_target.  If not connected to a core target, return NULL.  */
+
+static core_target *
+get_core_target (inferior *inf)
+{
+  target_ops *proc_target = inf->process_target ();
+  return dynamic_cast<core_target *> (proc_target);
+}
+
+/* See gdbcore.h.  */
+
+bfd *
+get_inferior_core_bfd (inferior *inf)
+{
+  gdb_assert (inf != nullptr);
+
+  core_target *targ = get_core_target (inf);
+  if (targ == nullptr)
+    return nullptr;
+
+  bfd *cbfd = targ->core_bfd ();
+  gdb_assert (cbfd != nullptr);
+
+  return cbfd;
+}
+
+/* See class declaration above.  */
+
+core_target::core_target (gdb_bfd_ref_ptr cbfd_ref)
+  : m_core_bfd (std::move (cbfd_ref))
 {
   /* Find a first arch based on the BFD.  We need the initial gdbarch so
      we can setup the hooks to find a target description.  */
-  m_core_gdbarch = gdbarch_from_bfd (core_bfd);
+  m_core_gdbarch = gdbarch_from_bfd (this->core_bfd ());
 
   /* If the arch is able to read a target description from the core, it
      could yield a more specific gdbarch.  */
@@ -178,24 +370,24 @@ core_target::core_target ()
   if (tdesc != nullptr)
     {
       struct gdbarch_info info;
-      info.abfd = core_bfd;
+      info.abfd = this->core_bfd ();
       info.target_desc = tdesc;
       m_core_gdbarch = gdbarch_find_by_info (info);
     }
 
   if (!m_core_gdbarch
       || !gdbarch_iterate_over_regset_sections_p (m_core_gdbarch))
-    error (_("\"%s\": Core file format not supported"),
-	   bfd_get_filename (core_bfd));
+    error (_("\"%ps\": Core file format not supported"),
+	   styled_string (file_name_style.style (),
+			  bfd_get_filename (this->core_bfd ())));
 
   /* Find the data section */
-  m_core_section_table = build_section_table (core_bfd);
+  m_core_section_table = build_section_table (this->core_bfd ());
 
   build_file_mappings ();
 }
 
-/* Construct the target_section_table for file-backed mappings if
-   they exist.
+/* Construct the table for file-backed mappings if they exist.
 
    For each unique path in the note, we'll open a BFD with a bfd
    target of "binary".  This is an unstructured bfd target upon which
@@ -211,109 +403,220 @@ core_target::core_target ()
 void
 core_target::build_file_mappings ()
 {
-  std::unordered_map<std::string, struct bfd *> bfd_map;
-  std::unordered_set<std::string> unavailable_paths;
+  gdb::unordered_string_map<struct bfd *> bfd_map;
+  gdb::unordered_set<std::string> unavailable_paths;
 
-  /* See linux_read_core_file_mappings() in linux-tdep.c for an example
-     read_core_file_mappings method.  */
-  gdbarch_read_core_file_mappings (m_core_gdbarch, core_bfd,
+  /* All files mapped into the core file.  */
+  std::vector<core_mapped_file> mapped_files
+    = gdb_read_core_file_mappings (m_core_gdbarch, this->core_bfd ());
 
-    /* After determining the number of mappings, read_core_file_mappings
-       will invoke this lambda.  */
-    [&] (ULONGEST)
-      {
-      },
+  for (const core_mapped_file &file_data : mapped_files)
+    {
+      /* A mapping without a filename can still have a build-id.  Tracking
+	 these mappings is useful as when the shared libraries are loaded,
+	 if the shared library is within this anonymous region, we can
+	 validate the build-id of the shared library being loaded.  */
+      if (file_data.filename.empty ())
+	{
+	  gdb_assert (file_data.build_id != nullptr);
+	  std::vector<mem_range> ranges = file_data.mem_ranges ();
+	  m_mapped_file_info.add (nullptr, nullptr, nullptr,
+				  std::move (ranges), file_data.build_id);
+	  continue;
+	}
 
-    /* read_core_file_mappings will invoke this lambda for each mapping
-       that it finds.  */
-    [&] (int num, ULONGEST start, ULONGEST end, ULONGEST file_ofs,
-	 const char *filename, const bfd_build_id *build_id)
-      {
-	/* Architecture-specific read_core_mapping methods are expected to
-	   weed out non-file-backed mappings.  */
-	gdb_assert (filename != nullptr);
+      /* If this mapped file is marked as the main executable then record
+	 the filename as we can use this later.  */
+      if (file_data.is_main_exec && m_expected_exec_filename.empty ())
+	m_expected_exec_filename = file_data.filename;
 
-	if (unavailable_paths.find (filename) != unavailable_paths.end ())
-	  {
-	    /* We have already seen some mapping for FILENAME but failed to
-	       find/open the file.  There is no point in trying the same
-	       thing again so just record that the range [start, end) is
-	       unavailable.  */
-	    m_core_unavailable_mappings.emplace_back (start, end - start);
-	    return;
-	  }
+      /* Use exec_file_find() to do sysroot expansion.  It'll
+	 also strip the potential sysroot "target:" prefix.  If
+	 there is no sysroot, an equivalent (possibly more
+	 canonical) pathname will be provided.  */
+      gdb::unique_xmalloc_ptr<char> expanded_fname
+	= exec_file_find (file_data.filename.c_str ());
 
-	struct bfd *bfd = bfd_map[filename];
-	if (bfd == nullptr)
-	  {
-	    /* Use exec_file_find() to do sysroot expansion.  It'll
-	       also strip the potential sysroot "target:" prefix.  If
-	       there is no sysroot, an equivalent (possibly more
-	       canonical) pathname will be provided.  */
-	    gdb::unique_xmalloc_ptr<char> expanded_fname
-	      = exec_file_find (filename, NULL);
+      bool build_id_mismatch = false;
+      if (expanded_fname != nullptr && file_data.build_id != nullptr)
+	{
+	  /* We temporarily open the bfd as a structured target, this
+	     allows us to read the build-id from the bfd if there is one.
+	     For this task it's OK if we reuse an already open bfd object,
+	     so we make this call through GDB's bfd cache.  Once we've
+	     checked the build-id (if there is one) we'll drop this
+	     reference and re-open the bfd using the "binary" target.  */
+	  gdb_bfd_ref_ptr tmp_bfd
+	    = gdb_bfd_open (expanded_fname.get (), gnutarget);
 
-	    if (expanded_fname == nullptr && build_id != nullptr)
-	      debuginfod_exec_query (build_id->data, build_id->size,
-				     filename, &expanded_fname);
+	  if (tmp_bfd != nullptr
+	      && gdb_bfd_check_format (tmp_bfd.get (), bfd_object)
+	      && build_id_bfd_get (tmp_bfd.get ()) != nullptr)
+	    {
+	      /* The newly opened TMP_BFD has a build-id, and this mapped
+		 file has a build-id extracted from the core-file.  Check
+		 the build-id's match, and if not, reject TMP_BFD.  */
+	      const struct bfd_build_id *found
+		= build_id_bfd_get (tmp_bfd.get ());
+	      if (!build_id_equal (found, file_data.build_id))
+		build_id_mismatch = true;
+	    }
+	}
 
-	    if (expanded_fname == nullptr)
-	      {
-		m_core_unavailable_mappings.emplace_back (start, end - start);
-		unavailable_paths.insert (filename);
-		warning (_("Can't open file %s during file-backed mapping "
+      gdb_bfd_ref_ptr abfd;
+      if (expanded_fname != nullptr && !build_id_mismatch)
+	abfd = gdb_bfd_openr (expanded_fname.get (), "binary");
+
+      if ((expanded_fname == nullptr
+	   || abfd == nullptr
+	   || !gdb_bfd_check_format (abfd.get (), bfd_object))
+	  && file_data.build_id != nullptr)
+	{
+	  abfd = find_objfile_by_build_id (current_program_space,
+					   file_data.build_id,
+					   file_data.filename.c_str ());
+
+	  if (abfd != nullptr)
+	    {
+	      /* The find_objfile_by_build_id will have opened ABFD using
+		 the GNUTARGET global bfd type, however, we need the bfd
+		 opened as the binary type (see the function's header
+		 comment), so now we reopen ABFD with the desired binary
+		 type.  */
+	      expanded_fname
+		= make_unique_xstrdup (bfd_get_filename (abfd.get ()));
+	      abfd = gdb_bfd_openr (expanded_fname.get (), "binary");
+	      gdb_assert (abfd != nullptr);
+	    }
+	}
+
+      if (expanded_fname == nullptr
+	  || abfd == nullptr
+	  || !gdb_bfd_check_format (abfd.get (), bfd_object))
+	{
+	  /* If ABFD was opened, but the wrong format, close it now.  */
+	  abfd = nullptr;
+
+	  /* When true, this indicates that the mapped contents of this
+	     file are available within the core file.  When false, some of
+	     the mapped contents are not available.  If the contents are
+	     entirely available within the core file, then we don't need to
+	     warn the user if GDB cannot find the file.  */
+	  bool content_is_in_core_file_p = true;
+
+	  /* Record all regions for this file as unavailable.  */
+	  for (const core_mapped_file::region &region : file_data.regions)
+	    {
+	      /* Check to see if the region is available within the core
+		 file.  */
+	      bool found_region_in_core_file = false;
+	      for (const target_section &ts : m_core_section_table)
+		{
+		  if (ts.addr <= region.start && ts.endaddr >= region.end
+		      && (ts.the_bfd_section->flags & SEC_HAS_CONTENTS) != 0)
+		    {
+		      found_region_in_core_file = true;
+		      break;
+		    }
+		}
+
+	      /* This region is not available within the core file.
+		 Without the file available to read from it is not possible
+		 for GDB to read this mapping within the inferior.  Warn
+		 the user about this case.  */
+	      if (!found_region_in_core_file)
+		content_is_in_core_file_p = false;
+
+	      /* Record the unavailable region.  */
+	      m_core_unavailable_mappings.emplace_back (region.start,
+							region.end
+							- region.start);
+	    }
+
+	  /* And give the user an appropriate warning.  */
+	  if (build_id_mismatch)
+	    {
+	      if (expanded_fname == nullptr
+		  || file_data.filename == expanded_fname.get ())
+		warning (_("File %ps doesn't match build-id from core-file "
+			   "during file-backed mapping processing"),
+			 styled_string (file_name_style.style (),
+					file_data.filename.c_str ()));
+	      else
+		warning (_("File %ps which was expanded to %ps, doesn't match "
+			   "build-id from core-file during file-backed "
+			   "mapping processing"),
+			 styled_string (file_name_style.style (),
+					file_data.filename.c_str ()),
+			 styled_string (file_name_style.style (),
+					expanded_fname.get ()));
+	    }
+	  else if (!content_is_in_core_file_p)
+	    {
+	      if (expanded_fname == nullptr
+		  || file_data.filename == expanded_fname.get ())
+		warning (_("Can't open file %ps during file-backed mapping "
 			   "note processing"),
-			 filename);
-		return;
-	      }
-
-	    bfd = bfd_openr (expanded_fname.get (), "binary");
-
-	    if (bfd == nullptr || !bfd_check_format (bfd, bfd_object))
-	      {
-		m_core_unavailable_mappings.emplace_back (start, end - start);
-		unavailable_paths.insert (filename);
-		warning (_("Can't open file %s which was expanded to %s "
+			 styled_string (file_name_style.style (),
+					file_data.filename.c_str ()));
+	      else
+		warning (_("Can't open file %ps which was expanded to %ps "
 			   "during file-backed mapping note processing"),
-			 filename, expanded_fname.get ());
+			 styled_string (file_name_style.style (),
+					file_data.filename.c_str ()),
+			 styled_string (file_name_style.style (),
+					expanded_fname.get ()));
+	    }
+	}
+      else
+	{
+	  /* Ensure that the bfd will be closed when core_bfd is closed.
+	     This can be checked before/after a core file detach via "maint
+	     info bfds".  */
+	  gdb_bfd_record_inclusion (this->core_bfd (), abfd.get ());
 
-		if (bfd != nullptr)
-		  bfd_close (bfd);
-		return;
-	      }
-	    /* Ensure that the bfd will be closed when core_bfd is closed. 
-	       This can be checked before/after a core file detach via
-	       "maint info bfds".  */
-	    gdb_bfd_record_inclusion (core_bfd, bfd);
-	    bfd_map[filename] = bfd;
-	  }
+	  /* Create sections for each mapped region.  */
+	  for (const core_mapped_file::region &region : file_data.regions)
+	    {
+	      /* Make new BFD section.  All sections have the same name,
+		 which is permitted by bfd_make_section_anyway().  */
+	      asection *sec = bfd_make_section_anyway (abfd.get (), "load");
+	      if (sec == nullptr)
+		error (_("Can't make section"));
+	      sec->filepos = region.file_ofs;
+	      bfd_set_section_flags (sec, SEC_READONLY | SEC_HAS_CONTENTS);
+	      bfd_set_section_size (sec, region.end - region.start);
+	      bfd_set_section_vma (sec, region.start);
+	      bfd_set_section_lma (sec, region.start);
+	      bfd_set_section_alignment (sec, 2);
 
-	/* Make new BFD section.  All sections have the same name,
-	   which is permitted by bfd_make_section_anyway().  */
-	asection *sec = bfd_make_section_anyway (bfd, "load");
-	if (sec == nullptr)
-	  error (_("Can't make section"));
-	sec->filepos = file_ofs;
-	bfd_set_section_flags (sec, SEC_READONLY | SEC_HAS_CONTENTS);
-	bfd_set_section_size (sec, end - start);
-	bfd_set_section_vma (sec, start);
-	bfd_set_section_lma (sec, start);
-	bfd_set_section_alignment (sec, 2);
+	      /* Set target_section fields.  */
+	      m_core_file_mappings.emplace_back (region.start, region.end, sec);
+	    }
+	}
 
-	/* Set target_section fields.  */
-	m_core_file_mappings.emplace_back (start, end, sec);
+      /* If this is a bfd with a build-id then record the filename,
+	 optional soname (DT_SONAME .dynamic attribute), and the range of
+	 addresses at which this bfd is mapped.  This information can be
+	 used to perform build-id checking when loading the shared
+	 libraries.  */
+      if (file_data.build_id != nullptr)
+	{
+	  std::vector<mem_range> ranges = file_data.mem_ranges ();
 
-	/* If this is a bfd of a shared library, record its soname
-	   and build id.  */
-	if (build_id != nullptr)
-	  {
-	    gdb::unique_xmalloc_ptr<char> soname
-	      = gdb_bfd_read_elf_soname (bfd->filename);
-	    if (soname != nullptr)
-	      set_cbfd_soname_build_id (current_program_space->cbfd,
-					soname.get (), build_id);
-	  }
-      });
+	  const char *actual_filename = nullptr;
+	  gdb::unique_xmalloc_ptr<char> soname;
+	  if (abfd != nullptr)
+	    {
+	      actual_filename = bfd_get_filename (abfd.get ());
+	      soname = gdb_bfd_read_elf_soname (actual_filename);
+	    }
+
+	  m_mapped_file_info.add (soname.get (), file_data.filename.c_str (),
+				  actual_filename, std::move (ranges),
+				  file_data.build_id);
+	}
+    }
 
   normalize_mem_ranges (&m_core_unavailable_mappings);
 }
@@ -321,21 +624,19 @@ core_target::build_file_mappings ()
 /* An arbitrary identifier for the core inferior.  */
 #define CORELOW_PID 1
 
+/* See class declaration above.  */
+
 void
-core_target::clear_core ()
+core_target::exit_core_file_inferior ()
 {
-  if (core_bfd)
-    {
-      switch_to_no_thread ();    /* Avoid confusion from thread
-				    stuff.  */
-      exit_inferior_silent (current_inferior ());
+  /* Avoid confusion from thread stuff.  */
+  switch_to_no_thread ();
 
-      /* Clear out solib state while the bfd is still open.  See
-	 comments in clear_solib in solib.c.  */
-      clear_solib ();
+  exit_inferior (current_inferior ());
 
-      current_program_space->cbfd.reset (nullptr);
-    }
+  /* Clear out solib state while the bfd is still open.  See
+     comments in clear_solib in solib.c.  */
+  clear_solib (current_program_space);
 }
 
 /* Close the core target.  */
@@ -343,11 +644,39 @@ core_target::clear_core ()
 void
 core_target::close ()
 {
-  clear_core ();
+  /* The core BFD is set when the core_target is created and attached to
+     the inferior.  It is never explicitly cleared, instead m_core_bfd will
+     have its reference count reduced when the core_target is deleted.  */
+  gdb_assert (this->core_bfd () != nullptr);
+
+  /* If we called ::detach before calling ::close then the inferior will
+     have already been exited.  This will happen if the user clears the
+     core file with the 'core-file' or 'detach' commands.
+
+     However, if the user just causes the core_target to be unpushed, by
+     pushing an alternative target, e.g. 'target remote ....', then we will
+     not call ::detach before calling ::close.
+
+     In the former case we don't want to exit the inferior twice; this is
+     mostly harmless except it causes two 'exited' events to be emitted in
+     the Python API, which isn't ideal.
+
+     As opening a core_target always ensures that a pid is assigned to the
+     core file inferior, even if it is the fake CORELOW_PID, then we can
+     tell if exit_core_file_inferior has already been called by checking if
+     the inferior has a non-zero pid or not.  */
+  if (current_inferior ()->pid != 0)
+    exit_core_file_inferior ();
 
   /* Core targets are heap-allocated (see core_target_open), so here
      we delete ourselves.  */
   delete this;
+
+  /* Notify that the core file has changed.  This is intentionally done
+     after the core_target is deleted as nothing in here depends on the
+     core_target itself, the core_target has already been removed from the
+     inferior's target stack by this point.  */
+  gdb::observers::core_file_changed.notify (current_inferior ());
 }
 
 /* Look for sections whose names start with `.reg/' so that we can
@@ -395,10 +724,10 @@ core_file_command (const char *filename, int from_tty)
 
   if (filename == NULL)
     {
-      if (core_bfd != NULL)
+      if (get_core_target (current_inferior ()) != nullptr)
 	{
 	  target_detach (current_inferior (), from_tty);
-	  gdb_assert (core_bfd == NULL);
+	  gdb_assert (get_core_target (current_inferior ()) == nullptr);
 	}
       else
 	maybe_say_no_core_file_now (from_tty);
@@ -447,17 +776,20 @@ core_file_command (const char *filename, int from_tty)
      .reg/1, .reg2/1, .reg/2, .reg2/2
 
    After calling this function the rest of the core file handling code can
-   treat this core file just like any other core file.  */
+   treat this core file just like any other core file.
+
+   CBFD is the core file being loaded, and INF is the inferior through
+   which the core file will be examined.  */
 
 static void
-rename_vmcore_idle_reg_sections (bfd *abfd, inferior *inf)
+rename_vmcore_idle_reg_sections (bfd *cbfd, inferior *inf)
 {
   /* Map from the bfd section to its lwpid (the /NN number).  */
   std::vector<std::pair<asection *, int>> sections_and_lwpids;
 
   /* The set of all /NN numbers found.  Needed so we can easily find unused
      numbers in the case that we need to rename some sections.  */
-  std::unordered_set<int> all_lwpids;
+  gdb::unordered_set<int> all_lwpids;
 
   /* A count of how many sections called .reg/0 we have found.  */
   unsigned zero_lwpid_count = 0;
@@ -465,7 +797,7 @@ rename_vmcore_idle_reg_sections (bfd *abfd, inferior *inf)
   /* Look for all the .reg sections.  Record the section object and the
      lwpid which is extracted from the section name.  Spot if any have an
      lwpid of zero.  */
-  for (asection *sect : gdb_bfd_sections (core_bfd))
+  for (asection *sect : gdb_bfd_sections (cbfd))
     {
       if (startswith (bfd_section_name (sect), ".reg/"))
 	{
@@ -498,7 +830,7 @@ rename_vmcore_idle_reg_sections (bfd *abfd, inferior *inf)
   std::string replacement_lwpid_str;
   auto iter = sections_and_lwpids.begin ();
   int replacement_lwpid = 0;
-  for (asection *sect : gdb_bfd_sections (core_bfd))
+  for (asection *sect : gdb_bfd_sections (cbfd))
     {
       if (iter != sections_and_lwpids.end () && sect == iter->first)
 	{
@@ -536,7 +868,7 @@ rename_vmcore_idle_reg_sections (bfd *abfd, inferior *inf)
 				 static_cast<int> (len - 2),
 				 name, replacement_lwpid);
 	      char *name_buf
-		= static_cast<char *> (bfd_alloc (abfd, name_str.size () + 1));
+		= static_cast<char *> (bfd_alloc (cbfd, name_str.size () + 1));
 	      if (name_buf == nullptr)
 		error (_("failed to allocate space for section name '%s'"),
 		       name_str.c_str ());
@@ -554,38 +886,137 @@ rename_vmcore_idle_reg_sections (bfd *abfd, inferior *inf)
 	     replacement_lwpid_str.c_str ());
 }
 
+/* Use CTX to try and find (and open) the executable file for the core file
+   CBFD.  BUILD_ID is the build-id for CBFD which was already extracted by
+   our caller.
+
+   Will return the opened executable or nullptr if the executable couldn't
+   be found.  */
+
+static gdb_bfd_ref_ptr
+locate_exec_from_corefile_exec_context (bfd *cbfd,
+					const bfd_build_id *build_id,
+					const core_file_exec_context &ctx)
+{
+  /* CTX must be valid, and a valid context has an execfn() string.  */
+  gdb_assert (ctx.valid ());
+  gdb_assert (ctx.execfn () != nullptr);
+
+  /* EXEC_NAME will be the command used to start the inferior.  This might
+     not be an absolute path (but could be).  */
+  const char *exec_name = ctx.execfn ();
+
+  /* Function to open FILENAME and check if its build-id matches BUILD_ID
+     from this enclosing scope.  Returns the open BFD for filename if the
+     FILENAME has a matching build-id, otherwise, returns nullptr.  */
+  const auto open_and_check_build_id
+    = [&build_id] (const char *filename) -> gdb_bfd_ref_ptr
+  {
+    /* Try to open a file.  If this succeeds then we still need to perform
+       a build-id check.  */
+    gdb_bfd_ref_ptr execbfd = gdb_bfd_open (filename, gnutarget);
+
+    /* We managed to open a file, but if it's build-id doesn't match
+       BUILD_ID then we just cannot trust it's the right file.  */
+    if (execbfd != nullptr)
+      {
+	const bfd_build_id *other_build_id = build_id_bfd_get (execbfd.get ());
+
+	if (other_build_id == nullptr
+	    || !build_id_equal (other_build_id, build_id))
+	  execbfd = nullptr;
+      }
+
+    return execbfd;
+  };
+
+  gdb_bfd_ref_ptr execbfd;
+
+  /* If EXEC_NAME is absolute then try to open it now.  Otherwise, see if
+     EXEC_NAME is a relative path from the location of the core file.  This
+     is just a guess, the executable might not be here, but we still rely
+     on a build-id match in order to accept any executable we find; we
+     don't accept something just because it happens to be in the right
+     location.  */
+  if (IS_ABSOLUTE_PATH (exec_name))
+    execbfd = open_and_check_build_id (exec_name);
+  else
+    {
+      std::string p = (gdb_ldirname (bfd_get_filename (cbfd))
+		       + '/'
+		       + exec_name);
+      execbfd = open_and_check_build_id (p.c_str ());
+    }
+
+  /* If we haven't found the executable yet, then try checking to see if
+     the executable is in the same directory as the core file.  Again,
+     there's no reason why this should be the case, but it's worth a try,
+     and the build-id check should ensure we don't use an invalid file if
+     we happen to find one.  */
+  if (execbfd == nullptr)
+    {
+      const char *base_name = lbasename (exec_name);
+      std::string p = (gdb_ldirname (bfd_get_filename (cbfd))
+		       + '/'
+		       + base_name);
+      execbfd = open_and_check_build_id (p.c_str ());
+    }
+
+  /* If the above didn't provide EXECBFD then try the exec_filename from
+     the context.  This will be an absolute filename which the gdbarch code
+     figured out from the core file.  In some cases the gdbarch code might
+     not be able to figure out a suitable absolute filename though.  */
+  if (execbfd == nullptr && ctx.exec_filename () != nullptr)
+    {
+      gdb_assert (IS_ABSOLUTE_PATH (ctx.exec_filename ()));
+
+      /* Try to open a file.  If this succeeds then we still need to
+	 perform a build-id check.  */
+      execbfd = open_and_check_build_id (ctx.exec_filename ());
+    }
+
+  return execbfd;
+}
+
 /* Locate (and load) an executable file (and symbols) given the core file
    BFD ABFD.  */
 
 static void
-locate_exec_from_corefile_build_id (bfd *abfd, int from_tty)
+locate_exec_from_corefile_build_id (bfd *abfd,
+				    core_target *target,
+				    const core_file_exec_context &ctx,
+				    int from_tty)
 {
   const bfd_build_id *build_id = build_id_bfd_get (abfd);
   if (build_id == nullptr)
     return;
 
-  gdb_bfd_ref_ptr execbfd
-    = build_id_to_exec_bfd (build_id->size, build_id->data);
+  gdb_bfd_ref_ptr execbfd;
+
+  if (ctx.valid ())
+    execbfd = locate_exec_from_corefile_exec_context (abfd, build_id, ctx);
 
   if (execbfd == nullptr)
     {
-      /* Attempt to query debuginfod for the executable.  */
-      gdb::unique_xmalloc_ptr<char> execpath;
-      scoped_fd fd = debuginfod_exec_query (build_id->data, build_id->size,
-					    abfd->filename, &execpath);
+      /* The filename used for the find_objfile_by_build_id call.  */
+      std::string filename;
 
-      if (fd.get () >= 0)
+      if (!target->expected_exec_filename ().empty ())
+	filename = target->expected_exec_filename ();
+      else
 	{
-	  execbfd = gdb_bfd_open (execpath.get (), gnutarget);
-
-	  if (execbfd == nullptr)
-	    warning (_("\"%s\" from debuginfod cannot be opened as bfd: %s"),
-		     execpath.get (),
-		     gdb_bfd_errmsg (bfd_get_error (), nullptr).c_str ());
-	  else if (!build_id_verify (execbfd.get (), build_id->size,
-				     build_id->data))
-	    execbfd.reset (nullptr);
+	  /* We didn't find an executable name from the mapped file
+	     information, so as a stand-in build a string based on the
+	     build-id.  */
+	  std::string build_id_hex_str
+	    = bin2hex (build_id->data, build_id->size);
+	  filename
+	    = string_printf ("with build-id %s", build_id_hex_str.c_str ());
 	}
+
+      execbfd
+	= find_objfile_by_build_id (current_program_space, build_id,
+				    filename.c_str ());
     }
 
   if (execbfd != nullptr)
@@ -596,73 +1027,68 @@ locate_exec_from_corefile_build_id (bfd *abfd, int from_tty)
     }
 }
 
-/* See gdbcore.h.  */
+/* Open and set up the core file bfd.  */
 
-void
+static void
 core_target_open (const char *arg, int from_tty)
 {
-  const char *p;
   int siggy;
   int scratch_chan;
   int flags;
 
   target_preopen (from_tty);
-  if (!arg)
-    {
-      if (core_bfd)
-	error (_("No core file specified.  (Use `detach' "
-		 "to stop debugging a core file.)"));
-      else
-	error (_("No core file specified."));
-    }
 
-  gdb::unique_xmalloc_ptr<char> filename (tilde_expand (arg));
-  if (strlen (filename.get ()) != 0
-      && !IS_ABSOLUTE_PATH (filename.get ()))
-    filename = make_unique_xstrdup (gdb_abspath (filename.get ()).c_str ());
+  /* The target_preopen call will remove any existing process stratum
+     target, which includes any existing core_target.  */
+  gdb_assert (current_inferior ()->process_target () == nullptr);
+
+  /* Which will clear up any existing core file BFD.  */
+  gdb_assert (get_inferior_core_bfd (current_inferior ()) == nullptr);
+
+  std::string filename = extract_single_filename_arg (arg);
+
+  if (filename.empty ())
+    error (_("No core file specified."));
+
+  if (!IS_ABSOLUTE_PATH (filename.c_str ()))
+    filename = gdb_abspath (filename);
 
   flags = O_BINARY | O_LARGEFILE;
   if (write_files)
     flags |= O_RDWR;
   else
     flags |= O_RDONLY;
-  scratch_chan = gdb_open_cloexec (filename.get (), flags, 0).release ();
+  scratch_chan = gdb_open_cloexec (filename.c_str (), flags, 0).release ();
   if (scratch_chan < 0)
-    perror_with_name (filename.get ());
+    perror_with_name (filename.c_str ());
 
-  gdb_bfd_ref_ptr temp_bfd (gdb_bfd_fopen (filename.get (), gnutarget,
+  gdb_bfd_ref_ptr temp_bfd (gdb_bfd_fopen (filename.c_str (), gnutarget,
 					   write_files ? FOPEN_RUB : FOPEN_RB,
 					   scratch_chan));
   if (temp_bfd == NULL)
-    perror_with_name (filename.get ());
+    perror_with_name (filename.c_str ());
 
-  if (!bfd_check_format (temp_bfd.get (), bfd_core))
+  if (!gdb_bfd_check_format (temp_bfd.get (), bfd_core))
     {
       /* Do it after the err msg */
       /* FIXME: should be checking for errors from bfd_close (for one
 	 thing, on error it does not free all the storage associated
 	 with the bfd).  */
-      error (_("\"%s\" is not a core dump: %s"),
-	     filename.get (), bfd_errmsg (bfd_get_error ()));
+      error (_("\"%ps\" is not a core dump: %s"),
+	     styled_string (file_name_style.style (), filename.c_str ()),
+	     bfd_errmsg (bfd_get_error ()));
     }
 
-  current_program_space->cbfd = std::move (temp_bfd);
-
-  core_target *target = new core_target ();
+  core_target *target = new core_target (std::move (temp_bfd));
 
   /* Own the target until it is successfully pushed.  */
   target_ops_up target_holder (target);
 
-  validate_files ();
-
-  /* If we have no exec file, try to set the architecture from the
-     core file.  We don't do this unconditionally since an exec file
-     typically contains more information that helps us determine the
-     architecture than a core file.  */
-  if (!current_program_space->exec_bfd ())
-    set_gdbarch_from_file (core_bfd);
-
   current_inferior ()->push_target (std::move (target_holder));
+
+  /* Validate files after pushing the core_target, this allows the
+     validate_files function to see the newly loaded core file.  */
+  validate_files ();
 
   switch_to_no_thread ();
 
@@ -677,7 +1103,7 @@ core_target_open (const char *arg, int from_tty)
   /* Find (or fake) the pid for the process in this core file, and
      initialise the current inferior with that pid.  */
   bool fake_pid_p = false;
-  int pid = bfd_core_file_pid (core_bfd);
+  int pid = bfd_core_file_pid (target->core_bfd ());
   if (pid == 0)
     {
       fake_pid_p = true;
@@ -690,13 +1116,14 @@ core_target_open (const char *arg, int from_tty)
   inf->fake_pid_p = fake_pid_p;
 
   /* Rename any .reg/0 sections, giving them each a fake lwpid.  */
-  rename_vmcore_idle_reg_sections (core_bfd, inf);
+  rename_vmcore_idle_reg_sections (target->core_bfd (), inf);
 
   /* Build up thread list from BFD sections, and possibly set the
      current thread to the .reg/NN section matching the .reg
      section.  */
-  asection *reg_sect = bfd_get_section_by_name (core_bfd, ".reg");
-  for (asection *sect : gdb_bfd_sections (core_bfd))
+  asection *reg_sect
+    = bfd_get_section_by_name (target->core_bfd (), ".reg");
+  for (asection *sect : gdb_bfd_sections (target->core_bfd ()))
     add_to_thread_list (sect, reg_sect, inf);
 
   if (inferior_ptid == null_ptid)
@@ -710,15 +1137,38 @@ core_target_open (const char *arg, int from_tty)
       thread_info *thread = first_thread_of_inferior (inf);
 
       if (thread == NULL)
-	thread = add_thread_silent (target, ptid_t (CORELOW_PID));
+	thread = add_thread_silent (target, ptid_t (inf->pid));
 
       switch_to_thread (thread);
     }
 
+  /* In order to parse the exec context from the core file the current
+     inferior needs to have a suitable gdbarch set.  If an exec file is
+     loaded then the gdbarch will have been set based on the exec file, but
+     if not, ensure we have a suitable gdbarch in place now.  */
   if (current_program_space->exec_bfd () == nullptr)
-    locate_exec_from_corefile_build_id (core_bfd, from_tty);
+      current_inferior ()->set_arch (target->core_gdbarch ());
 
-  post_create_inferior (from_tty);
+  /* See if the gdbarch can find the executable name and argument list from
+     the core file.  */
+  core_file_exec_context ctx
+    = gdbarch_core_parse_exec_context (target->core_gdbarch (),
+				       target->core_bfd ());
+
+  /* If we don't have an executable loaded then see if we can locate one
+     based on the core file.  */
+  if (current_program_space->exec_bfd () == nullptr)
+    locate_exec_from_corefile_build_id (target->core_bfd (), target, ctx,
+					from_tty);
+
+  /* If we have no exec file, try to set the architecture from the
+     core file.  We don't do this unconditionally since an exec file
+     typically contains more information that helps us determine the
+     architecture than a core file.  */
+  if (current_program_space->exec_bfd () == nullptr)
+    set_gdbarch_from_file (target->core_bfd ());
+
+  post_create_inferior (from_tty, true);
 
   /* Now go through the target stack looking for threads since there
      may be a thread_stratum target loaded on top of target core by
@@ -734,14 +1184,38 @@ core_target_open (const char *arg, int from_tty)
       exception_print (gdb_stderr, except);
     }
 
-  p = bfd_core_file_failing_command (core_bfd);
-  if (p)
-    gdb_printf (_("Core was generated by `%s'.\n"), p);
+  if (ctx.valid ())
+    {
+      /* Copy the arguments into the inferior.  */
+      std::vector<char *> argv;
+      for (const gdb::unique_xmalloc_ptr<char> &a : ctx.args ())
+	argv.push_back (a.get ());
+      gdb::array_view<char * const> view (argv.data (), argv.size ());
+      current_inferior ()->set_args (view, true);
+
+      /* And now copy the environment.  */
+      current_inferior ()->environment = ctx.environment ();
+
+      /* Inform the user of executable and arguments.  */
+      const std::string &args = current_inferior ()->args ();
+      gdb_printf (_("Core was generated by `%ps%s%s'.\n"),
+		  styled_string (file_name_style.style (),
+				 ctx.execfn ()),
+		  (args.length () > 0 ? " " : ""), args.c_str ());
+    }
+  else
+    {
+      const char *failing_command
+	= bfd_core_file_failing_command (target->core_bfd ());
+      if (failing_command != nullptr)
+	gdb_printf (_("Core was generated by `%s'.\n"),
+		    failing_command);
+    }
 
   /* Clearing any previous state of convenience variables.  */
   clear_exit_convenience_vars ();
 
-  siggy = bfd_core_file_failing_signal (core_bfd);
+  siggy = bfd_core_file_failing_signal (target->core_bfd ());
   if (siggy > 0)
     {
       gdbarch *core_gdbarch = target->core_gdbarch ();
@@ -771,11 +1245,11 @@ core_target_open (const char *arg, int from_tty)
     }
 
   /* Fetch all registers from core file.  */
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (get_thread_regcache (inferior_thread ()), -1);
 
   /* Now, set up the frame cache, and print the top of stack.  */
   reinit_frame_cache ();
-  print_stack_frame (get_selected_frame (NULL), 1, SRC_AND_LOC, 1);
+  print_stack_frame (get_selected_frame (), 1, SRC_AND_LOC, 1);
 
   /* Current thread should be NUM 1 but the user does not know that.
      If a program is single threaded gdb in general does not mention
@@ -791,25 +1265,37 @@ core_target_open (const char *arg, int from_tty)
 	  exception_print (gdb_stderr, except);
 	}
     }
+
+  /* Notify that the core file has changed.  */
+  gdb::observers::core_file_changed.notify (current_inferior ());
 }
 
 void
 core_target::detach (inferior *inf, int from_tty)
 {
-  /* Get rid of the core.  Don't rely on core_target::close doing it,
-     because target_detach may be called with core_target's refcount > 1,
-     meaning core_target::close may not be called yet by the
-     unpush_target call below.  */
-  clear_core ();
+  /* The core BFD is set when the core_target is created and attached to
+     the inferior.  It is never explicitly cleared, instead m_core_bfd will
+     have its reference count reduced when the core_target is deleted.  */
+  gdb_assert (this->core_bfd () != nullptr);
 
-  /* Note that 'this' may be dangling after this call.  unpush_target
-     closes the target if the refcount reaches 0, and our close
-     implementation deletes 'this'.  */
+  /* Similarly, the inferior and thread are created when the core_target is
+     opened, and are only exited when this function, or ::close are called.
+     As calling ::close deletes the core_target, then when this function is
+     called, the inferior will still be live.  */
+  gdb_assert (inferior_ptid != null_ptid);
+
+  /* Get rid of the core inferior.  */
+  exit_core_file_inferior ();
+
+  /* This detach method should only be called from target_detach, which
+     holds a reference to this core_target.  As such, this core_target will
+     not be deleted when it is unpushed from INF's target stack.  Instead
+     this core_target will be deleted when target_detach returns, at which
+     point the reference count on this core_target will reach 0, and our
+     close method will delete 'this'.  */
   inf->unpush_target (this);
 
-  /* Clear the register cache and the frame cache.  */
-  registers_changed ();
-  reinit_frame_cache ();
+  /* Inform the user.  */
   maybe_say_no_core_file_now (from_tty);
 }
 
@@ -844,7 +1330,7 @@ core_target::get_core_register_section (struct regcache *regcache,
 
   thread_section_name section_name (name, regcache->ptid ());
 
-  section = bfd_get_section_by_name (core_bfd, section_name.c_str ());
+  section = bfd_get_section_by_name (this->core_bfd (), section_name.c_str ());
   if (! section)
     {
       if (required)
@@ -867,7 +1353,7 @@ core_target::get_core_register_section (struct regcache *regcache,
     }
 
   gdb::byte_vector contents (size);
-  if (!bfd_get_section_contents (core_bfd, section, contents.data (),
+  if (!bfd_get_section_contents (this->core_bfd (), section, contents.data (),
 				 (file_ptr) 0, size))
     {
       warning (_("Couldn't read %s registers from `%s' section in core file."),
@@ -902,13 +1388,13 @@ get_core_registers_cb (const char *sect_name, int supply_size, int collect_size,
   if (!variable_size_section)
     gdb_assert (supply_size == collect_size);
 
-  if (strcmp (sect_name, ".reg") == 0)
+  if (streq (sect_name, ".reg"))
     {
       required = true;
       if (human_name == NULL)
 	human_name = "general-purpose";
     }
-  else if (strcmp (sect_name, ".reg2") == 0)
+  else if (streq (sect_name, ".reg2"))
     {
       if (human_name == NULL)
 	human_name = "floating-point";
@@ -951,58 +1437,9 @@ core_target::fetch_registers (struct regcache *regcache, int regno)
 void
 core_target::files_info ()
 {
-  print_section_info (&m_core_section_table, core_bfd);
+  print_section_info (&m_core_section_table, this->core_bfd ());
 }
 
-/* Helper method for core_target::xfer_partial.  */
-
-enum target_xfer_status
-core_target::xfer_memory_via_mappings (gdb_byte *readbuf,
-				       const gdb_byte *writebuf,
-				       ULONGEST offset, ULONGEST len,
-				       ULONGEST *xfered_len)
-{
-  enum target_xfer_status xfer_status;
-
-  xfer_status = (section_table_xfer_memory_partial
-		   (readbuf, writebuf,
-		    offset, len, xfered_len,
-		    m_core_file_mappings));
-
-  if (xfer_status == TARGET_XFER_OK || m_core_unavailable_mappings.empty ())
-    return xfer_status;
-
-  /* There are instances - e.g. when debugging within a docker
-     container using the AUFS storage driver - where the pathnames
-     obtained from the note section are incorrect.  Despite the path
-     being wrong, just knowing the start and end addresses of the
-     mappings is still useful; we can attempt an access of the file
-     stratum constrained to the address ranges corresponding to the
-     unavailable mappings.  */
-
-  ULONGEST memaddr = offset;
-  ULONGEST memend = offset + len;
-
-  for (const auto &mr : m_core_unavailable_mappings)
-    {
-      if (address_in_mem_range (memaddr, &mr))
-	{
-	  if (!address_in_mem_range (memend, &mr))
-	    len = mr.start + mr.length - memaddr;
-
-	  xfer_status = this->beneath ()->xfer_partial (TARGET_OBJECT_MEMORY,
-							NULL,
-							readbuf,
-							writebuf,
-							offset,
-							len,
-							xfered_len);
-	  break;
-	}
-    }
-
-  return xfer_status;
-}
 
 enum target_xfer_status
 core_target::xfer_partial (enum target_object object, const char *annex,
@@ -1030,26 +1467,73 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	if (xfer_status == TARGET_XFER_OK)
 	  return TARGET_XFER_OK;
 
-	/* Check file backed mappings.  If they're available, use
-	   core file provided mappings (e.g. from .note.linuxcore.file
-	   or the like) as this should provide a more accurate
-	   result.  If not, check the stratum beneath us, which should
-	   be the file stratum.
-
-	   We also check unavailable mappings due to Docker/AUFS driver
-	   issues.  */
-	if (!m_core_file_mappings.empty ()
-	    || !m_core_unavailable_mappings.empty ())
+	/* Check file backed mappings.  If they're available, use core file
+	   provided mappings (e.g. from .note.linuxcore.file or the like)
+	   as this should provide a more accurate result.  */
+	if (!m_core_file_mappings.empty ())
 	  {
-	    xfer_status = xfer_memory_via_mappings (readbuf, writebuf, offset,
-						    len, xfered_len);
+	    xfer_status = section_table_xfer_memory_partial
+			    (readbuf, writebuf, offset, len, xfered_len,
+			     m_core_file_mappings);
+	    if (xfer_status == TARGET_XFER_OK)
+	      return xfer_status;
 	  }
-	else
-	  xfer_status = this->beneath ()->xfer_partial (object, annex, readbuf,
-							writebuf, offset, len,
-							xfered_len);
-	if (xfer_status == TARGET_XFER_OK)
-	  return TARGET_XFER_OK;
+
+	/* If the access is within an unavailable file mapping then we try
+	   to check in the stratum below (the executable stratum).  The
+	   thinking here is that if the mapping was read/write then the
+	   contents would have been written into the core file and the
+	   access would have been satisfied by m_core_section_table.
+
+	   But if the access has not yet been resolved then we can assume
+	   the access is read-only.  If the executable was not found
+	   during the mapped file check then we'll have an unavailable
+	   mapping entry, however, if the user has provided the executable
+	   (maybe in a different location) then we might be able to
+	   resolve the access from there.
+
+	   If that fails, but the access is within an unavailable region,
+	   then report the bytes as unavailable.  */
+	for (const auto &mr : m_core_unavailable_mappings)
+	  {
+	    if (mr.contains (offset))
+	      {
+		if (!mr.contains (offset + len))
+		  len = mr.start + mr.length - offset;
+
+		xfer_status
+		  = this->beneath ()->xfer_partial (TARGET_OBJECT_MEMORY,
+						    nullptr, readbuf,
+						    writebuf, offset,
+						    len, xfered_len);
+		if (xfer_status == TARGET_XFER_OK)
+		  return TARGET_XFER_OK;
+
+		*xfered_len = len;
+		return TARGET_XFER_UNAVAILABLE;
+	      }
+	  }
+
+	/* The following is acting as a fallback in case we encounter a
+	   situation where the core file is lacking and mapped file
+	   information.  Here we query the exec file stratum to see if it
+	   can resolve the access.  Doing this when we are missing mapped
+	   file information might be the best we can do, but there are
+	   certainly cases this will get wrong, e.g. if an inferior created
+	   a zero initialised mapping over the top of some data that exists
+	   within the executable then this will return the executable data
+	   rather than the zero data.  Maybe we should just drop this
+	   block?  */
+	if (m_core_file_mappings.empty ()
+	    && m_core_unavailable_mappings.empty ())
+	  {
+	    xfer_status
+	      = this->beneath ()->xfer_partial (object, annex, readbuf,
+						writebuf, offset, len,
+						xfered_len);
+	    if (xfer_status == TARGET_XFER_OK)
+	      return TARGET_XFER_OK;
+	  }
 
 	/* Finally, attempt to access data in core file sections with
 	   no contents.  These will typically read as all zero.  */
@@ -1074,7 +1558,7 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	  struct bfd_section *section;
 	  bfd_size_type size;
 
-	  section = bfd_get_section_by_name (core_bfd, ".auxv");
+	  section = bfd_get_section_by_name (this->core_bfd (), ".auxv");
 	  if (section == NULL)
 	    return TARGET_XFER_E_IO;
 
@@ -1087,7 +1571,7 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 
 	  if (size == 0)
 	    return TARGET_XFER_EOF;
-	  if (!bfd_get_section_contents (core_bfd, section, readbuf,
+	  if (!bfd_get_section_contents (this->core_bfd (), section, readbuf,
 					 (file_ptr) offset, size))
 	    {
 	      warning (_("Couldn't read NT_AUXV note in core file."));
@@ -1109,7 +1593,7 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	  struct bfd_section *section;
 	  bfd_size_type size;
 
-	  section = bfd_get_section_by_name (core_bfd, ".wcookie");
+	  section = bfd_get_section_by_name (this->core_bfd (), ".wcookie");
 	  if (section == NULL)
 	    return TARGET_XFER_E_IO;
 
@@ -1122,7 +1606,7 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 
 	  if (size == 0)
 	    return TARGET_XFER_EOF;
-	  if (!bfd_get_section_contents (core_bfd, section, readbuf,
+	  if (!bfd_get_section_contents (this->core_bfd (), section, readbuf,
 					 (file_ptr) offset, size))
 	    {
 	      warning (_("Couldn't read StackGhost cookie in core file."));
@@ -1143,9 +1627,8 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	    return TARGET_XFER_E_IO;
 	  else
 	    {
-	      *xfered_len = gdbarch_core_xfer_shared_libraries (m_core_gdbarch,
-								readbuf,
-								offset, len);
+	      *xfered_len = gdbarch_core_xfer_shared_libraries
+		(m_core_gdbarch, *this->core_bfd (), readbuf, offset, len);
 
 	      if (*xfered_len == 0)
 		return TARGET_XFER_EOF;
@@ -1164,9 +1647,8 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	  else
 	    {
 	      *xfered_len
-		= gdbarch_core_xfer_shared_libraries_aix (m_core_gdbarch,
-							  readbuf, offset,
-							  len);
+		= gdbarch_core_xfer_shared_libraries_aix
+		(m_core_gdbarch, *this->core_bfd (), readbuf, offset, len);
 
 	      if (*xfered_len == 0)
 		return TARGET_XFER_EOF;
@@ -1182,8 +1664,10 @@ core_target::xfer_partial (enum target_object object, const char *annex,
 	  if (m_core_gdbarch != nullptr
 	      && gdbarch_core_xfer_siginfo_p (m_core_gdbarch))
 	    {
-	      LONGEST l = gdbarch_core_xfer_siginfo  (m_core_gdbarch, readbuf,
-						      offset, len);
+	      struct bfd *cbfd = this->core_bfd ();
+	      gdb_assert (cbfd != nullptr);
+	      LONGEST l = gdbarch_core_xfer_siginfo  (m_core_gdbarch, *cbfd,
+						      readbuf, offset, len);
 
 	      if (l >= 0)
 		{
@@ -1210,7 +1694,7 @@ core_target::xfer_partial (enum target_object object, const char *annex,
    exactly lively, are they?  On the other hand, if we don't claim
    that each & every one is alive, then we don't get any of them
    to appear in an "info thread" command, which is quite a useful
-   behaviour.
+   behavior.
  */
 bool
 core_target::thread_alive (ptid_t ptid)
@@ -1226,35 +1710,48 @@ core_target::thread_alive (ptid_t ptid)
 const struct target_desc *
 core_target::read_description ()
 {
-  /* If the core file contains a target description note then we will use
-     that in preference to anything else.  */
-  bfd_size_type tdesc_note_size = 0;
-  struct bfd_section *tdesc_note_section
-    = bfd_get_section_by_name (core_bfd, ".gdb-tdesc");
-  if (tdesc_note_section != nullptr)
-    tdesc_note_size = bfd_section_size (tdesc_note_section);
-  if (tdesc_note_size > 0)
+  /* First check whether the target wants us to use the corefile target
+     description notes.  */
+  if (gdbarch_use_target_description_from_corefile_notes
+	(m_core_gdbarch, m_core_bfd.get ()))
     {
-      gdb::char_vector contents (tdesc_note_size + 1);
-      if (bfd_get_section_contents (core_bfd, tdesc_note_section,
-				    contents.data (), (file_ptr) 0,
-				    tdesc_note_size))
+      /* If the core file contains a target description note then go ahead and
+	 use that.  */
+      bfd_size_type tdesc_note_size = 0;
+      struct bfd_section *tdesc_note_section
+	= bfd_get_section_by_name (m_core_bfd.get (), ".gdb-tdesc");
+      if (tdesc_note_section != nullptr)
+	tdesc_note_size = bfd_section_size (tdesc_note_section);
+      if (tdesc_note_size > 0)
 	{
-	  /* Ensure we have a null terminator.  */
-	  contents[tdesc_note_size] = '\0';
-	  const struct target_desc *result
-	    = string_read_description_xml (contents.data ());
-	  if (result != nullptr)
-	    return result;
+	  gdb::char_vector contents (tdesc_note_size + 1);
+	  if (bfd_get_section_contents (m_core_bfd.get (), tdesc_note_section,
+					contents.data (), (file_ptr) 0,
+					tdesc_note_size))
+	    {
+	      /* Ensure we have a null terminator.  */
+	      contents[tdesc_note_size] = '\0';
+	      const struct target_desc *result
+		= string_read_description_xml (contents.data ());
+	      if (result != nullptr)
+		return result;
+	    }
 	}
     }
 
+  /* If the architecture provides a corefile target description hook, use
+     it now.  Even if the core file contains a target description in a note
+     section, it is not useful for targets that can potentially have distinct
+     descriptions for each thread.  One example is AArch64's SVE/SME
+     extensions that allow per-thread vector length changes, resulting in
+     registers with different sizes.  */
   if (m_core_gdbarch && gdbarch_core_read_description_p (m_core_gdbarch))
     {
       const struct target_desc *result;
 
-      result = gdbarch_core_read_description (m_core_gdbarch, this, core_bfd);
-      if (result != NULL)
+      result = gdbarch_core_read_description (m_core_gdbarch, this,
+					      m_core_bfd.get ());
+      if (result != nullptr)
 	return result;
     }
 
@@ -1296,26 +1793,30 @@ core_target::thread_name (struct thread_info *thr)
 {
   if (m_core_gdbarch != nullptr
       && gdbarch_core_thread_name_p (m_core_gdbarch))
-    return gdbarch_core_thread_name (m_core_gdbarch, thr);
+    {
+      bfd *cbfd = this->core_bfd ();
+      gdb_assert (cbfd != nullptr);
+      return gdbarch_core_thread_name (m_core_gdbarch, *cbfd, thr);
+    }
   return NULL;
 }
 
 bool
 core_target::has_memory ()
 {
-  return (core_bfd != NULL);
+  return this->core_bfd () != nullptr;
 }
 
 bool
 core_target::has_stack ()
 {
-  return (core_bfd != NULL);
+  return this->core_bfd () != nullptr;
 }
 
 bool
 core_target::has_registers ()
 {
-  return (core_bfd != NULL);
+  return this->core_bfd () != nullptr;
 }
 
 /* Implement the to_info_proc method.  */
@@ -1328,7 +1829,7 @@ core_target::info_proc (const char *args, enum info_proc_what request)
   /* Since this is the core file target, call the 'core_info_proc'
      method on gdbarch, not 'info_proc'.  */
   if (gdbarch_core_info_proc_p (gdbarch))
-    gdbarch_core_info_proc (gdbarch, args, request);
+    gdbarch_core_info_proc (gdbarch, this->core_bfd (), args, request);
 
   return true;
 }
@@ -1341,7 +1842,7 @@ core_target::supports_memory_tagging ()
   /* Look for memory tag sections.  If they exist, that means this core file
      supports memory tagging.  */
 
-  return (bfd_get_section_by_name (core_bfd, "memtag") != nullptr);
+  return bfd_get_section_by_name (this->core_bfd (), "memtag") != nullptr;
 }
 
 /* Implementation of the "fetch_memtags" target_ops method.  */
@@ -1350,7 +1851,7 @@ bool
 core_target::fetch_memtags (CORE_ADDR address, size_t len,
 			    gdb::byte_vector &tags, int type)
 {
-  struct gdbarch *gdbarch = target_gdbarch ();
+  gdbarch *gdbarch = current_inferior ()->arch ();
 
   /* Make sure we have a way to decode the memory tag notes.  */
   if (!gdbarch_decode_memtag_section_p (gdbarch))
@@ -1360,7 +1861,7 @@ core_target::fetch_memtags (CORE_ADDR address, size_t len,
   memtag_section_info info;
   info.memtag_section = nullptr;
 
-  while (get_next_core_memtag_section (core_bfd, info.memtag_section,
+  while (get_next_core_memtag_section (this->core_bfd (), info.memtag_section,
 				       address, info))
   {
     size_t adjusted_length
@@ -1387,14 +1888,30 @@ core_target::fetch_memtags (CORE_ADDR address, size_t len,
   return false;
 }
 
-/* Get a pointer to the current core target.  If not connected to a
-   core target, return NULL.  */
-
-static core_target *
-get_current_core_target ()
+bool
+core_target::is_address_tagged (gdbarch *gdbarch, CORE_ADDR address)
 {
-  target_ops *proc_target = current_inferior ()->process_target ();
-  return dynamic_cast<core_target *> (proc_target);
+  return gdbarch_tagged_address_p (gdbarch, address);
+}
+
+/* Implementation of the "fetch_x86_xsave_layout" target_ops method.  */
+
+x86_xsave_layout
+core_target::fetch_x86_xsave_layout ()
+{
+  if (m_core_gdbarch != nullptr &&
+      gdbarch_core_read_x86_xsave_layout_p (m_core_gdbarch))
+    {
+      x86_xsave_layout layout;
+      bfd *cbfd = this->core_bfd ();
+      gdb_assert (cbfd != nullptr);
+      if (!gdbarch_core_read_x86_xsave_layout (m_core_gdbarch, *cbfd, layout))
+	return {};
+
+      return layout;
+    }
+
+  return {};
 }
 
 /* Display file backed mappings from core file.  */
@@ -1402,24 +1919,19 @@ get_current_core_target ()
 void
 core_target::info_proc_mappings (struct gdbarch *gdbarch)
 {
-  if (!m_core_file_mappings.empty ())
-    {
-      gdb_printf (_("Mapped address spaces:\n\n"));
-      if (gdbarch_addr_bit (gdbarch) == 32)
-	{
-	  gdb_printf ("\t%10s %10s %10s %10s %s\n",
-		      "Start Addr",
-		      "  End Addr",
-		      "      Size", "    Offset", "objfile");
-	}
-      else
-	{
-	  gdb_printf ("  %18s %18s %10s %10s %s\n",
-		      "Start Addr",
-		      "  End Addr",
-		      "      Size", "    Offset", "objfile");
-	}
-    }
+  if (m_core_file_mappings.empty ())
+    return;
+
+  gdb_printf (_("Mapped address spaces:\n\n"));
+  ui_out_emit_table emitter (current_uiout, 5, -1, "ProcMappings");
+
+  int width = gdbarch_addr_bit (gdbarch) == 32 ? 10 : 18;
+  current_uiout->table_header (width, ui_left, "start", "Start Addr");
+  current_uiout->table_header (width, ui_left, "end", "End Addr");
+  current_uiout->table_header (width, ui_left, "size", "Size");
+  current_uiout->table_header (width, ui_left, "offset", "Offset");
+  current_uiout->table_header (0, ui_left, "objfile", "File");
+  current_uiout->table_body ();
 
   for (const target_section &tsp : m_core_file_mappings)
     {
@@ -1428,24 +1940,20 @@ core_target::info_proc_mappings (struct gdbarch *gdbarch)
       ULONGEST file_ofs = tsp.the_bfd_section->filepos;
       const char *filename = bfd_get_filename (tsp.the_bfd_section->owner);
 
-      if (gdbarch_addr_bit (gdbarch) == 32)
-	gdb_printf ("\t%10s %10s %10s %10s %s\n",
-		    paddress (gdbarch, start),
-		    paddress (gdbarch, end),
-		    hex_string (end - start),
-		    hex_string (file_ofs),
-		    filename);
-      else
-	gdb_printf ("  %18s %18s %10s %10s %s\n",
-		    paddress (gdbarch, start),
-		    paddress (gdbarch, end),
-		    hex_string (end - start),
-		    hex_string (file_ofs),
-		    filename);
+      ui_out_emit_tuple tuple_emitter (current_uiout, nullptr);
+      current_uiout->field_core_addr ("start", gdbarch, start);
+      current_uiout->field_core_addr ("end", gdbarch, end);
+      /* These next two aren't really addresses and so shouldn't be
+	 styled as such.  */
+      current_uiout->field_string ("size", paddress (gdbarch, end - start));
+      current_uiout->field_string ("offset", paddress (gdbarch, file_ofs));
+      current_uiout->field_string ("objfile", filename,
+				   file_name_style.style ());
+      current_uiout->text ("\n");
     }
 }
 
-/* Implement "maintenance print core-file-backed-mappings" command.  
+/* Implement "maintenance print core-file-backed-mappings" command.
 
    If mappings are loaded, the results should be similar to the
    mappings shown by "info proc mappings".  This command is mainly a
@@ -1459,16 +1967,302 @@ core_target::info_proc_mappings (struct gdbarch *gdbarch)
 static void
 maintenance_print_core_file_backed_mappings (const char *args, int from_tty)
 {
-  core_target *targ = get_current_core_target ();
+  core_target *targ = get_core_target (current_inferior ());
   if (targ != nullptr)
     targ->info_proc_mappings (targ->core_gdbarch ());
 }
 
-void _initialize_corelow ();
+/* Add more details discovered while processing the core-file's mapped file
+   information, we're building maps between filenames and the corresponding
+   build-ids, between address ranges and the corresponding build-ids, and
+   also a reverse map between build-id and the corresponding filename.
+
+   SONAME is the DT_SONAME attribute extracted from the .dynamic section of
+   a shared library that was mapped into the core file.  This can be
+   nullptr if the mapped files was not a shared library, or didn't have a
+   DT_SONAME attribute.
+
+   EXPECTED_FILENAME is the name of the file that was mapped into the
+   inferior as extracted from the core file, this can be nullptr if the
+   filename is unknown.  This can happen on Linux if there is no NT_FILE
+   note, and we are building the mapped_file_info using just the segment
+   table from the core file.
+
+   ACTUAL_FILENAME is the name of the actual file GDB found to provide the
+   mapped file information, this can be nullptr if GDB failed to find a
+   suitable file.  This might be different to EXPECTED_FILENAME, e.g. GDB
+   might have downloaded the file from debuginfod and so ACTUAL_FILENAME
+   will be a file in the debuginfod client cache.
+
+   RANGES is the list of memory ranges at which this file was mapped into
+   the inferior.
+
+   BUILD_ID is the build-id for this mapped file, this will never be
+   nullptr.  Not every mapped file will have a build-id, but there's no
+   point calling this function if we failed to find a build-id; this
+   structure only exists so we can lookup files based on their build-id.  */
+
 void
-_initialize_corelow ()
+mapped_file_info::add (const char *soname,
+		       const char *expected_filename,
+		       const char *actual_filename,
+		       std::vector<mem_range> &&ranges,
+		       const bfd_build_id *build_id)
 {
-  add_target (core_target_info, core_target_open, filename_completer);
+  gdb_assert (build_id != nullptr);
+
+  if (soname != nullptr)
+    {
+      /* If we already have an entry with this SONAME then this indicates
+	 that the inferior has two files mapped into memory with different
+	 file names (and most likely different build-ids), but with the
+	 same DT_SONAME attribute.  In this case we can't use the
+	 DT_SONAME to figure out the expected build-id of a shared
+	 library, so poison the entry for this SONAME by setting the entry
+	 to nullptr.  */
+      auto it = m_soname_to_build_id_map.find (soname);
+      if (it != m_soname_to_build_id_map.end ()
+	  && it->second != nullptr
+	  && !build_id_equal (it->second, build_id))
+	m_soname_to_build_id_map[soname] = nullptr;
+      else
+	m_soname_to_build_id_map[soname] = build_id;
+    }
+
+  /* Ignore empty filenames.  */
+  if (expected_filename != nullptr)
+    {
+      /* When the core file is initially opened and the mapped files are
+	 parsed, we group the build-id information based on the file name.  As
+	 a consequence, we should see each EXPECTED_FILENAME value exactly
+	 once.  This means that each insertion should always succeed.  */
+      const auto inserted
+	= m_filename_to_build_id_map.emplace (expected_filename, build_id).second;
+      gdb_assert (inserted);
+    }
+
+  /* Setup the reverse build-id to file name map.  */
+  if (actual_filename != nullptr)
+    m_build_id_to_filename_map.emplace (build_id, actual_filename);
+
+  /* Setup the list of memory range to build-id objects.  */
+  for (mem_range &r : ranges)
+    m_address_to_build_id_list.emplace_back (std::move (r), build_id);
+
+  /* At this point the m_address_to_build_id_list is unsorted (we just
+     added some entries to the end of the list).  All entries should be
+     added before any look-ups are performed, and the list is only sorted
+     when the first look-up is performed.  */
+  gdb_assert (!m_address_to_build_id_list_sorted);
+}
+
+/* FILENAME is the name of a file GDB is trying to load, and ADDR is
+   (optionally) an address within the file in the inferior's address space.
+
+   Search through the information gathered from the core-file's mapped file
+   information looking for a file named FILENAME, or for a file that covers
+   ADDR.  If a match is found then return the build-id for the file along
+   with the location where GDB found the mapped file.
+
+   The location of the mapped file might be the empty string if GDB was
+   unable to find the mapped file.
+
+   If no build-id can be found for FILENAME then GDB will return a pair
+   containing nullptr (for the build-id) and an empty string for the file
+   name.  */
+
+std::optional <core_target_mapped_file_info>
+mapped_file_info::lookup (const char *filename,
+			  const std::optional<CORE_ADDR> &addr)
+{
+  if (filename != nullptr)
+    {
+      /* If there's a matching entry in m_filename_to_build_id_map then the
+	 associated build-id will not be nullptr, and can be used to
+	 validate that FILENAME is correct.  */
+      auto it = m_filename_to_build_id_map.find (filename);
+      if (it != m_filename_to_build_id_map.end ())
+	return make_result (it->second);
+    }
+
+  if (addr.has_value ())
+    {
+      /* On the first lookup, sort the address_to_build_id_list.  */
+      if (!m_address_to_build_id_list_sorted)
+	{
+	  std::sort (m_address_to_build_id_list.begin (),
+		     m_address_to_build_id_list.end (),
+		     [] (const mem_range_and_build_id &a,
+			 const mem_range_and_build_id &b) {
+		       return a.range < b.range;
+		     });
+	  m_address_to_build_id_list_sorted = true;
+	}
+
+      /* Look for the first entry whose range's start address is not less
+	 than, or equal too, the address ADDR.  If we find such an entry,
+	 then the previous entry's range might contain ADDR.  If it does
+	 then that previous entry's build-id can be used.  */
+      auto it = std::lower_bound
+	(m_address_to_build_id_list.begin (),
+	 m_address_to_build_id_list.end (),
+	 *addr,
+	 [] (const mem_range_and_build_id &a,
+	     const CORE_ADDR &b) {
+	  return a.range.start <= b;
+	});
+
+      if (it != m_address_to_build_id_list.begin ())
+	{
+	  --it;
+
+	  if (it->range.contains (*addr))
+	    return make_result (it->build_id);
+	}
+    }
+
+  if (filename != nullptr)
+    {
+      /* If the basename of FILENAME appears in m_soname_to_build_id_map
+	 then when the mapped files were processed, we saw a file with a
+	 DT_SONAME attribute corresponding to FILENAME, use that build-id
+	 to validate FILENAME.
+
+	 However, the build-id in this map might be nullptr if we saw
+	 multiple mapped files with the same DT_SONAME attribute (though
+	 this should be pretty rare).  */
+      auto it
+	= m_soname_to_build_id_map.find (lbasename (filename));
+      if (it != m_soname_to_build_id_map.end ()
+	  && it->second != nullptr)
+	return make_result (it->second);
+    }
+
+  return {};
+}
+
+/* See gdbcore.h.  */
+
+std::vector<core_mapped_file>
+gdb_read_core_file_mappings (struct gdbarch *gdbarch, struct bfd *cbfd)
+{
+  std::vector<core_mapped_file> results;
+
+  /* A map entry used while building RESULTS.  */
+  struct map_entry
+  {
+    explicit map_entry (size_t idx)
+      : file_data_index (idx),
+	ignore_build_id_p (false)
+    { /* Nothing.  */ }
+
+    /* Points to an entry in RESULTS, this allows entries to be quickly
+       looked up and updated as new mappings are read.  */
+    size_t file_data_index;
+
+    /* If true then we have seen multiple different build-ids associated
+       with the filename of FILE_DATA.  The FILE_DATA->build_id field will
+       have been set to nullptr, and we should not set FILE_DATA->build_id
+       in future.  */
+    bool ignore_build_id_p;
+  };
+
+  /* All files mapped into the core file.  The key is the filename.  */
+  gdb::unordered_string_map<map_entry> mapped_files;
+
+  /* Get the build-id of the core file.  At least on Linux, this will be
+     the build-id for the main executable.  If other targets add the
+     gdbarch_read_core_file_mappings method, then it might turn out that
+     this logic is no longer true, in which case this might need to move
+     into the gdbarch_read_core_file_mappings method.  */
+  const bfd_build_id *core_build_id = build_id_bfd_get (cbfd);
+
+  /* See linux_read_core_file_mappings() in linux-tdep.c for an example
+     read_core_file_mappings method.  */
+  gdbarch_read_core_file_mappings (gdbarch, cbfd,
+    /* gdbarch_read_core_file_mappings will invoke this lambda for each
+       mapping that it finds.  */
+    [&] (ULONGEST start, ULONGEST end, ULONGEST file_ofs,
+	 const char *filename, const bfd_build_id *build_id)
+      {
+	if (filename == nullptr)
+	  {
+	    /* A mapping without a filename MUST have a build-id, and the
+	       file_ofs MUST be 0, but the file_ofs is actually meaningless
+	       in this case.  */
+	    gdb_assert (build_id != nullptr);
+	    gdb_assert (file_ofs == 0);
+
+	    results.emplace_back ();
+	    results.back ().build_id = build_id;
+	    results.back ().regions.emplace_back (start, end, file_ofs);
+	    return;
+	  }
+
+	/* Add this mapped region to the data for FILENAME.  */
+	auto iter = mapped_files.find (filename);
+	if (iter == mapped_files.end ())
+	  {
+	    /* Create entry in results list.  */
+	    results.emplace_back ();
+
+	    /* The entry to be added to the lookup map.  */
+	    map_entry entry (std::distance (&results.front (),
+					    &results.back ()));
+	    results[entry.file_data_index].filename = filename;
+
+	    /* Add entry to the quick lookup map and update ITER.  */
+	    auto inserted_result
+	      = mapped_files.insert ({filename, std::move (entry)});
+	    gdb_assert (inserted_result.second);
+	    iter = inserted_result.first;
+	  }
+
+	core_mapped_file &file_data = results[iter->second.file_data_index];
+	bool &ignore_build_id_p = iter->second.ignore_build_id_p;
+
+	file_data.regions.emplace_back (start, end, file_ofs);
+	if (build_id != nullptr && !ignore_build_id_p)
+	  {
+	    if (file_data.build_id == nullptr)
+	      file_data.build_id = build_id;
+	    else if (!build_id_equal (build_id, file_data.build_id))
+	      {
+		warning (_("Multiple build-ids found for %ps"),
+			 styled_string (file_name_style.style (), filename));
+		file_data.build_id = nullptr;
+		ignore_build_id_p = true;
+	      }
+	  }
+
+	if (build_id != nullptr
+	    && core_build_id != nullptr
+	    && build_id_equal (build_id, core_build_id))
+	  file_data.is_main_exec = true;
+      });
+
+  return results;
+}
+
+/* See gdbcore.h.  */
+
+std::optional <core_target_mapped_file_info>
+core_target_find_mapped_file (const char *filename,
+			      std::optional<CORE_ADDR> addr)
+{
+  core_target *targ = get_core_target (current_inferior ());
+  if (targ == nullptr)
+    return {};
+
+  gdb_assert (targ->core_bfd () != nullptr);
+
+  return targ->lookup_mapped_file_info (filename, addr);
+}
+
+INIT_GDB_FILE (corelow)
+{
+  add_target (core_target_info, core_target_open,
+	      filename_maybe_quoted_completer);
   add_cmd ("core-file-backed-mappings", class_maintenance,
 	   maintenance_print_core_file_backed_mappings,
 	   _("Print core file's file-backed mappings."),

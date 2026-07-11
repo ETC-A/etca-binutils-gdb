@@ -1,6 +1,6 @@
 /* Reverse execution and reverse debugging.
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "target.h"
 #include "top.h"
 #include "cli/cli-cmds.h"
@@ -30,7 +29,7 @@
 /* User interface:
    reverse-step, reverse-next etc.  */
 
-/* exec_reverse_once -- accepts an arbitrary gdb command (string), 
+/* exec_reverse_once -- accepts an arbitrary gdb command (string),
    and executes it with exec-direction set to 'reverse'.
 
    Used to implement reverse-next etc. commands.  */
@@ -45,7 +44,8 @@ exec_reverse_once (const char *cmd, const char *args, int from_tty)
 	   cmd);
 
   if (!target_can_execute_reverse ())
-    error (_("Target %s does not support this command."), target_shortname ());
+    error (_("Reverse execution is not currently supported.\n"
+	     "You may need to record the execution first."));
 
   std::string reverse_command = string_printf ("%s %s", cmd, args ? args : "");
   scoped_restore restore_exec_dir
@@ -113,7 +113,8 @@ save_bookmark_command (const char *args, int from_tty)
 {
   /* Get target's idea of a bookmark.  */
   gdb_byte *bookmark_id = target_get_bookmark (args, from_tty);
-  struct gdbarch *gdbarch = get_current_regcache ()->arch ();
+  regcache *regcache = get_thread_regcache (inferior_thread ());
+  gdbarch *gdbarch = regcache->arch ();
 
   /* CR should not cause another identical bookmark.  */
   dont_repeat ();
@@ -122,11 +123,10 @@ save_bookmark_command (const char *args, int from_tty)
     error (_("target_get_bookmark failed."));
 
   /* Set up a bookmark struct.  */
-  all_bookmarks.emplace_back ();
-  bookmark &b = all_bookmarks.back ();
+  bookmark &b = all_bookmarks.emplace_back ();
   b.number = ++bookmark_count;
-  b.pc = regcache_read_pc (get_current_regcache ());
-  b.sal = find_pc_line (b.pc, 0);
+  b.pc = regcache_read_pc (regcache);
+  b.sal = find_sal_for_pc (b.pc, 0);
   b.sal.pspace = get_frame_program_space (get_current_frame ());
   b.opaque_data.reset (bookmark_id);
 
@@ -237,7 +237,7 @@ goto_bookmark_command (const char *args, int from_tty)
 static int
 bookmark_1 (int bnum)
 {
-  struct gdbarch *gdbarch = get_current_regcache ()->arch ();
+  gdbarch *gdbarch = get_thread_regcache (inferior_thread ())->arch ();
   int matched = 0;
 
   for (const bookmark &iter : all_bookmarks)
@@ -278,9 +278,7 @@ info_bookmarks_command (const char *args, int from_tty)
     }
 }
 
-void _initialize_reverse ();
-void
-_initialize_reverse ()
+INIT_GDB_FILE (reverse)
 {
   cmd_list_element *reverse_step_cmd
    = add_com ("reverse-step", class_run, reverse_step, _("\
@@ -321,12 +319,12 @@ Execute backward until just before selected stack frame is called."));
 
   add_com ("bookmark", class_bookmark, save_bookmark_command, _("\
 Set a bookmark in the program's execution history.\n\
-A bookmark represents a point in the execution history \n\
+A bookmark represents a point in the execution history\n\
 that can be returned to at a later point in the debug session."));
   add_info ("bookmarks", info_bookmarks_command, _("\
 Status of user-settable bookmarks.\n\
-Bookmarks are user-settable markers representing a point in the \n\
-execution history that can be returned to later in the same debug \n\
+Bookmarks are user-settable markers representing a point in the\n\
+execution history that can be returned to later in the same debug\n\
 session."));
   add_cmd ("bookmark", class_bookmark, delete_bookmark_command, _("\
 Delete a bookmark from the bookmark list.\n\
@@ -335,7 +333,7 @@ Argument is a bookmark number or numbers,\n\
 	   &deletelist);
   add_com ("goto-bookmark", class_bookmark, goto_bookmark_command, _("\
 Go to an earlier-bookmarked point in the program's execution history.\n\
-Argument is the bookmark number of a bookmark saved earlier by using \n\
+Argument is the bookmark number of a bookmark saved earlier by using\n\
 the 'bookmark' command, or the special arguments:\n\
   start (beginning of recording)\n\
   end   (end of recording)"));

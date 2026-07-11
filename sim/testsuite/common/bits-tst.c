@@ -1,9 +1,10 @@
 # 2 "bits-tst.c"
+#include <string.h>
 
 /* Drive the bit test routines */
 
 
-long long
+static long long
 calc (const char *call,
       long long val,
       int row,
@@ -161,7 +162,7 @@ calc (const char *call,
 }
 
 
-int
+static int
 check_sext (int nr_bits,
 	    int msb_nr,
 	    const char *sexted,
@@ -214,7 +215,7 @@ check_sext (int nr_bits,
 }
 
 
-int
+static int
 check_rot (int nr_bits,
 	   const char *roted,
 	   const char *masked)
@@ -248,7 +249,7 @@ check_rot (int nr_bits,
 }
 
 
-int
+static int
 check_extract (int nr_bits,
 	       const char *extracted,
 	       const char *inserted,
@@ -277,7 +278,7 @@ check_extract (int nr_bits,
 }
 
 
-int
+static int
 check_bits (int call,
 	    test_spec **tests)
 {
@@ -320,9 +321,7 @@ check_bits (int call,
 
 
 int
-main (argc, argv)
-     int argc;
-     char **argv;
+main (int argc, char **argv)
 {
   int errors = 0;
 

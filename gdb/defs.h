@@ -1,5 +1,5 @@
 /* Basic, host-specific, and target-specific definitions for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,8 +16,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef DEFS_H
-#define DEFS_H
+#ifndef GDB_DEFS_H
+#define GDB_DEFS_H
 
 #ifdef GDBSERVER
 #  error gdbserver should not include gdb/defs.h
@@ -61,39 +61,6 @@
 
 #include "gdbsupport/host-defs.h"
 #include "gdbsupport/enum-flags.h"
-#include "gdbsupport/array-view.h"
-
-/* Scope types enumerator.  List the types of scopes the compiler will
-   accept.  */
-
-enum compile_i_scope_types
-  {
-    COMPILE_I_INVALID_SCOPE,
-
-    /* A simple scope.  Wrap an expression into a simple scope that
-       takes no arguments, returns no value, and uses the generic
-       function name "_gdb_expr". */
-
-    COMPILE_I_SIMPLE_SCOPE,
-
-    /* Do not wrap the expression,
-       it has to provide function "_gdb_expr" on its own.  */
-    COMPILE_I_RAW_SCOPE,
-
-    /* A printable expression scope.  Wrap an expression into a scope
-       suitable for the "compile print" command.  It uses the generic
-       function name "_gdb_expr".  COMPILE_I_PRINT_ADDRESS_SCOPE variant
-       is the usual one, taking address of the object.
-       COMPILE_I_PRINT_VALUE_SCOPE is needed for arrays where the array
-       name already specifies its address.  See get_out_value_type.  */
-    COMPILE_I_PRINT_ADDRESS_SCOPE,
-    COMPILE_I_PRINT_VALUE_SCOPE,
-  };
-
-
-template<typename T>
-using RequireLongest = gdb::Requires<gdb::Or<std::is_same<T, LONGEST>,
-					     std::is_same<T, ULONGEST>>>;
 
 /* Just in case they're not defined in stdio.h.  */
 
@@ -107,92 +74,27 @@ using RequireLongest = gdb::Requires<gdb::Or<std::is_same<T, LONGEST>,
 /* The O_BINARY flag is defined in fcntl.h on some non-Posix platforms.
    It is used as an access modifier in calls to open(), where it acts
    similarly to the "b" character in fopen()'s MODE argument.  On Posix
-   platforms it should be a no-op, so it is defined as 0 here.  This 
+   platforms it should be a no-op, so it is defined as 0 here.  This
    ensures that the symbol may be used freely elsewhere in gdb.  */
 
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
 
-#include "hashtab.h"
-
-/* * System root path, used to find libraries etc.  */
+/* System root path, used to find libraries etc.  */
 extern std::string gdb_sysroot;
 
-/* * GDB datadir, used to store data files.  */
+/* GDB datadir, used to store data files.  */
 extern std::string gdb_datadir;
 
-/* * If not empty, the possibly relocated path to python's "lib" directory
+/* If not empty, the possibly relocated path to python's "lib" directory
    specified with --with-python.  */
 extern std::string python_libdir;
 
-/* * Search path for separate debug files.  */
+/* Search path for separate debug files.  */
 extern std::string debug_file_directory;
 
-/* GDB's SIGINT handler basically sets a flag; code that might take a
-   long time before it gets back to the event loop, and which ought to
-   be interruptible, checks this flag using the QUIT macro, which, if
-   GDB has the terminal, throws a quit exception.
-
-   In addition to setting a flag, the SIGINT handler also marks a
-   select/poll-able file descriptor as read-ready.  That is used by
-   interruptible_select in order to support interrupting blocking I/O
-   in a race-free manner.
-
-   These functions use the extension_language_ops API to allow extension
-   language(s) and GDB SIGINT handling to coexist seamlessly.  */
-
-/* * Evaluate to non-zero if the quit flag is set, zero otherwise.  This
-   will clear the quit flag as a side effect.  */
-extern int check_quit_flag (void);
-/* * Set the quit flag.  */
-extern void set_quit_flag (void);
-
-/* The current quit handler (and its type).  This is called from the
-   QUIT macro.  See default_quit_handler below for default behavior.
-   Parts of GDB temporarily override this to e.g., completely suppress
-   Ctrl-C because it would not be safe to throw.  E.g., normally, you
-   wouldn't want to quit between a RSP command and its response, as
-   that would break the communication with the target, but you may
-   still want to intercept the Ctrl-C and offer to disconnect if the
-   user presses Ctrl-C multiple times while the target is stuck
-   waiting for the wedged remote stub.  */
-typedef void (quit_handler_ftype) (void);
-extern quit_handler_ftype *quit_handler;
-
-/* The default quit handler.  Checks whether Ctrl-C was pressed, and
-   if so:
-
-     - If GDB owns the terminal, throws a quit exception.
-
-     - If GDB does not own the terminal, forwards the Ctrl-C to the
-       target.
-*/
-extern void default_quit_handler (void);
-
-/* Flag that function quit should call quit_force.  */
-extern volatile bool sync_quit_force_run;
-
-/* Set sync_quit_force_run and also call set_quit_flag().  */
-extern void set_force_quit_flag ();
-
-extern void quit (void);
-
-/* Helper for the QUIT macro.  */
-
-extern void maybe_quit (void);
-
-/* Check whether a Ctrl-C was typed, and if so, call the current quit
-   handler.  */
-#define QUIT maybe_quit ()
-
-/* Set the serial event associated with the quit flag.  */
-extern void quit_serial_event_set (void);
-
-/* Clear the serial event associated with the quit flag.  */
-extern void quit_serial_event_clear (void);
-
-/* * Languages represented in the symbol table and elsewhere.
+/* Languages represented in the symbol table and elsewhere.
    This should probably be in language.h, but since enum's can't
    be forward declared to satisfy opaque references before their
    actual definition, needs to be here.
@@ -229,19 +131,12 @@ enum language
 /* The number of bits needed to represent all languages, with enough
    padding to allow for reasonable growth.  */
 #define LANGUAGE_BITS 5
-gdb_static_assert (nr_languages <= (1 << LANGUAGE_BITS));
+static_assert (nr_languages <= (1 << LANGUAGE_BITS));
 
 /* The number of bytes needed to represent all languages.  */
 #define LANGUAGE_BYTES ((LANGUAGE_BITS + HOST_CHAR_BIT - 1) / HOST_CHAR_BIT)
 
-enum precision_type
-  {
-    single_precision,
-    double_precision,
-    unspecified_precision
-  };
-
-/* * A generic, not quite boolean, enumeration.  This is used for
+/* A generic, not quite boolean, enumeration.  This is used for
    set/show commands in which the options are on/off/automatic.  */
 enum auto_boolean
 {
@@ -250,28 +145,28 @@ enum auto_boolean
   AUTO_BOOLEAN_AUTO
 };
 
-/* * Potential ways that a function can return a value of a given
+/* Potential ways that a function can return a value of a given
    type.  */
 
 enum return_value_convention
 {
-  /* * Where the return value has been squeezed into one or more
+  /* Where the return value has been squeezed into one or more
      registers.  */
   RETURN_VALUE_REGISTER_CONVENTION,
-  /* * Commonly known as the "struct return convention".  The caller
+  /* Commonly known as the "struct return convention".  The caller
      passes an additional hidden first parameter to the caller.  That
      parameter contains the address at which the value being returned
      should be stored.  While typically, and historically, used for
      large structs, this is convention is applied to values of many
      different types.  */
   RETURN_VALUE_STRUCT_CONVENTION,
-  /* * Like the "struct return convention" above, but where the ABI
+  /* Like the "struct return convention" above, but where the ABI
      guarantees that the called function stores the address at which
      the value being returned is stored in a well-defined location,
      such as a register or memory slot in the stack frame.  Don't use
      this if the ABI doesn't explicitly guarantees this.  */
   RETURN_VALUE_ABI_RETURNS_ADDRESS,
-  /* * Like the "struct return convention" above, but where the ABI
+  /* Like the "struct return convention" above, but where the ABI
      guarantees that the address at which the value being returned is
      stored will be available in a well-defined location, such as a
      register or memory slot in the stack frame.  Don't use this if
@@ -293,25 +188,7 @@ struct value;
    globals that are currently only available to main.c.  */
 extern std::string relocate_gdb_directory (const char *initial, bool relocatable);
 
-
-/* Annotation stuff.  */
-
-extern int annotation_level;	/* in stack.c */
-
-
-/* From regex.c or libc.  BSD 4.4 declares this with the argument type as
-   "const char *" in unistd.h, so we can't declare the argument
-   as "char *".  */
-
-EXTERN_C char *re_comp (const char *);
-
-/* From symfile.c */
-
-extern void symbol_file_command (const char *, int);
-
 /* From top.c */
-
-typedef void initialize_file_ftype (void);
 
 extern char *gdb_readline_wrapper (const char *);
 
@@ -335,96 +212,68 @@ extern int print_address_symbolic (struct gdbarch *, CORE_ADDR,
 extern void print_address (struct gdbarch *, CORE_ADDR, struct ui_file *);
 extern const char *pc_prefix (CORE_ADDR);
 
-/* From exec.c */
-
-/* * Process memory area starting at ADDR with length SIZE.  Area is
-   readable iff READ is non-zero, writable if WRITE is non-zero,
-   executable if EXEC is non-zero.  Area is possibly changed against
-   its original file based copy if MODIFIED is non-zero.
-
-   MEMORY_TAGGED is true if the memory region contains memory tags, false
-   otherwise.
-
-   DATA is passed without changes from a caller.  */
-
-typedef int (*find_memory_region_ftype) (CORE_ADDR addr, unsigned long size,
-					 int read, int write, int exec,
-					 int modified, bool memory_tagged,
-					 void *data);
-
-/* * Possible lvalue types.  Like enum language, this should be in
+/* Possible lvalue types.  Like enum language, this should be in
    value.h, but needs to be here for the same reason.  */
 
 enum lval_type
   {
-    /* * Not an lval.  */
+    /* Not an lval.  */
     not_lval,
-    /* * In memory.  */
+    /* In memory.  */
     lval_memory,
-    /* * In a register.  Registers are relative to a frame.  */
+    /* In a register.  Registers are relative to a frame.  */
     lval_register,
-    /* * In a gdb internal variable.  */
+    /* In a gdb internal variable.  */
     lval_internalvar,
-    /* * Value encapsulates a callable defined in an extension language.  */
+    /* Value encapsulates a callable defined in an extension language.  */
     lval_xcallable,
-    /* * Part of a gdb internal variable (structure field).  */
+    /* Part of a gdb internal variable (structure field).  */
     lval_internalvar_component,
-    /* * Value's bits are fetched and stored using functions provided
+    /* Value's bits are fetched and stored using functions provided
        by its creator.  */
     lval_computed
   };
 
-/* * Parameters of the "info proc" command.  */
+/* Parameters of the "info proc" command.  */
 
 enum info_proc_what
   {
-    /* * Display the default cmdline, cwd and exe outputs.  */
+    /* Display the default cmdline, cwd and exe outputs.  */
     IP_MINIMAL,
 
-    /* * Display `info proc mappings'.  */
+    /* Display `info proc mappings'.  */
     IP_MAPPINGS,
 
-    /* * Display `info proc status'.  */
+    /* Display `info proc status'.  */
     IP_STATUS,
 
-    /* * Display `info proc stat'.  */
+    /* Display `info proc stat'.  */
     IP_STAT,
 
-    /* * Display `info proc cmdline'.  */
+    /* Display `info proc cmdline'.  */
     IP_CMDLINE,
 
-    /* * Display `info proc exe'.  */
+    /* Display `info proc environ'.  */
+    IP_ENVIRON,
+
+    /* Display `info proc exe'.  */
     IP_EXE,
 
-    /* * Display `info proc cwd'.  */
+    /* Display `info proc cwd'.  */
     IP_CWD,
 
-    /* * Display `info proc files'.  */
+    /* Display `info proc files'.  */
     IP_FILES,
 
-    /* * Display all of the above.  */
+    /* Display all of the above.  */
     IP_ALL
   };
 
-/* * Default radixes for input and output.  Only some values supported.  */
+/* Default radixes for input and output.  Only some values supported.  */
 extern unsigned input_radix;
 extern unsigned output_radix;
 
-/* * Possibilities for prettyformat parameters to routines which print
-   things.  Like enum language, this should be in value.h, but needs
-   to be here for the same reason.  FIXME:  If we can eliminate this
-   as an arg to LA_VAL_PRINT, then we can probably move it back to
-   value.h.  */
-
-enum val_prettyformat
-  {
-    Val_no_prettyformat = 0,
-    Val_prettyformat,
-    /* * Use the default setting which the user has specified.  */
-    Val_prettyformat_default
-  };
-
-/* * Optional native machine support.  Non-native (and possibly pure
+/* Optional native machine support.  Non-native (and possibly pure
    multi-arch) targets do not need a "nm.h" file.  This will be a
    symlink to one of the nm-*.h files, built by the `configure'
    script.  */
@@ -445,7 +294,7 @@ enum val_prettyformat
 # include "fopen-bin.h"
 #endif
 
-/* * Convert a LONGEST to an int.  This is used in contexts (e.g. number of
+/* Convert a LONGEST to an int.  This is used in contexts (e.g. number of
    arguments to a function, number in a value history, register number, etc.)
    where the value must not be larger than can fit in an int.  */
 
@@ -470,75 +319,6 @@ enum symbol_needs_kind
   SYMBOL_NEEDS_FRAME
 };
 
-/* In findvar.c.  */
-
-template<typename T, typename = RequireLongest<T>>
-T extract_integer (gdb::array_view<const gdb_byte>, enum bfd_endian byte_order);
-
-static inline LONGEST
-extract_signed_integer (gdb::array_view<const gdb_byte> buf,
-			enum bfd_endian byte_order)
-{
-  return extract_integer<LONGEST> (buf, byte_order);
-}
-
-static inline LONGEST
-extract_signed_integer (const gdb_byte *addr, int len,
-			enum bfd_endian byte_order)
-{
-  return extract_signed_integer (gdb::array_view<const gdb_byte> (addr, len),
-				 byte_order);
-}
-
-static inline ULONGEST
-extract_unsigned_integer (gdb::array_view<const gdb_byte> buf,
-			  enum bfd_endian byte_order)
-{
-  return extract_integer<ULONGEST> (buf, byte_order);
-}
-
-static inline ULONGEST
-extract_unsigned_integer (const gdb_byte *addr, int len,
-			  enum bfd_endian byte_order)
-{
-  return extract_unsigned_integer (gdb::array_view<const gdb_byte> (addr, len),
-				   byte_order);
-}
-
-extern int extract_long_unsigned_integer (const gdb_byte *, int,
-					  enum bfd_endian, LONGEST *);
-
-extern CORE_ADDR extract_typed_address (const gdb_byte *buf,
-					struct type *type);
-
-/* All 'store' functions accept a host-format integer and store a
-   target-format integer at ADDR which is LEN bytes long.  */
-
-template<typename T, typename = RequireLongest<T>>
-extern void store_integer (gdb_byte *addr, int len, enum bfd_endian byte_order,
-			   T val);
-
-static inline void
-store_signed_integer (gdb_byte *addr, int len,
-		      enum bfd_endian byte_order, LONGEST val)
-{
-  return store_integer (addr, len, byte_order, val);
-}
-
-static inline void
-store_unsigned_integer (gdb_byte *addr, int len,
-			enum bfd_endian byte_order, ULONGEST val)
-{
-  return store_integer (addr, len, byte_order, val);
-}
-
-extern void store_typed_address (gdb_byte *buf, struct type *type,
-				 CORE_ADDR addr);
-
-extern void copy_integer_to_size (gdb_byte *dest, int dest_size,
-				  const gdb_byte *source, int source_size,
-				  bool is_signed, enum bfd_endian byte_order);
-
 /* Hooks for alternate command interfaces.  */
 
 struct target_waitstatus;
@@ -549,9 +329,9 @@ extern void (*deprecated_post_add_symbol_hook) (void);
 extern void (*selected_frame_level_changed_hook) (int);
 extern int (*deprecated_ui_loop_hook) (int signo);
 extern void (*deprecated_show_load_progress) (const char *section,
-					      unsigned long section_sent, 
-					      unsigned long section_size, 
-					      unsigned long total_sent, 
+					      unsigned long section_sent,
+					      unsigned long section_size,
+					      unsigned long total_sent,
 					      unsigned long total_size);
 extern void (*deprecated_print_frame_info_listing_hook) (struct symtab * s,
 							 int line,
@@ -559,16 +339,11 @@ extern void (*deprecated_print_frame_info_listing_hook) (struct symtab * s,
 							 int noerror);
 extern int (*deprecated_query_hook) (const char *, va_list)
      ATTRIBUTE_FPTR_PRINTF(1,0);
-extern void (*deprecated_warning_hook) (const char *, va_list)
-     ATTRIBUTE_FPTR_PRINTF(1,0);
 extern void (*deprecated_readline_begin_hook) (const char *, ...)
      ATTRIBUTE_FPTR_PRINTF_1;
 extern char *(*deprecated_readline_hook) (const char *);
 extern void (*deprecated_readline_end_hook) (void);
 extern void (*deprecated_context_hook) (int);
-extern ptid_t (*deprecated_target_wait_hook) (ptid_t ptid,
-					      struct target_waitstatus *status,
-					      int options);
 
 extern void (*deprecated_attach_hook) (void);
 extern void (*deprecated_detach_hook) (void);
@@ -584,15 +359,10 @@ extern int (*deprecated_ui_load_progress_hook) (const char *section,
 #define ISATTY(FP)	(isatty (fileno (FP)))
 #endif
 
-/* * A width that can achieve a better legibility for GDB MI mode.  */
+/* A width that can achieve a better legibility for GDB MI mode.  */
 #define GDB_MI_MSG_WIDTH  80
 
-/* From progspace.c */
-
-extern void initialize_progspace (void);
-extern void initialize_inferiors (void);
-
-/* * Special block numbers */
+/* Special block numbers */
 
 enum block_enum
 {
@@ -618,4 +388,12 @@ DEF_ENUM_FLAGS_TYPE (enum user_selected_what_flag, user_selected_what);
 
 #include "utils.h"
 
-#endif /* #ifndef DEFS_H */
+/* File initialization macro.  This is found by make-init-c and used
+   to construct the gdb initialization function.  */
+#define INIT_GDB_FILE(NAME) \
+  extern void _initialize_ ## NAME (); \
+  void _initialize_ ## NAME ()
+
+#else
+#  error gdb/defs.h should not be included manually
+#endif /* GDB_DEFS_H */

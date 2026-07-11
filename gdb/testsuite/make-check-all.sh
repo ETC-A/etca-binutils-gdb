@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2023 Free Software Foundation, Inc.
+# Copyright (C) 2023-2026 Free Software Foundation, Inc.
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 3 of the License, or
@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Run make check with all boards from gdb/testsuite/boards.
+# Run make check with all boards from gdb/testsuite/boards, and other useful
+# test configurations.
 
 # It is recommended to create users on the local system that will act as
 #  "remote host" and "remote target", for the boards that use them.
@@ -66,19 +67,26 @@ host_target_boards=(
 # Boards that run everything on local target and local host.
 target_boards=(
     cc-with-gdb-index
+    cc-with-index-cache
     cc-with-debug-names
     cc-with-dwz
     cc-with-dwz-m
     cc-with-gnu-debuglink
     debug-types
     dwarf4-gdb-index
+    dwarf5-fission-debug-types
     dwarf64
     fission
     fission-dwp
     gold
     gold-gdb-index
     readnow
-    stabs
+)
+
+# Like target_boards, but not actual files in gdb/testsuite/boards.
+virtual_boards=(
+    read1
+    readmore
 )
 
 # Get RUNTESTFLAGS needed for specific boards.
@@ -138,6 +146,25 @@ rtf_for_board ()
     esac
 }
 
+# Get make target needed for specific boards.
+maketarget_for_board ()
+{
+    local b
+    b="$1"
+
+    case $b in
+	read1)
+	    maketarget=check-read1
+	    ;;
+	readmore)
+	    maketarget=check-readmore
+	    ;;
+	*)
+	    maketarget=check
+	    ;;
+    esac
+}
+
 # Summarize make check output.
 summary ()
 {
@@ -163,8 +190,8 @@ do_tests ()
     fi
 
     # Run make check.
-    make check \
-	 RUNTESTFLAGS="${rtf[*]} ${tests[*]}" \
+    make $maketarget \
+	 RUNTESTFLAGS="${rtf[*]}" TESTS="${tests[*]}" \
 	 2>&1 \
 	| summary
 
@@ -186,6 +213,10 @@ do_tests ()
 
 	mkdir -p "$dir"
 	cp gdb.sum gdb.log "$dir"
+
+	# Record the 'make check' command to enable easy re-running.
+	echo "make $maketarget RUNTESTFLAGS=\"${rtf[*]}\" TESTS=\"${tests[*]}\"" \
+	     > "$dir/make-check.sh"
     fi
 }
 
@@ -274,7 +305,16 @@ main ()
     # For reference, run the tests without any explicit host or target board.
     echo "LOCAL:"
     rtf=()
+    maketarget_for_board
     do_tests
+
+    # Run the virtual boards.
+    for b in "${virtual_boards[@]}"; do
+	echo "TARGET BOARD: $b"
+	rtf_for_board "$b"
+	maketarget_for_board "$b"
+	do_tests
+    done
 
     # Run the boards for local host and local target.
     for b in "${target_boards[@]}"; do
@@ -283,6 +323,7 @@ main ()
 	    --target_board="$b"
 	)
 	rtf_for_board "$b"
+	maketarget_for_board "$b"
 	do_tests
     done
 
@@ -294,6 +335,7 @@ main ()
 	    --target_board="$b"
 	)
 	rtf_for_board "$b"
+	maketarget_for_board "$b"
 	do_tests
     done
 
@@ -308,6 +350,7 @@ main ()
 	    )
 	    rtf_for_board "$h"
 	    rtf_for_board "$b"
+	    maketarget_for_board "$h-$b"
 	    do_tests
 	done
     done
@@ -321,6 +364,7 @@ main ()
 	    --target_board="$b"
 	)
 	rtf_for_board "$b"
+	maketarget_for_board "$b"
 	do_tests
     done
 }

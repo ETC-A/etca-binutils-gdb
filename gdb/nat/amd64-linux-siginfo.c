@@ -1,6 +1,6 @@
 /* Low-level siginfo manipulation for amd64.
 
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include <signal.h>
 #include "amd64-linux-siginfo.h"
 
@@ -36,14 +35,14 @@
 
 #ifndef __ILP32__
 
-typedef int nat_int_t;
-typedef unsigned long nat_uptr_t;
+using nat_int_t = int;
+using nat_uptr_t = unsigned long;
 
-typedef int nat_time_t;
-typedef int nat_timer_t;
+using nat_time_t = int;
+using nat_timer_t = int;
 
 /* For native 64-bit, clock_t in _sigchld is 64-bit.  */
-typedef long nat_clock_t;
+using nat_clock_t = long;
 
 union nat_sigval_t
 {
@@ -120,12 +119,12 @@ struct nat_siginfo_t
    compatible with the siginfo type exported by the 32-bit userspace
    support.  */
 
-typedef int compat_int_t;
-typedef unsigned int compat_uptr_t;
+using compat_int_t = int;
+using compat_uptr_t = unsigned int;
 
-typedef int compat_time_t;
-typedef int compat_timer_t;
-typedef int compat_clock_t;
+using compat_time_t = int;
+using compat_timer_t = int;
+using compat_clock_t = int;
 
 struct compat_timeval
 {
@@ -300,9 +299,9 @@ struct __attribute__ ((__aligned__ (8))) compat_x32_siginfo_t
    PTRACE_GETSIGINFO.  If gdb is built as a x32 program, we get a x32
    siginfo.  */
 #ifdef __ILP32__
-typedef compat_x32_siginfo_t ptrace_siginfo_t;
+using ptrace_siginfo_t = compat_x32_siginfo_t;
 #else
-typedef nat_siginfo_t ptrace_siginfo_t;
+using ptrace_siginfo_t = nat_siginfo_t;
 #endif
 
 /*  Convert the system provided siginfo into compatible siginfo.  */
@@ -604,10 +603,10 @@ amd64_linux_siginfo_fixup_common (siginfo_t *ptrace, gdb_byte *inf,
 
 /* Sanity check for the siginfo structure sizes.  */
 
-gdb_static_assert (sizeof (siginfo_t) == GDB_SI_SIZE);
+static_assert (sizeof (siginfo_t) == GDB_SI_SIZE);
 #ifndef __ILP32__
-gdb_static_assert (sizeof (nat_siginfo_t) == GDB_SI_SIZE);
+static_assert (sizeof (nat_siginfo_t) == GDB_SI_SIZE);
 #endif
-gdb_static_assert (sizeof (compat_x32_siginfo_t) == GDB_SI_SIZE);
-gdb_static_assert (sizeof (compat_siginfo_t) == GDB_SI_SIZE);
-gdb_static_assert (sizeof (ptrace_siginfo_t) == GDB_SI_SIZE);
+static_assert (sizeof (compat_x32_siginfo_t) == GDB_SI_SIZE);
+static_assert (sizeof (compat_siginfo_t) == GDB_SI_SIZE);
+static_assert (sizeof (ptrace_siginfo_t) == GDB_SI_SIZE);

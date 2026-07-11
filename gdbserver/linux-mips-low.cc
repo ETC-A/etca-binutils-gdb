@@ -1,5 +1,5 @@
 /* GNU/Linux/MIPS specific low level interface, for the remote server for GDB.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "linux-low.h"
 
 #include "nat/gdb_ptrace.h"
@@ -24,6 +23,7 @@
 
 #include "nat/mips-linux-watch.h"
 #include "gdb_proc_service.h"
+#include "tdesc.h"
 
 /* Linux target op definitions for the MIPS architecture.  */
 
@@ -63,7 +63,7 @@ protected:
 
   bool low_stopped_by_watchpoint () override;
 
-  CORE_ADDR low_stopped_data_address () override;
+  std::vector<CORE_ADDR> low_stopped_data_addresses () override;
 
   void low_collect_ptrace_register (regcache *regcache, int regno,
 				    char *buf) override;
@@ -90,19 +90,19 @@ static mips_target the_mips_target;
 
 /* Defined in auto-generated file mips-linux.c.  */
 void init_registers_mips_linux (void);
-extern const struct target_desc *tdesc_mips_linux;
+extern const_target_desc_up tdesc_mips_linux;
 
 /* Defined in auto-generated file mips-dsp-linux.c.  */
 void init_registers_mips_dsp_linux (void);
-extern const struct target_desc *tdesc_mips_dsp_linux;
+extern const_target_desc_up tdesc_mips_dsp_linux;
 
 /* Defined in auto-generated file mips64-linux.c.  */
 void init_registers_mips64_linux (void);
-extern const struct target_desc *tdesc_mips64_linux;
+extern const_target_desc_up tdesc_mips64_linux;
 
 /* Defined in auto-generated file mips64-dsp-linux.c.  */
 void init_registers_mips64_dsp_linux (void);
-extern const struct target_desc *tdesc_mips64_dsp_linux;
+extern const_target_desc_up tdesc_mips64_dsp_linux;
 
 #ifdef __mips64
 #define tdesc_mips_linux tdesc_mips64_linux
@@ -189,7 +189,7 @@ mips_read_description (void)
 {
   if (have_dsp < 0)
     {
-      int pid = lwpid_of (current_thread);
+      int pid = current_thread->id.lwp ();
 
       errno = 0;
       ptrace (PTRACE_PEEKUSER, pid, DSP_CONTROL, 0);
@@ -207,7 +207,7 @@ mips_read_description (void)
 	}
     }
 
-  return have_dsp ? tdesc_mips_dsp_linux : tdesc_mips_linux;
+  return have_dsp ? tdesc_mips_dsp_linux.get () : tdesc_mips_linux.get ();
 }
 
 void
@@ -500,7 +500,7 @@ mips_target::low_new_fork (process_info *parent,
 void
 mips_target::low_prepare_to_resume (lwp_info *lwp)
 {
-  ptid_t ptid = ptid_of (get_lwp_thread (lwp));
+  ptid_t ptid = lwp->thread->id;
   struct process_info *proc = find_process_pid (ptid.pid ());
   struct arch_process_info *priv = proc->priv->arch_private;
 
@@ -546,11 +546,10 @@ mips_target::low_insert_point (raw_bkpt_type type, CORE_ADDR addr,
   struct process_info *proc = current_process ();
   struct arch_process_info *priv = proc->priv->arch_private;
   struct pt_watch_regs regs;
-  long lwpid;
+  long lwpid = current_thread->id.lwp ();
   enum target_hw_bp_type watch_type;
   uint32_t irw;
 
-  lwpid = lwpid_of (current_thread);
   if (!mips_linux_read_watch_registers (lwpid,
 					&priv->watch_readback,
 					&priv->watch_readback_valid,
@@ -576,7 +575,7 @@ mips_target::low_insert_point (raw_bkpt_type type, CORE_ADDR addr,
   priv->watch_mirror = regs;
 
   /* Only update the threads of this process.  */
-  for_each_thread (proc->pid, update_watch_registers_callback);
+  proc->for_each_thread (update_watch_registers_callback);
 
   return 0;
 }
@@ -625,7 +624,7 @@ mips_target::low_remove_point (raw_bkpt_type type, CORE_ADDR addr,
 				  &priv->watch_mirror);
 
   /* Only update the threads of this process.  */
-  for_each_thread (proc->pid, update_watch_registers_callback);
+  proc->for_each_thread (update_watch_registers_callback);
 
   return 0;
 }
@@ -641,7 +640,7 @@ mips_target::low_stopped_by_watchpoint ()
   struct arch_process_info *priv = proc->priv->arch_private;
   int n;
   int num_valid;
-  long lwpid = lwpid_of (current_thread);
+  long lwpid = current_thread->id.lwp ();
 
   if (!mips_linux_read_watch_registers (lwpid,
 					&priv->watch_readback,
@@ -660,16 +659,16 @@ mips_target::low_stopped_by_watchpoint ()
 }
 
 /* This is the implementation of linux target ops method
-   low_stopped_data_address.  */
+   low_stopped_data_addresses.  */
 
-CORE_ADDR
-mips_target::low_stopped_data_address ()
+std::vector<CORE_ADDR>
+mips_target::low_stopped_data_addresses ()
 {
   struct process_info *proc = current_process ();
   struct arch_process_info *priv = proc->priv->arch_private;
   int n;
   int num_valid;
-  long lwpid = lwpid_of (current_thread);
+  long lwpid = current_thread->id.lwp ();
 
   /* On MIPS we don't know the low order 3 bits of the data address.
      GDB does not support remote targets that can't report the
@@ -681,7 +680,7 @@ mips_target::low_stopped_data_address ()
 					&priv->watch_readback,
 					&priv->watch_readback_valid,
 					0))
-    return 0;
+    return {};
 
   num_valid = mips_linux_watch_get_num_valid (&priv->watch_readback);
 
@@ -713,12 +712,12 @@ mips_target::low_stopped_data_address ()
 	      }
 	    /* Check for overlap of even a single byte.  */
 	    if (last_byte >= t_low && addr <= t_low + t_hi)
-	      return addr;
+	      return { addr };
 	  }
       }
 
   /* Shouldn't happen.  */
-  return 0;
+  return {};
 }
 
 /* Fetch the thread-local storage pointer for libthread_db.  */

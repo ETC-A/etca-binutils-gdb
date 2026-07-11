@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2023 Free Software Foundation, Inc.
+# Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Test use of unwindonsignal when a hand function call that gets interrupted
+# Test use of unwind-on-signal when a hand function call that gets interrupted
 # by a signal in another thread.
 
 set NR_THREADS 4
@@ -25,36 +25,36 @@ standard_testfile interrupted-hand-call.c
 require {!target_info exists gdb,cannot_call_functions}
 
 if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug "additional_flags=-DNR_THREADS=$NR_THREADS"]] != "" } {
-    return -1
+    return
 }
 
-clean_restart ${binfile}
+clean_restart ${::testfile}
 
 if { ![runto_main] } {
-    return 0
+    return
 }
 
 gdb_test "break all_threads_running" \
-         "Breakpoint 2 at .*: file .*${srcfile}, line .*" \
-         "breakpoint on all_threads_running"
+	 "Breakpoint 2 at .*: file .*${srcfile}, line .*" \
+	 "breakpoint on all_threads_running"
 
 # Run the program and make sure GDB reports that we stopped after
 # hitting breakpoint 2 in all_threads_running().
 
 gdb_test "continue" \
-         ".*Breakpoint 2, all_threads_running ().*" \
-         "run to all_threads_running"
+	 ".*Breakpoint 2, all_threads_running ().*" \
+	 "run to all_threads_running"
 
 # NOTE: Don't turn on scheduler-locking here.
 # We want the main thread (hand_call_with_signal) and
 # thread 1 (sigabrt_handler) to both run.
 
-# Do turn on unwindonsignal.
+# Do turn on unwind-on-signal.
 # We want to test gdb handling of the current thread changing when
 # unwindonsignal is in effect.
-gdb_test_no_output "set unwindonsignal on" \
+gdb_test_no_output "set unwind-on-signal on" \
 	"setting unwindonsignal"
-gdb_test "show unwindonsignal" \
+gdb_test "show unwind-on-signal" \
 	"Unwinding of stack .* is on." \
 	"showing unwindonsignal"
 

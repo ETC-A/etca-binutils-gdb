@@ -1,6 +1,6 @@
 /* Definitions for dealing with stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #ifndef GDB_FRAME_ID_H
-#define GDB_FRAME_ID_H 1
+#define GDB_FRAME_ID_H
 
 /* Status of a given frame's stack.  */
 
@@ -95,7 +95,7 @@ struct frame_id
   CORE_ADDR special_addr;
 
   /* Flags to indicate the above fields have valid contents.  */
-  ENUM_BITFIELD(frame_id_stack_status) stack_status : 3;
+  frame_id_stack_status stack_status : 3;
   unsigned int code_addr_p : 1;
   unsigned int special_addr_p : 1;
 
@@ -140,4 +140,4 @@ is_sentinel_frame_id (frame_id id)
   return id.stack_status == FID_STACK_SENTINEL;
 }
 
-#endif /* ifdef GDB_FRAME_ID_H  */
+#endif /* GDB_FRAME_ID_H */

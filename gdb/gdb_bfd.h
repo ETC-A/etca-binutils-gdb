@@ -1,6 +1,6 @@
 /* Definitions for BFD wrappers used by GDB.
 
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,13 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef GDB_BFD_H
-#define GDB_BFD_H
+#ifndef GDB_GDB_BFD_H
+#define GDB_GDB_BFD_H
 
 #include "registry.h"
 #include "gdbsupport/byte-vector.h"
+#include "gdbsupport/function-view.h"
 #include "gdbsupport/gdb_ref_ptr.h"
-#include "gdbsupport/iterator-range.h"
 #include "gdbsupport/next-iterator.h"
 
 /* A registry adaptor for BFD.  This arranges to store the registry in
@@ -43,6 +43,14 @@ struct registry_accessor<bfd>
    otherwise.  */
 
 int is_target_filename (const char *name);
+
+/* An overload for strings.  */
+
+static inline int
+is_target_filename (const std::string &name)
+{
+  return is_target_filename (name.c_str ());
+}
 
 /* Returns nonzero if the filename associated with ABFD starts with
    TARGET_SYSROOT_PREFIX, zero otherwise.  */
@@ -75,7 +83,7 @@ struct gdb_bfd_ref_policy
 };
 
 /* A gdb::ref_ptr that has been specialized for BFD objects.  */
-typedef gdb::ref_ptr<struct bfd, gdb_bfd_ref_policy> gdb_bfd_ref_ptr;
+using gdb_bfd_ref_ptr = gdb::ref_ptr<struct bfd, gdb_bfd_ref_policy>;
 
 /* Open a read-only (FOPEN_RB) BFD given arguments like bfd_fopen.
    If NAME starts with TARGET_SYSROOT_PREFIX then the BFD will be
@@ -150,23 +158,35 @@ gdb_bfd_ref_ptr gdb_bfd_openr (const char *, const char *);
 
 gdb_bfd_ref_ptr gdb_bfd_openw (const char *, const char *);
 
-/* A wrapper for bfd_openr_iovec that initializes the gdb-specific
-   reference count.  */
+/* The base class for BFD "iovec" implementations.  This is used by
+   gdb_bfd_openr_iovec and enables better type safety.  */
+
+class gdb_bfd_iovec_base
+{
+protected:
+
+  gdb_bfd_iovec_base () = default;
+
+public:
+
+  virtual ~gdb_bfd_iovec_base () = default;
+
+  /* The "read" callback.  */
+  virtual file_ptr read (bfd *abfd, void *buffer, file_ptr nbytes,
+			 file_ptr offset) = 0;
+
+  /* The "stat" callback.  */
+  virtual int stat (struct bfd *abfd, struct stat *sb) = 0;
+};
+
+/* The type of the function used to open a new iovec-based BFD.  */
+using gdb_iovec_opener_ftype
+     = gdb::function_view<gdb_bfd_iovec_base * (bfd *)>;
+
+/* A type-safe wrapper for bfd_openr_iovec.  */
 
 gdb_bfd_ref_ptr gdb_bfd_openr_iovec (const char *filename, const char *target,
-				     void *(*open_func) (struct bfd *nbfd,
-							 void *open_closure),
-				     void *open_closure,
-				     file_ptr (*pread_func) (struct bfd *nbfd,
-							     void *stream,
-							     void *buf,
-							     file_ptr nbytes,
-							     file_ptr offset),
-				     int (*close_func) (struct bfd *nbfd,
-							void *stream),
-				     int (*stat_func) (struct bfd *abfd,
-						       void *stream,
-						       struct stat *sb));
+				     gdb_iovec_opener_ftype open_fn);
 
 /* A wrapper for bfd_openr_next_archived_file that initializes the
    gdb-specific reference count.  */
@@ -221,20 +241,61 @@ using gdb_bfd_section_range = next_range<asection>;
 static inline gdb_bfd_section_range
 gdb_bfd_sections (bfd *abfd)
 {
-  return gdb_bfd_section_range (abfd->sections);
+  next_iterator<asection> begin (abfd->sections);
+
+  return gdb_bfd_section_range (std::move (begin));
 }
 
 static inline gdb_bfd_section_range
 gdb_bfd_sections (const gdb_bfd_ref_ptr &abfd)
 {
-  return gdb_bfd_section_range (abfd->sections);
+  next_iterator<asection> begin (abfd->sections);
+
+  return gdb_bfd_section_range (std::move (begin));
 };
+
+/* A wrapper for bfd_stat that acquires the per-BFD lock on ABFD.  */
+
+extern int gdb_bfd_stat (bfd *abfd, struct stat *sbuf)
+  ATTRIBUTE_WARN_UNUSED_RESULT;
+
+/* A wrapper for bfd_get_mtime that acquires the per-BFD lock on
+   ABFD.  */
+
+extern long gdb_bfd_get_mtime (bfd *abfd)
+  ATTRIBUTE_WARN_UNUSED_RESULT;
 
 /* A wrapper for bfd_errmsg to produce a more helpful error message
    in the case of bfd_error_file_ambiguously recognized.
    MATCHING, if non-NULL, is the corresponding argument to
-   bfd_check_format_matches, and will be freed.  */
+   gdb_bfd_check_format_matches, and will be freed.  */
 
 extern std::string gdb_bfd_errmsg (bfd_error_type error_tag, char **matching);
 
-#endif /* GDB_BFD_H */
+/* A wrapper for bfd_init that also handles setting up for
+   multi-threading.  */
+
+extern void gdb_bfd_init ();
+
+/* A wrapper for bfd_canonicalize_symtab that caches the result.  This
+   is important to avoid excess memory use on repeated calls.  See
+   PR gdb/32758. bfd_canonicalize_symtab should not be called directly
+   by other code in gdb.
+
+   When SHOULD_THROW is true (the default), this will throw an
+   exception if symbols could not be read.  When SHOULD_THROW is
+   false, an empty view is returned instead.  */
+
+extern gdb::array_view<asymbol *> gdb_bfd_canonicalize_symtab
+     (bfd *abfd, bool should_throw = true);
+
+/* A wrapper for bfd_check_format that acquires the BFD lock.  */
+
+extern bool gdb_bfd_check_format (bfd *abfd, bfd_format format);
+
+/* A wrapper for bfd_check_format_matches that acquires the BFD lock.  */
+
+extern bool gdb_bfd_check_format_matches (bfd *abfd, bfd_format format,
+					  char ***matching);
+
+#endif /* GDB_GDB_BFD_H */

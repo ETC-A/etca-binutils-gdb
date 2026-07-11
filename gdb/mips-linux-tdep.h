@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux on MIPS processors.
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef MIPS_LINUX_TDEP_H
-#define MIPS_LINUX_TDEP_H
+#ifndef GDB_MIPS_LINUX_TDEP_H
+#define GDB_MIPS_LINUX_TDEP_H
+
+#include "gdbsupport/tdesc.h"
 
 /* Copied from <asm/elf.h>.  */
 #define ELF_NGREG       45
@@ -108,9 +110,9 @@ enum {
 int mips_linux_restart_reg_p (struct gdbarch *gdbarch);
 
 /* Target descriptions.  */
-extern const struct target_desc *tdesc_mips_linux;
-extern const struct target_desc *tdesc_mips64_linux;
-extern const struct target_desc *tdesc_mips_dsp_linux;
-extern const struct target_desc *tdesc_mips64_dsp_linux;
+extern const_target_desc_up tdesc_mips_linux;
+extern const_target_desc_up tdesc_mips64_linux;
+extern const_target_desc_up tdesc_mips_dsp_linux;
+extern const_target_desc_up tdesc_mips64_dsp_linux;
 
-#endif /* MIPS_LINUX_TDEP_H */
+#endif /* GDB_MIPS_LINUX_TDEP_H */

@@ -1,4 +1,4 @@
-# Copyright 2014-2023 Free Software Foundation, Inc.
+# Copyright 2014-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,23 +25,22 @@ standard_testfile ${main_src} ${lib_src}
 set lib_basename hbreak-in-shr-unsupported-shr.so
 set lib_so [standard_output_file ${lib_basename}]
 
-set lib_opts "debug"
+set lib_opts [list debug shlib]
 set exec_opts [list debug shlib=${lib_so}]
 
-if { [gdb_compile_shlib ${srcdir}/${subdir}/${lib_src} ${lib_so} $lib_opts] != ""
-     || [gdb_compile ${srcdir}/${subdir}/${main_src} ${binfile} executable $exec_opts] != ""} {
-    untested "failed to compile"
-    return -1
+if { [build_executable "build shlib" $lib_so $lib_src $lib_opts] != 0 } {
+    return
 }
 
-clean_restart $binfile
+if { [prepare_for_testing "prepare" $testfile $main_src $exec_opts] != 0 } {
+    return
+}
+
 gdb_load_shlib $lib_so
 
 if {![runto_main]} {
-    return -1
+    return
 }
-
-set is_target_remote [gdb_is_target_remote]
 
 # Get main breakpoint out of the way.
 delete_breakpoints
@@ -51,7 +50,7 @@ gdb_test_no_output "set breakpoint always-inserted on"
 
 # Force-disable Z1 packets, in case the target actually supports
 # these.
-if {$is_target_remote} {
+if {[gdb_protocol_is_remote]} {
     gdb_test \
 	"set remote Z-packet off" \
 	"Use of Z packets on the current remote target is set to \"off\"."
@@ -79,7 +78,7 @@ gdb_test_multiple "hbreak -q main" $test {
     }
     -re "Hardware assisted breakpoint.*at.* file .*$srcfile, line.*$gdb_prompt $" {
 	set supports_hbreak 1
-	if {$is_target_remote} {
+	if {[gdb_protocol_is_remote]} {
 	    # Z-packets have been force-disabled, so this shouldn't
 	    # happen.
 	    fail $test

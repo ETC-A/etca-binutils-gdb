@@ -1,4 +1,4 @@
-/* Copyright (C) 2017-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,42 +15,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_TRAITS_H
-#define COMMON_TRAITS_H
+#ifndef GDBSUPPORT_TRAITS_H
+#define GDBSUPPORT_TRAITS_H
 
 #include <type_traits>
 
-/* GCC does not understand __has_feature.  */
-#if !defined(__has_feature)
-# define __has_feature(x) 0
-#endif
-
-/* HAVE_IS_TRIVIALLY_COPYABLE is defined as 1 iff
-   std::is_trivially_copyable is available.  GCC only implemented it
-   in GCC 5.  */
-#if (__has_feature(is_trivially_copyable) \
-     || (defined __GNUC__ && __GNUC__ >= 5))
-# define HAVE_IS_TRIVIALLY_COPYABLE 1
-#endif
-
-/* HAVE_IS_TRIVIALLY_CONSTRUCTIBLE is defined as 1 iff
-   std::is_trivially_constructible is available.  GCC only implemented it
-   in GCC 5.  */
-#if (__has_feature(is_trivially_constructible) \
-     || (defined __GNUC__ && __GNUC__ >= 5))
-# define HAVE_IS_TRIVIALLY_CONSTRUCTIBLE 1
-#endif
-
 namespace gdb {
-
-/* Pre C++14-safe (CWG 1558) version of C++17's std::void_t.  See
-   <http://en.cppreference.com/w/cpp/types/void_t>.  */
-
-template<typename... Ts>
-struct make_void { typedef void type; };
-
-template<typename... Ts>
-using void_t = typename make_void<Ts...>::type;
 
 /* Implementation of the detection idiom:
 
@@ -79,7 +49,7 @@ struct detector
 
 /* Implementation of the detection idiom (positive case).  */
 template<typename Default, template<typename...> class Op, typename... Args>
-struct detector<Default, void_t<Op<Args...>>, Op, Args...>
+struct detector<Default, std::void_t<Op<Args...>>, Op, Args...>
 {
   using value_t = std::true_type;
   using type = Op<Args...>;
@@ -119,58 +89,25 @@ template<typename To, template<typename...> class Op, typename... Args>
 using is_detected_convertible
   = std::is_convertible<detected_t<Op, Args...>, To>;
 
-/* A few trait helpers, mainly stolen from libstdc++.  Uppercase
-   because "and/or", etc. are reserved keywords.  */
+/* A few trait helpers -- standard traits but with slightly nicer
+   names.  Uppercase because "and/or", etc. are reserved keywords.  */
 
 template<typename Predicate>
-struct Not : public std::integral_constant<bool, !Predicate::value>
-{};
+using Not = std::negation<Predicate>;
 
-template<typename...>
-struct Or;
+template<typename ...T>
+using Or = std::disjunction<T...>;
 
-template<>
-struct Or<> : public std::false_type
-{};
-
-template<typename B1>
-struct Or<B1> : public B1
-{};
-
-template<typename B1, typename B2>
-struct Or<B1, B2>
-  : public std::conditional<B1::value, B1, B2>::type
-{};
-
-template<typename B1,typename B2,typename B3, typename... Bn>
-struct Or<B1, B2, B3, Bn...>
-  : public std::conditional<B1::value, B1, Or<B2, B3, Bn...>>::type
-{};
-
-template<typename...>
-struct And;
-
-template<>
-struct And<> : public std::true_type
-{};
-
-template<typename B1>
-struct And<B1> : public B1
-{};
-
-template<typename B1, typename B2>
-struct And<B1, B2>
-  : public std::conditional<B1::value, B2, B1>::type
-{};
-
-template<typename B1, typename B2, typename B3, typename... Bn>
-struct And<B1, B2, B3, Bn...>
-  : public std::conditional<B1::value, And<B2, B3, Bn...>, B1>::type
-{};
+template<typename ...T>
+using And = std::conjunction<T...>;
 
 /* Concepts-light-like helper to make SFINAE logic easier to read.  */
 template<typename Condition>
 using Requires = typename std::enable_if<Condition::value, void>::type;
 }
 
-#endif /* COMMON_TRAITS_H */
+template<typename T>
+using RequireLongest = gdb::Requires<gdb::Or<std::is_same<T, LONGEST>,
+					     std::is_same<T, ULONGEST>>>;
+
+#endif /* GDBSUPPORT_TRAITS_H */

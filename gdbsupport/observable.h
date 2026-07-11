@@ -1,6 +1,6 @@
 /* Observers
 
-   Copyright (C) 2016-2023 Free Software Foundation, Inc.
+   Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_OBSERVABLE_H
-#define COMMON_OBSERVABLE_H
+#ifndef GDBSUPPORT_OBSERVABLE_H
+#define GDBSUPPORT_OBSERVABLE_H
 
 #include <algorithm>
 #include <functional>
@@ -82,7 +82,7 @@ template<typename... T>
 class observable
 {
 public:
-  typedef std::function<void (T...)> func_type;
+  using func_type = std::function<void (T...)>;
 
 private:
   struct observer
@@ -248,4 +248,4 @@ private:
 
 } /* namespace gdb */
 
-#endif /* COMMON_OBSERVABLE_H */
+#endif /* GDBSUPPORT_OBSERVABLE_H */

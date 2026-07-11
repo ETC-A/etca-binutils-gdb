@@ -1,5 +1,5 @@
 /* Support for printing Ada types for GDB, the GNU debugger.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,16 +16,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "bfd.h"		/* Binary File Description */
+#include "event-top.h"
 #include "gdbtypes.h"
 #include "value.h"
 #include "c-lang.h"
 #include "cli/cli-style.h"
 #include "typeprint.h"
-#include "target-float.h"
 #include "ada-lang.h"
-#include <ctype.h>
 
 static int print_selected_record_field_types (struct type *, struct type *,
 					      int, int,
@@ -72,7 +69,7 @@ decoded_type_name (struct type *type)
       if (s == name_buffer)
 	return name_buffer;
 
-      if (!islower (s[1]))
+      if (!c_islower (s[1]))
 	return NULL;
 
       for (s = q = name_buffer; *s != '\0'; q += 1)
@@ -93,33 +90,33 @@ decoded_type_name (struct type *type)
     }
 }
 
-/* Return nonzero if TYPE is a subrange type, and its bounds
+/* Return true if TYPE is a subrange type, and its bounds
    are identical to the bounds of its subtype.  */
 
-static int
+static bool
 type_is_full_subrange_of_target_type (struct type *type)
 {
   struct type *subtype;
 
   if (type->code () != TYPE_CODE_RANGE)
-    return 0;
+    return false;
 
   subtype = type->target_type ();
   if (subtype == NULL)
-    return 0;
+    return false;
 
   if (is_dynamic_type (type))
-    return 0;
+    return false;
 
   if (ada_discrete_type_low_bound (type)
       != ada_discrete_type_low_bound (subtype))
-    return 0;
+    return false;
 
   if (ada_discrete_type_high_bound (type)
       != ada_discrete_type_high_bound (subtype))
-    return 0;
+    return false;
 
-  return 1;
+  return true;
 }
 
 /* Print TYPE on STREAM, preferably as a range if BOUNDS_PREFERRED_P
@@ -383,8 +380,8 @@ print_array_type (struct type *type, struct ui_file *stream, int show,
 		gdb_printf (stream, ", ");
 	      print_range (arr_type->index_type (), stream,
 			   0 /* bounds_preferred_p */);
-	      if (TYPE_FIELD_BITSIZE (arr_type, 0) > 0)
-		bitsize = TYPE_FIELD_BITSIZE (arr_type, 0);
+	      if (arr_type->field (0).bitsize () > 0)
+		bitsize = arr_type->field (0).bitsize ();
 	      /* A multi-dimensional array is represented using a
 		 sequence of array types.  If one of these types has a
 		 name, then it is not another dimension of the outer
@@ -408,8 +405,8 @@ print_array_type (struct type *type, struct ui_file *stream, int show,
 		gdb_printf (stream, ", ");
 	      print_range_type (range_desc_type->field (k).type (),
 				stream, 0 /* bounds_preferred_p */);
-	      if (TYPE_FIELD_BITSIZE (arr_type, 0) > 0)
-		bitsize = TYPE_FIELD_BITSIZE (arr_type, 0);
+	      if (arr_type->field (0).bitsize () > 0)
+		bitsize = arr_type->field (0).bitsize ();
 	    }
 	}
     }
@@ -435,12 +432,12 @@ print_array_type (struct type *type, struct ui_file *stream, int show,
 
 /* Print the choices encoded by field FIELD_NUM of variant-part TYPE on
    STREAM, assuming that VAL_TYPE (if non-NULL) is the type of the
-   values.  Return non-zero if the field is an encoding of
-   discriminant values, as in a standard variant record, and 0 if the
+   values.  Return true if the field is an encoding of
+   discriminant values, as in a standard variant record, and false if the
    field is not so encoded (as happens with single-component variants
    in types annotated with pragma Unchecked_Union).  */
 
-static int
+static bool
 print_choices (struct type *type, int field_num, struct ui_file *stream,
 	       struct type *val_type)
 {
@@ -468,7 +465,7 @@ print_choices (struct type *type, int field_num, struct ui_file *stream,
 	case '_':
 	case '\0':
 	  gdb_printf (stream, " =>");
-	  return 1;
+	  return true;
 	case 'S':
 	case 'R':
 	case 'O':
@@ -510,7 +507,7 @@ print_choices (struct type *type, int field_num, struct ui_file *stream,
 
 Huh:
   gdb_printf (stream, "? =>");
-  return 0;
+  return false;
 }
 
 /* A helper for print_variant_clauses that prints the members of
@@ -545,7 +542,7 @@ print_variant_clauses (struct type *var_type, struct type *discr_type,
 /* Assuming that field FIELD_NUM of TYPE represents variants whose
    discriminant is contained in OUTER_TYPE, print its components on STREAM.
    LEVEL is the recursion (indentation) level, in case any of the fields
-   themselves have nested structure, and SHOW is the number of levels of 
+   themselves have nested structure, and SHOW is the number of levels of
    internal structure to show (see ada_print_type).  For this purpose,
    fields nested in a variant part are taken to be at the same level as
    the fields immediately outside the variant part.  */
@@ -704,7 +701,7 @@ print_variant_part (const variant_part &part,
     name = "?";
   else
     {
-      name = type->field (part.discriminant_index).name ();;
+      name = type->field (part.discriminant_index).name ();
       discr_type = type->field (part.discriminant_index).type ();
     }
 
@@ -792,7 +789,7 @@ print_record_field_types (struct type *type, struct type *outer_type,
 					    0, type->num_fields () - 1,
 					    stream, show, level, flags);
 }
-   
+
 
 /* Print record type TYPE on STREAM.  LEVEL is the recursion (indentation)
    level, in case the element type itself has nested structure, and SHOW is
@@ -822,7 +819,7 @@ print_record_type (struct type *type0, struct ui_file *stream, int show,
 	parent_name = ada_type_name (parent_type);
       gdb_printf (stream, "new %s with record", parent_name);
     }
-  else if (parent_type == NULL && ada_is_tagged_type (type, 0))
+  else if (parent_type == NULL && ada_is_tagged_type (type, false))
     gdb_printf (stream, "tagged record");
   else
     gdb_printf (stream, "record");
@@ -1043,8 +1040,18 @@ ada_print_type (struct type *type0, const char *varstring,
 	    gdb_printf (stream, ">");
 	  }
 	else if (ada_is_modular_type (type))
-	  gdb_printf (stream, "mod %s", 
-		      int_string (ada_modulus (type), 10, 0, 0, 1));
+	  {
+	    std::optional<ULONGEST> bound = ada_modular_bound (type);
+	    gdb_mpz modulus;
+	    if (bound.has_value ())
+	      {
+		modulus = *bound;
+		modulus += 1;
+	      }
+	    else
+	      modulus = 0;
+	    gdb_printf (stream, "mod %s", modulus.str ().c_str ());
+	  }
 	else
 	  {
 	    gdb_printf (stream, "range ");
@@ -1065,9 +1072,6 @@ ada_print_type (struct type *type0, const char *varstring,
       case TYPE_CODE_STRUCT:
 	if (ada_is_array_descriptor_type (type))
 	  print_array_type (type, stream, show, level, flags);
-	else if (ada_is_bogus_array_descriptor (type))
-	  gdb_printf (stream,
-		      _("array (?) of ? (<mal-formed descriptor>)"));
 	else
 	  print_record_type (type, stream, show, level, flags);
 	break;

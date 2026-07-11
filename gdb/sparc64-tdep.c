@@ -1,6 +1,6 @@
 /* Target-dependent code for UltraSPARC.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
 #include "dwarf2/frame.h"
+#include "event-top.h"
+#include "extract-store-integer.h"
 #include "frame.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
@@ -46,12 +47,12 @@
    code can handle both.  */
 
 /* The M7 processor supports an Application Data Integrity (ADI) feature
-   that detects invalid data accesses.  When software allocates memory and 
-   enables ADI on the allocated memory, it chooses a 4-bit version number, 
-   sets the version in the upper 4 bits of the 64-bit pointer to that data, 
-   and stores the 4-bit version in every cacheline of the object.  Hardware 
-   saves the latter in spare bits in the cache and memory hierarchy. On each 
-   load and store, the processor compares the upper 4 VA (virtual address) bits 
+   that detects invalid data accesses.  When software allocates memory and
+   enables ADI on the allocated memory, it chooses a 4-bit version number,
+   sets the version in the upper 4 bits of the 64-bit pointer to that data,
+   and stores the 4-bit version in every cacheline of the object.  Hardware
+   saves the latter in spare bits in the cache and memory hierarchy. On each
+   load and store, the processor compares the upper 4 VA (virtual address) bits
    to the cacheline's version. If there is a mismatch, the processor generates
    a version mismatch trap which can be either precise or disrupting.
    The trap is an error condition which the kernel delivers to the process
@@ -66,7 +67,7 @@
 
 #include <algorithm>
 #include "cli/cli-utils.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "auxv.h"
 
 #define MAX_PROC_NAME_SIZE sizeof("/proc/99999/lwp/9999/adi/lstatus")
@@ -100,7 +101,7 @@ struct adi_stat_t
   int max_version;
 
   /* ADI version tag file.  */
-  int tag_fd = 0;
+  target_fd tag_fd = target_fd::INVALID;
 
   /* ADI availability check has been done.  */
   bool checked_avail = false;
@@ -131,7 +132,7 @@ static std::forward_list<sparc64_adi_info> adi_proc_list;
 
 /* Get ADI info for process PID, creating one if it doesn't exist.  */
 
-static sparc64_adi_info * 
+static sparc64_adi_info *
 get_adi_info_proc (pid_t pid)
 {
   auto found = std::find_if (adi_proc_list.begin (), adi_proc_list.end (),
@@ -151,7 +152,7 @@ get_adi_info_proc (pid_t pid)
     }
 }
 
-static adi_stat_t 
+static adi_stat_t
 get_adi_info (pid_t pid)
 {
   sparc64_adi_info *proc;
@@ -175,7 +176,7 @@ sparc64_forget_process (pid_t pid)
     {
       if ((*it).pid == pid)
 	{
-	  if ((*it).stat.tag_fd > 0) 
+	  if ((*it).stat.tag_fd != target_fd::INVALID)
 	    target_fileio_close ((*it).stat.tag_fd, &target_errno);
 	  adi_proc_list.erase_after (pit);
 	  break;
@@ -244,7 +245,7 @@ adi_normalize_address (CORE_ADDR addr)
   return addr;
 }
 
-/* Align a normalized address - a VA with bit 59 sign extended into 
+/* Align a normalized address - a VA with bit 59 sign extended into
    ADI bits.  */
 
 static CORE_ADDR
@@ -274,20 +275,22 @@ adi_convert_byte_count (CORE_ADDR naddr, int nbytes, CORE_ADDR locl)
    K * adi_blksz, encoded as 1 version tag per byte.  The allowed
    version tag values are between 0 and adi_stat.max_version.  */
 
-static int
-adi_tag_fd (void)
+static target_fd
+adi_tag_fd ()
 {
   pid_t pid = inferior_ptid.pid ();
   sparc64_adi_info *proc = get_adi_info_proc (pid);
 
-  if (proc->stat.tag_fd != 0)
+  if (proc->stat.tag_fd != target_fd::INVALID)
     return proc->stat.tag_fd;
 
   char cl_name[MAX_PROC_NAME_SIZE];
   snprintf (cl_name, sizeof(cl_name), "/proc/%ld/adi/tags", (long) pid);
   fileio_error target_errno;
-  proc->stat.tag_fd = target_fileio_open (NULL, cl_name, O_RDWR|O_EXCL, 
-					  false, 0, &target_errno);
+  proc->stat.tag_fd = target_fileio_open (NULL, cl_name,
+					  FILEIO_O_RDWR | FILEIO_O_EXCL,
+					  0, false,
+					  &target_errno);
   return proc->stat.tag_fd;
 }
 
@@ -337,15 +340,15 @@ adi_is_addr_mapped (CORE_ADDR vaddr, size_t cnt)
 static int
 adi_read_versions (CORE_ADDR vaddr, size_t size, gdb_byte *tags)
 {
-  int fd = adi_tag_fd ();
-  if (fd == -1)
+  target_fd fd = adi_tag_fd ();
+  if (fd == target_fd::INVALID)
     return -1;
 
   if (!adi_is_addr_mapped (vaddr, size))
     {
       adi_stat_t ast = get_adi_info (inferior_ptid.pid ());
       error(_("Address at %s is not in ADI maps"),
-	    paddress (target_gdbarch (), vaddr * ast.blksize));
+	    paddress (current_inferior ()->arch (), vaddr * ast.blksize));
     }
 
   fileio_error target_errno;
@@ -358,15 +361,15 @@ adi_read_versions (CORE_ADDR vaddr, size_t size, gdb_byte *tags)
 static int
 adi_write_versions (CORE_ADDR vaddr, size_t size, unsigned char *tags)
 {
-  int fd = adi_tag_fd ();
-  if (fd == -1)
+  target_fd fd = adi_tag_fd ();
+  if (fd == target_fd::INVALID)
     return -1;
 
   if (!adi_is_addr_mapped (vaddr, size))
     {
       adi_stat_t ast = get_adi_info (inferior_ptid.pid ());
       error(_("Address at %s is not in ADI maps"),
-	    paddress (target_gdbarch (), vaddr * ast.blksize));
+	    paddress (current_inferior ()->arch (), vaddr * ast.blksize));
     }
 
   fileio_error target_errno;
@@ -388,7 +391,8 @@ adi_print_versions (CORE_ADDR vaddr, size_t cnt, gdb_byte *tags)
     {
       QUIT;
       gdb_printf ("%s:\t",
-		  paddress (target_gdbarch (), vaddr * adi_stat.blksize));
+		  paddress (current_inferior ()->arch (),
+			    vaddr * adi_stat.blksize));
       for (int i = maxelts; i > 0 && cnt > 0; i--, cnt--)
 	{
 	  if (tags[v_idx] == 0xff)    /* no version tag */
@@ -411,12 +415,13 @@ do_examine (CORE_ADDR start, int bcnt)
 
   CORE_ADDR vstart = adi_align_address (vaddr);
   int cnt = adi_convert_byte_count (vaddr, bcnt, vstart);
-  gdb::def_vector<gdb_byte> buf (cnt);
+  gdb::byte_vector buf (cnt);
   int read_cnt = adi_read_versions (vstart, cnt, buf.data ());
   if (read_cnt == -1)
     error (_("No ADI information"));
   else if (read_cnt < cnt)
-    error(_("No ADI information at %s"), paddress (target_gdbarch (), vaddr));
+    error(_("No ADI information at %s"),
+	  paddress (current_inferior ()->arch (), vaddr));
 
   adi_print_versions (vstart, cnt, buf.data ());
 }
@@ -434,8 +439,8 @@ do_assign (CORE_ADDR start, size_t bcnt, int version)
   if (set_cnt == -1)
     error (_("No ADI information"));
   else if (set_cnt < cnt)
-    error(_("No ADI information at %s"), paddress (target_gdbarch (), vaddr));
-
+    error(_("No ADI information at %s"),
+	  paddress (current_inferior ()->arch (), vaddr));
 }
 
 /* ADI examine version tag command.
@@ -526,9 +531,7 @@ adi_assign_command (const char *args, int from_tty)
   do_assign (next_address, cnt, version);
 }
 
-void _initialize_sparc64_adi_tdep ();
-void
-_initialize_sparc64_adi_tdep ()
+INIT_GDB_FILE (sparc64_adi_tdep)
 {
   add_basic_prefix_cmd ("adi", class_support,
 			_("ADI version related commands."),
@@ -783,7 +786,7 @@ static const char * const sparc64_register_names[] =
 #define SPARC64_NUM_REGS ARRAY_SIZE (sparc64_register_names)
 
 /* We provide the aliases %d0..%d62 and %q0..%q60 for the floating
-   registers as "psuedo" registers.  */
+   registers as "pseudo" registers.  */
 
 static const char * const sparc64_pseudo_register_names[] =
 {
@@ -1047,7 +1050,7 @@ sparc64_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
      using the debugging information.  */
   if (find_pc_partial_function (start_pc, NULL, &func_start, &func_end))
     {
-      sal = find_pc_line (func_start, 0);
+      sal = find_sal_for_pc (func_start, 0);
 
       if (sal.end < func_end
 	  && start_pc <= sal.end)
@@ -1061,13 +1064,13 @@ sparc64_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
 /* Normal frames.  */
 
 static struct sparc_frame_cache *
-sparc64_frame_cache (frame_info_ptr this_frame, void **this_cache)
+sparc64_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   return sparc_frame_cache (this_frame, this_cache);
 }
 
 static void
-sparc64_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+sparc64_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 		       struct frame_id *this_id)
 {
   struct sparc_frame_cache *cache =
@@ -1081,7 +1084,7 @@ sparc64_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 }
 
 static struct value *
-sparc64_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
+sparc64_frame_prev_register (const frame_info_ptr &this_frame, void **this_cache,
 			     int regnum)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
@@ -1132,20 +1135,20 @@ sparc64_frame_prev_register (frame_info_ptr this_frame, void **this_cache,
   return frame_unwind_got_register (this_frame, regnum, regnum);
 }
 
-static const struct frame_unwind sparc64_frame_unwind =
-{
+static const struct frame_unwind_legacy sparc64_frame_unwind (
   "sparc64 prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   sparc64_frame_this_id,
   sparc64_frame_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 
 static CORE_ADDR
-sparc64_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+sparc64_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct sparc_frame_cache *cache =
     sparc64_frame_cache (this_frame, this_cache);
@@ -1764,7 +1767,7 @@ sparc64_return_value (struct gdbarch *gdbarch, struct value *function,
 static void
 sparc64_dwarf2_frame_init_reg (struct gdbarch *gdbarch, int regnum,
 			       struct dwarf2_frame_state_reg *reg,
-			       frame_info_ptr this_frame)
+			       const frame_info_ptr &this_frame)
 {
   switch (regnum)
     {
@@ -1814,7 +1817,7 @@ sparc64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_ptr_bit (gdbarch, 64);
 
   set_gdbarch_wchar_bit (gdbarch, 16);
-  set_gdbarch_wchar_signed (gdbarch, 0);
+  set_gdbarch_wchar_signed (gdbarch, false);
 
   set_gdbarch_num_regs (gdbarch, SPARC64_NUM_REGS);
   set_gdbarch_register_name (gdbarch, sparc64_register_name);
@@ -1823,7 +1826,8 @@ sparc64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_tdesc_pseudo_register_name (gdbarch, sparc64_pseudo_register_name);
   set_tdesc_pseudo_register_type (gdbarch, sparc64_pseudo_register_type);
   set_gdbarch_pseudo_register_read (gdbarch, sparc64_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (gdbarch, sparc64_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (gdbarch,
+						sparc64_pseudo_register_write);
 
   /* Register numbers of various important registers.  */
   set_gdbarch_pc_regnum (gdbarch, SPARC64_PC_REGNUM); /* %pc */
@@ -1836,8 +1840,6 @@ sparc64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   set_gdbarch_return_value (gdbarch, sparc64_return_value);
   set_gdbarch_return_value_as_value (gdbarch, default_gdbarch_return_value);
-  set_gdbarch_stabs_argument_has_addr
-    (gdbarch, default_stabs_argument_has_addr);
 
   set_gdbarch_skip_prologue (gdbarch, sparc64_skip_prologue);
   set_gdbarch_stack_frame_destroyed_p (gdbarch, sparc_stack_frame_destroyed_p);
@@ -1880,7 +1882,6 @@ sparc64_supply_gregset (const struct sparc_gregmap *gregmap,
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int sparc32 = (gdbarch_ptr_bit (gdbarch) == 32);
   const gdb_byte *regs = (const gdb_byte *) gregs;
-  gdb_byte zero[8] = { 0 };
   int i;
 
   if (sparc32)
@@ -1943,7 +1944,7 @@ sparc64_supply_gregset (const struct sparc_gregmap *gregmap,
     }
 
   if (regnum == SPARC_G0_REGNUM || regnum == -1)
-    regcache->raw_supply (SPARC_G0_REGNUM, &zero);
+    regcache->raw_supply_zeroed (SPARC_G0_REGNUM);
 
   if ((regnum >= SPARC_G1_REGNUM && regnum <= SPARC_O7_REGNUM) || regnum == -1)
     {

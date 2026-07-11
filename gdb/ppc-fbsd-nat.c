@@ -1,6 +1,6 @@
 /* Native-dependent code for PowerPC's running FreeBSD, for GDB.
 
-   Copyright (C) 2013-2023 Free Software Foundation, Inc.
+   Copyright (C) 2013-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbcore.h"
 #include "inferior.h"
 #include "regcache.h"
@@ -201,9 +200,7 @@ ppcfbsd_supply_pcb (struct regcache *regcache, struct pcb *pcb)
   return 1;
 }
 
-void _initialize_ppcfbsd_nat ();
-void
-_initialize_ppcfbsd_nat ()
+INIT_GDB_FILE (ppcfbsd_nat)
 {
   add_inf_child_target (&the_ppc_fbsd_nat_target);
 

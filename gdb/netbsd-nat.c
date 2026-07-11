@@ -1,6 +1,6 @@
 /* Native-dependent code for NetBSD.
 
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 
 #include "netbsd-nat.h"
 #include "nat/netbsd-nat.h"
@@ -26,6 +25,7 @@
 #include "inferior.h"
 #include "gdbarch.h"
 #include "gdbsupport/buildargv.h"
+#include "gdbsupport/eintr.h"
 
 #include <sys/types.h>
 #include <sys/ptrace.h>
@@ -155,7 +155,7 @@ nbsd_nat_target::post_attach (int pid)
 void
 nbsd_nat_target::update_thread_list ()
 {
-  delete_exited_threads ();
+  delete_exited_threads (this);
 }
 
 /* Convert PTID to a string.  */
@@ -209,12 +209,10 @@ nbsd_kinfo_get_vmmap (pid_t pid, size_t *size)
 }
 
 /* Iterate over all the memory regions in the current inferior,
-   calling FUNC for each memory region.  OBFD is passed as the last
-   argument to FUNC.  */
+   calling FUNC for each memory region.  */
 
-int
-nbsd_nat_target::find_memory_regions (find_memory_region_ftype func,
-				      void *data)
+bool
+nbsd_nat_target::find_memory_regions (find_memory_region_ftype func)
 {
   pid_t pid = inferior_ptid.pid ();
 
@@ -250,7 +248,7 @@ nbsd_nat_target::find_memory_regions (find_memory_region_ftype func,
 	{
 	  gdb_printf ("Save segment, %ld bytes at %s (%c%c%c)\n",
 		      (long) size,
-		      paddress (target_gdbarch (), kve->kve_start),
+		      paddress (current_inferior ()->arch  (), kve->kve_start),
 		      kve->kve_protection & KVME_PROT_READ ? 'r' : '-',
 		      kve->kve_protection & KVME_PROT_WRITE ? 'w' : '-',
 		      kve->kve_protection & KVME_PROT_EXEC ? 'x' : '-');
@@ -260,9 +258,9 @@ nbsd_nat_target::find_memory_regions (find_memory_region_ftype func,
 	 Pass MODIFIED as true, we do not know the real modification state.  */
       func (kve->kve_start, size, kve->kve_protection & KVME_PROT_READ,
 	    kve->kve_protection & KVME_PROT_WRITE,
-	    kve->kve_protection & KVME_PROT_EXEC, 1, false, data);
+	    kve->kve_protection & KVME_PROT_EXEC, true, false, false);
     }
-  return 0;
+  return true;
 }
 
 /* Implement the "info_proc" target_ops method.  */
@@ -318,7 +316,7 @@ nbsd_nat_target::info_proc (const char *args, enum info_proc_what what)
       if (pid == 0)
 	error (_("No current process: you must name one."));
     }
-  else if (built_argv.count () == 1 && isdigit (built_argv[0][0]))
+  else if (built_argv.count () == 1 && c_isdigit (built_argv[0][0]))
     pid = strtol (built_argv[0], NULL, 10);
   else
     error (_("Invalid arguments."));
@@ -476,14 +474,14 @@ nbsd_resume(nbsd_nat_target *target, ptid_t ptid, int step,
       /* If ptid is a specific LWP, suspend all other LWPs in the process.  */
       inferior *inf = find_inferior_ptid (target, ptid);
 
-      for (thread_info *tp : inf->non_exited_threads ())
+      for (thread_info &tp : inf->non_exited_threads ())
 	{
-	  if (tp->ptid.lwp () == ptid.lwp ())
+	  if (tp.ptid.lwp () == ptid.lwp ())
 	    request = PT_RESUME;
 	  else
 	    request = PT_SUSPEND;
 
-	  if (ptrace (request, tp->ptid.pid (), NULL, tp->ptid.lwp ()) == -1)
+	  if (ptrace (request, tp.ptid.pid (), NULL, tp.ptid.lwp ()) == -1)
 	    perror_with_name (("ptrace"));
 	}
     }
@@ -491,25 +489,25 @@ nbsd_resume(nbsd_nat_target *target, ptid_t ptid, int step,
     {
       /* If ptid is a wildcard, resume all matching threads (they won't run
 	 until the process is continued however).  */
-      for (thread_info *tp : all_non_exited_threads (target, ptid))
-	if (ptrace (PT_RESUME, tp->ptid.pid (), NULL, tp->ptid.lwp ()) == -1)
+      for (thread_info &tp : all_non_exited_threads (target, ptid))
+	if (ptrace (PT_RESUME, tp.ptid.pid (), NULL, tp.ptid.lwp ()) == -1)
 	  perror_with_name (("ptrace"));
     }
 
   if (step)
     {
-      for (thread_info *tp : all_non_exited_threads (target, ptid))
-	if (ptrace (PT_SETSTEP, tp->ptid.pid (), NULL, tp->ptid.lwp ()) == -1)
+      for (thread_info &tp : all_non_exited_threads (target, ptid))
+	if (ptrace (PT_SETSTEP, tp.ptid.pid (), NULL, tp.ptid.lwp ()) == -1)
 	  perror_with_name (("ptrace"));
     }
   else
     {
-      for (thread_info *tp : all_non_exited_threads (target, ptid))
-	if (ptrace (PT_CLEARSTEP, tp->ptid.pid (), NULL, tp->ptid.lwp ()) == -1)
+      for (thread_info &tp : all_non_exited_threads (target, ptid))
+	if (ptrace (PT_CLEARSTEP, tp.ptid.pid (), NULL, tp.ptid.lwp ()) == -1)
 	  perror_with_name (("ptrace"));
     }
 
-  if (catch_syscall_enabled () > 0)
+  if (catch_syscall_enabled ())
     request = PT_SYSCALL;
   else
     request = PT_CONTINUE;
@@ -548,12 +546,8 @@ nbsd_wait (ptid_t ptid, struct target_waitstatus *ourstatus,
 
   set_sigint_trap ();
 
-  do
-    {
-      /* The common code passes WNOHANG that leads to crashes, overwrite it.  */
-      pid = waitpid (ptid.pid (), &status, 0);
-    }
-  while (pid == -1 && errno == EINTR);
+  /* The common code passes WNOHANG that leads to crashes, overwrite it.  */
+  pid = gdb::waitpid (ptid.pid (), &status, 0);
 
   clear_sigint_trap ();
 
@@ -626,9 +620,6 @@ nbsd_nat_target::wait (ptid_t ptid, struct target_waitstatus *ourstatus,
 	  /* NetBSD does not store an LWP exit status.  */
 	  ourstatus->set_thread_exited (0);
 
-	  if (print_thread_events)
-	    gdb_printf (_("[%s exited]\n"),
-			target_pid_to_str (wptid).c_str ());
 	  delete_thread (thr);
 	}
 

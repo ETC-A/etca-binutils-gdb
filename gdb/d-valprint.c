@@ -1,6 +1,6 @@
 /* Support for printing D values for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "gdbtypes.h"
 #include "gdbcore.h"
 #include "d-lang.h"
@@ -36,8 +35,8 @@ dynamic_array_type (struct type *type,
 {
   if (type->num_fields () == 2
       && type->field (0).type ()->code () == TYPE_CODE_INT
-      && strcmp (type->field (0).name (), "length") == 0
-      && strcmp (type->field (1).name (), "ptr") == 0
+      && streq (type->field (0).name (), "length")
+      && streq (type->field (1).name (), "ptr")
       && !val->bits_any_optimized_out (TARGET_CHAR_BIT * embedded_offset,
 				       TARGET_CHAR_BIT * type->length ()))
     {
@@ -85,7 +84,7 @@ d_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 				  stream, recurse, val, options);
 	if (ret == 0)
 	  break;
-	/* Fall through.  */
+	[[fallthrough]];
       default:
 	c_value_print_inner (val, stream, recurse, options);
 	break;

@@ -1,6 +1,6 @@
 /* Target-dependent code for Analog Devices Blackfin processor, for GDB.
 
-   Copyright (C) 2005-2023 Free Software Foundation, Inc.
+   Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    Contributed by Analog Devices, Inc.
 
@@ -19,8 +19,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "extract-store-integer.h"
 #include "regcache.h"
 #include "tramp-frame.h"
 #include "trad-frame.h"
@@ -95,7 +95,7 @@ static const int bfin_linux_sigcontext_reg_offset[BFIN_NUM_REGS] =
 
 static void
 bfin_linux_sigframe_init (const struct tramp_frame *self,
-			  frame_info_ptr this_frame,
+			  const frame_info_ptr &this_frame,
 			  struct trad_frame_cache *this_cache,
 			  CORE_ADDR func)
 {
@@ -120,7 +120,7 @@ static const struct tramp_frame bfin_linux_sigframe =
   4,
   {
     { 0x00ADE128, 0xffffffff },	/* P0 = __NR_rt_sigreturn; */
-    { 0x00A0, 0xffff },		/* EXCPT 0; */
+    { 0x00A0, 0xffff },		/* EXCPT 0; codespell:ignore excpt.  */
     { TRAMP_SENTINEL_INSN, ULONGEST_MAX },
   },
   bfin_linux_sigframe_init,
@@ -161,9 +161,7 @@ bfin_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				  bfin_linux_get_syscall_number);
 }
 
-void _initialize_bfin_linux_tdep ();
-void
-_initialize_bfin_linux_tdep ()
+INIT_GDB_FILE (bfin_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_bfin, 0, GDB_OSABI_LINUX,
 			  bfin_linux_init_abi);

@@ -1,6 +1,6 @@
 /* General utility routines for GDB/Python.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
-#include "top.h"		/* For quit_force ().  */
+#include "top.h"
 #include "charset.h"
 #include "value.h"
 #include "python-internal.h"
@@ -148,13 +147,13 @@ python_string_to_host_string (PyObject *obj)
   return unicode_to_encoded_string (str.get (), host_charset ());
 }
 
-/* Convert a host string to a python string.  */
+/* See python/python-internal.h.  */
 
 gdbpy_ref<>
-host_string_to_python_string (const char *str)
+host_string_to_python_string (std::string_view str)
 {
-  return gdbpy_ref<> (PyUnicode_Decode (str, strlen (str), host_charset (),
-					NULL));
+  return gdbpy_ref<> (PyUnicode_Decode (str.data (), str.size (),
+					host_charset (), nullptr));
 }
 
 /* Return true if OBJ is a Python string or unicode object, false
@@ -195,10 +194,11 @@ gdbpy_err_fetch::to_string () const
      Using str (aka PyObject_Str) will fetch the error message from
      gdb.GdbError ("message").  */
 
-  if (m_error_value.get () != nullptr && m_error_value.get () != Py_None)
-    return gdbpy_obj_to_string (m_error_value.get ());
+  gdbpy_ref<> value = this->value ();
+  if (value.get () != nullptr && value.get () != Py_None)
+    return gdbpy_obj_to_string (value.get ());
   else
-    return gdbpy_obj_to_string (m_error_type.get ());
+    return gdbpy_obj_to_string (this->type ().get ());
 }
 
 /* See python-internal.h.  */
@@ -206,7 +206,7 @@ gdbpy_err_fetch::to_string () const
 gdb::unique_xmalloc_ptr<char>
 gdbpy_err_fetch::type_to_string () const
 {
-  return gdbpy_obj_to_string (m_error_type.get ());
+  return gdbpy_obj_to_string (this->type ().get ());
 }
 
 /* Convert a GDB exception to the appropriate Python exception.
@@ -247,7 +247,7 @@ get_addr_from_python (PyObject *obj, CORE_ADDR *addr)
 	}
       catch (const gdb_exception &except)
 	{
-	  GDB_PY_SET_HANDLE_EXCEPTION (except);
+	  return gdbpy_handle_gdb_exception (-1, except);
 	}
     }
   else
@@ -309,34 +309,102 @@ gdb_py_int_as_long (PyObject *obj, long *result)
 
 
 
-/* Generic implementation of the __dict__ attribute for objects that
-   have a dictionary.  The CLOSURE argument should be the type object.
-   This only handles positive values for tp_dictoffset.  */
+/* Generic implementation of the getter for the __dict__ attribute for objects
+   having a dictionary.  The CLOSURE argument is unused.  */
 
 PyObject *
-gdb_py_generic_dict (PyObject *self, void *closure)
+gdb_py_generic_dict_getter (PyObject *self,
+			    void *closure ATTRIBUTE_UNUSED)
 {
-  PyObject *result;
-  PyTypeObject *type_obj = (PyTypeObject *) closure;
-  char *raw_ptr;
-
-  raw_ptr = (char *) self + type_obj->tp_dictoffset;
-  result = * (PyObject **) raw_ptr;
-
-  Py_INCREF (result);
-  return result;
+  PyObject **py_dict_ptr = gdbpy_dict_wrapper::compute_addr (self);
+  PyObject *py_dict = *py_dict_ptr;
+  if (py_dict == nullptr)
+    {
+      PyErr_SetString (PyExc_AttributeError,
+		       "This object has no __dict__");
+      return nullptr;
+    }
+  return Py_NewRef (py_dict);
 }
+
+/* Generic attribute getter function similar to PyObject_GenericGetAttr () but
+   that should be used when the object has a dictionary __dict__.  */
+PyObject *
+gdb_py_generic_getattro (PyObject *self, PyObject *attr)
+{
+  PyObject *value = PyObject_GenericGetAttr (self, attr);
+  if (value != nullptr)
+    return value;
+
+  if (! PyErr_ExceptionMatches (PyExc_AttributeError))
+    return nullptr;
+
+  gdbpy_ref<> dict (gdb_py_generic_dict_getter (self, nullptr));
+  if (dict == nullptr)
+    return nullptr;
+
+  /* Clear previous AttributeError set by PyObject_GenericGetAttr when it
+     did not find the attribute, and try to get the attribute from __dict__.  */
+  PyErr_Clear();
+
+  value = PyDict_GetItemWithError (dict.get (), attr);
+  if (value != nullptr)
+    return Py_NewRef (value);
+
+  /* If PyDict_GetItemWithError() returns NULL because an error occurred, it
+     sets an exception.  Propagate it by returning NULL.  */
+  if (PyErr_Occurred () != nullptr)
+    return nullptr;
+
+  /* If the key is not found, PyDict_GetItemWithError() returns NULL without
+     setting an exception.  Failing to set one here would later result in:
+       <class 'SystemError'>: error return without exception set
+     Therefore, we must explicitly raise an AttributeError in this case.  */
+  PyErr_Format (PyExc_AttributeError,
+		"'%s' object has no attribute '%s'",
+		gdbpy_py_obj_tp_name (self).c_str (),
+		PyUnicode_AsUTF8AndSize (attr, nullptr));
+  return nullptr;
+}
+
+/* Generic attribute setter function similar to PyObject_GenericSetAttr () but
+   that should be used when the object has a dictionary __dict__.  */
+int
+gdb_py_generic_setattro (PyObject *self, PyObject *attr, PyObject *value)
+{
+  if (PyObject_GenericSetAttr (self, attr, value) == 0)
+    return 0;
+
+  if (! PyErr_ExceptionMatches (PyExc_AttributeError))
+    return -1;
+
+  gdbpy_ref<> dict (gdb_py_generic_dict_getter (self, nullptr));
+  if (dict == nullptr)
+    return -1;
+
+  /* Clear previous AttributeError set by PyObject_GenericGetAttr() when it
+     did not find the attribute, and try to set the attribute into __dict__.  */
+  PyErr_Clear();
+
+  /* Set the new value.
+     Note: the old value is managed by PyDict_SetItem(), so no need to get
+     a borrowed reference on it and decrement its reference counter before
+     setting a new value.  */
+  return PyDict_SetItem (dict.get (), attr, value);
+}
+
+
 
 /* Like PyModule_AddObject, but does not steal a reference to
    OBJECT.  */
 
 int
-gdb_pymodule_addobject (PyObject *module, const char *name, PyObject *object)
+gdb_pymodule_addobject (PyObject *mod, const char *name, PyObject *object)
 {
   int result;
 
   Py_INCREF (object);
-  result = PyModule_AddObject (module, name, object);
+  result = PyModule_AddObject (mod, name, object);
   if (result < 0)
     Py_DECREF (object);
   return result;
@@ -390,6 +458,35 @@ gdbpy_handle_exception ()
 
   if (fetched_error.type_matches (PyExc_KeyboardInterrupt))
     throw_quit ("Quit");
+  else if (fetched_error.type_matches (PyExc_SystemExit))
+    {
+      gdbpy_ref<> value = fetched_error.value ();
+      gdbpy_ref<> code (PyObject_GetAttrString (value.get (), "code"));
+      int exit_arg;
+
+      if (code.get () == Py_None)
+	{
+	  /* CODE == None: exit status is 0.  */
+	  exit_arg = 0;
+	}
+      else if (code.get () != nullptr && PyLong_Check (code.get ()))
+	{
+	  /* CODE == integer: exit status is aforementioned integer.  */
+	  exit_arg = PyLong_AsLong (code.get ());
+	}
+      else
+	{
+	  if (code.get () == nullptr)
+	    gdbpy_print_stack ();
+
+	  /* Otherwise: exit status is 1, print code to stderr.  */
+	  if (msg != nullptr)
+	    gdb_printf (gdb_stderr, "%s\n", msg.get ());
+	  exit_arg = 1;
+	}
+
+      quit_force (&exit_arg, 0);
+    }
   else if (! fetched_error.type_matches (gdbpy_gdberror_exc)
 	   || msg == NULL || *msg == '\0')
     {
@@ -469,12 +566,12 @@ gdbpy_fix_doc_string_indentation (gdb::unique_xmalloc_ptr<char> doc)
      (user left a single stray space at the start of an otherwise blank
      line), we don't consider lines without content when updating the
      MIN_WHITESPACE value.  */
-  gdb::optional<int> min_whitespace;
+  std::optional<int> min_whitespace;
 
   /* The index into WS_INFO at which the processing of DOC can be
      considered "all done", that is, after this point there are no further
      lines with useful content and we should just stop.  */
-  gdb::optional<size_t> all_done_idx;
+  std::optional<size_t> all_done_idx;
 
   /* White-space information for each line in DOC.  */
   std::vector<line_whitespace> ws_info;
@@ -596,4 +693,13 @@ gdbpy_fix_doc_string_indentation (gdb::unique_xmalloc_ptr<char> doc)
   dst[dst_offset] = '\0';
 
   return doc;
+}
+
+/* See python-internal.h.  */
+
+PyObject *
+gdb_py_invalid_object_repr (PyObject *self)
+{
+  return PyUnicode_FromFormat ("<%s (invalid)>",
+			       gdbpy_py_obj_tp_name (self).c_str ());
 }

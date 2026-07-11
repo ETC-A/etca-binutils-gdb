@@ -1,6 +1,6 @@
 /* Fortran language support definitions for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    Contributed by Motorola.  Adapted from the C definitions by Farooq Butt
    (fmbutt@engage.sps.mot.com).
@@ -20,11 +20,12 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef F_LANG_H
-#define F_LANG_H
+#ifndef GDB_F_LANG_H
+#define GDB_F_LANG_H
 
 #include "language.h"
 #include "valprint.h"
+#include "char-print.h"
 
 struct type_print_options;
 struct parser_state;
@@ -140,9 +141,17 @@ public:
 
   /* See language.h.  */
 
+  struct block_symbol lookup_symbol_local
+       (const char *scope,
+	const char *name,
+	const struct block *block,
+	const domain_search_flags domain) const override;
+
+  /* See language.h.  */
+
   struct block_symbol lookup_symbol_nonlocal
 	(const char *name, const struct block *block,
-	 const domain_enum domain) const override;
+	 const domain_search_flags domain) const override;
 
   /* See language.h.  */
 
@@ -150,21 +159,10 @@ public:
 
   /* See language.h.  */
 
-  void emitchar (int ch, struct type *chtype,
-		 struct ui_file *stream, int quoter) const override
-  {
-    const char *encoding = get_encoding (chtype);
-    generic_emit_char (ch, chtype, stream, quoter, encoding);
-  }
-
-  /* See language.h.  */
-
   void printchar (int ch, struct type *chtype,
 		  struct ui_file *stream) const override
   {
-    gdb_puts ("'", stream);
-    emitchar (ch, chtype, stream, '\'');
-    gdb_puts ("'", stream);
+    wchar_printer (chtype, '\'').print (ch, stream);
   }
 
   /* See language.h.  */
@@ -174,16 +172,11 @@ public:
 		 const char *encoding, int force_ellipses,
 		 const struct value_print_options *options) const override
   {
-    const char *type_encoding = get_encoding (elttype);
-
     if (elttype->length () == 4)
       gdb_puts ("4_", stream);
 
-    if (!encoding || !*encoding)
-      encoding = type_encoding;
-
-    generic_printstr (stream, elttype, string, length, encoding,
-		      force_ellipses, '\'', 0, options);
+    wchar_printer printer (elttype, '\'', encoding);
+    printer.print (stream, string, length, force_ellipses, 0, options);
   }
 
   /* See language.h.  */
@@ -239,11 +232,6 @@ protected:
 	(const lookup_name_info &lookup_name) const override;
 
 private:
-  /* Return the encoding that should be used for the character type
-     TYPE.  */
-
-  static const char *get_encoding (struct type *type);
-
   /* Print any asterisks or open-parentheses needed before the variable
      name (to describe its type).
 
@@ -378,4 +366,4 @@ extern struct type *fortran_preserve_arg_pointer (struct value *arg,
 extern CORE_ADDR fortran_adjust_dynamic_array_base_address_hack
 	(struct type *type, CORE_ADDR address);
 
-#endif /* F_LANG_H */
+#endif /* GDB_F_LANG_H */

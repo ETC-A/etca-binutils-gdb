@@ -1,6 +1,6 @@
 /* Target waitstatus definitions and prototypes.
 
-   Copyright (C) 1990-2023 Free Software Foundation, Inc.
+   Copyright (C) 1990-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef TARGET_WAITSTATUS_H
-#define TARGET_WAITSTATUS_H
+#ifndef GDB_TARGET_WAITSTATUS_H
+#define GDB_TARGET_WAITSTATUS_H
 
 #include "diagnostics.h"
-#include "gdbsupport/gdb_signals.h"
+#include "gdb/signals.h"
 
 /* Stuff for target_wait.  */
 
@@ -47,15 +47,15 @@ enum target_waitkind
      value.related_pid.  I.e., if the child forks, value.related_pid
      is the parent's ID.  */
   TARGET_WAITKIND_FORKED,
- 
+
   /* The program has vforked.  A "related" process's PTID is in
      value.related_pid.  */
   TARGET_WAITKIND_VFORKED,
- 
+
   /* The program has exec'ed a new executable file.  The new file's
      pathname is pointed to by value.execd_pathname.  */
   TARGET_WAITKIND_EXECD,
-  
+
   /* The program had previously vforked, and now the child is done
      with the shared memory region, because it exec'ed or exited.
      Note that the event is reported to the vfork parent.  This is
@@ -87,20 +87,40 @@ enum target_waitkind
      function.  This way the event loop is responsive to other events,
      like for instance the user typing.  */
   TARGET_WAITKIND_IGNORE,
- 
+
   /* The target has run out of history information,
      and cannot run backward any further.  */
   TARGET_WAITKIND_NO_HISTORY,
- 
+
   /* There are no resumed children left in the program.  */
   TARGET_WAITKIND_NO_RESUMED,
+
+  /* The thread was cloned.  The event's ptid corresponds to the
+     cloned parent.  The cloned child is held stopped at its entry
+     point, and its ptid is in the event's m_child_ptid.  The target
+     must not add the cloned child to GDB's thread list until
+     target_ops::follow_clone() is called.  */
+  TARGET_WAITKIND_THREAD_CLONED,
 
   /* The thread was created.  */
   TARGET_WAITKIND_THREAD_CREATED,
 
-  /* The thread has exited.  The exit status is in value.integer.  */
+  /* The thread has exited.  The exit status is in value.integer.  The
+     thread should still exist in the thread list when infrun receives
+     this event.  */
   TARGET_WAITKIND_THREAD_EXITED,
 };
+
+/* Determine if KIND represents an event with a new child - a fork,
+   vfork, or clone.  */
+
+static inline bool
+is_new_child_status (target_waitkind kind)
+{
+  return (kind == TARGET_WAITKIND_FORKED
+	  || kind == TARGET_WAITKIND_VFORKED
+	  || kind == TARGET_WAITKIND_THREAD_CLONED);
+}
 
 /* Return KIND as a string.  */
 
@@ -125,6 +145,8 @@ DIAGNOSTIC_ERROR_SWITCH
       return "FORKED";
     case TARGET_WAITKIND_VFORKED:
       return "VFORKED";
+    case TARGET_WAITKIND_THREAD_CLONED:
+      return "THREAD_CLONED";
     case TARGET_WAITKIND_EXECD:
       return "EXECD";
     case TARGET_WAITKIND_VFORK_DONE:
@@ -325,6 +347,14 @@ struct target_waitstatus
     return *this;
   }
 
+  target_waitstatus &set_thread_cloned (ptid_t child_ptid)
+  {
+    this->reset ();
+    m_kind = TARGET_WAITKIND_THREAD_CLONED;
+    m_value.child_ptid = child_ptid;
+    return *this;
+  }
+
   target_waitstatus &set_thread_created ()
   {
     this->reset ();
@@ -369,8 +399,7 @@ struct target_waitstatus
 
   ptid_t child_ptid () const
   {
-    gdb_assert (m_kind == TARGET_WAITKIND_FORKED
-		|| m_kind == TARGET_WAITKIND_VFORKED);
+    gdb_assert (is_new_child_status (m_kind));
     return m_value.child_ptid;
   }
 
@@ -443,4 +472,4 @@ enum target_stop_reason
   TARGET_STOPPED_BY_SINGLE_STEP
 };
 
-#endif /* TARGET_WAITSTATUS_H */
+#endif /* GDB_TARGET_WAITSTATUS_H */

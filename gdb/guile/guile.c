@@ -1,6 +1,6 @@
 /* General GDB/Guile code.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,13 +20,12 @@
 /* See README file in this directory for implementation notes, coding
    conventions, et.al.  */
 
-#include "defs.h"
 #include "breakpoint.h"
 #include "cli/cli-cmds.h"
 #include "cli/cli-script.h"
+#include "cli/cli-style.h"
 #include "cli/cli-utils.h"
 #include "command.h"
-#include "gdbcmd.h"
 #include "top.h"
 #include "ui.h"
 #include "extension-priv.h"
@@ -115,6 +114,7 @@ static const struct extension_language_ops guile_extension_ops =
 {
   gdbscm_initialize,
   gdbscm_initialized,
+  nullptr,
 
   gdbscm_eval_from_control_command,
 
@@ -125,6 +125,7 @@ static const struct extension_language_ops guile_extension_ops =
   gdbscm_apply_val_pretty_printer,
 
   NULL, /* gdbscm_apply_frame_filter, */
+  NULL, /* gdbscm_load_ptwrite_filter, */
 
   gdbscm_preserve_values,
 
@@ -256,7 +257,8 @@ gdbscm_eval_from_control_command
   char *script;
 
   if (cmd->body_list_1 != nullptr)
-    error (_("Invalid \"guile\" block structure."));
+    error (_("Invalid \"%ps\" block structure."),
+	   styled_string (command_style.style (), "guile"));
 
   script = compute_scheme_string (cmd->body_list_0.get ());
   gdb::unique_xmalloc_ptr<char> msg = gdbscm_safe_eval_string (script, 0);
@@ -594,6 +596,7 @@ initialize_gdb_module (void *data)
   gdbscm_initialize_auto_load ();
   gdbscm_initialize_blocks ();
   gdbscm_initialize_breakpoints ();
+  gdbscm_initialize_colors ();
   gdbscm_initialize_commands ();
   gdbscm_initialize_disasm ();
   gdbscm_initialize_frames ();
@@ -632,9 +635,7 @@ call_initialize_gdb_module (void *data)
      performed within the desired module.  */
   scm_c_define_module (gdbscm_module_name, initialize_gdb_module, NULL);
 
-#if HAVE_GUILE_MANUAL_FINALIZATION
   scm_run_finalizers ();
-#endif
 
   return NULL;
 }
@@ -650,12 +651,10 @@ gdbscm_initialize (const struct extension_language_defn *extlang)
      Python side to define module "gdb" which imports "_gdb".  There is
      evidently no similar convention in Guile so we skip this.  */
 
-#if HAVE_GUILE_MANUAL_FINALIZATION
   /* Our SMOB free functions are not thread-safe, as GDB itself is not
      intended to be thread-safe.  Disable automatic finalization so that
      finalizers aren't run in other threads.  */
   scm_set_automatic_finalization_enabled (0);
-#endif
 
   /* Before we initialize Guile, block signals needed by gdb (especially
      SIGCHLD).  This is done so that all threads created during Guile
@@ -826,9 +825,7 @@ message == an error message without a stack will be printed."),
 			&set_guile_list, &show_guile_list);
 }
 
-void _initialize_guile ();
-void
-_initialize_guile ()
+INIT_GDB_FILE (guile)
 {
   install_gdb_commands ();
 }

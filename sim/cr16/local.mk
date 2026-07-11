@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 2008-2023 Free Software Foundation, Inc.
+## Copyright (C) 2008-2026 Free Software Foundation, Inc.
 ## Contributed by M Ranga Swami Reddy <MR.Swami.Reddy@nsc.com>
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -74,4 +74,5 @@ BUILT_SOURCES += %D%/simops.h
 	$(AM_V_GEN)$< >$@
 
 EXTRA_PROGRAMS += %D%/gencode
+CLEANFILES += %D%/simops.h
 MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)

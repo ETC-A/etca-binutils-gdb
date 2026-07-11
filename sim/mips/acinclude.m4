@@ -1,4 +1,4 @@
-dnl Copyright (C) 2005-2023 Free Software Foundation, Inc.
+dnl Copyright (C) 2005-2026 Free Software Foundation, Inc.
 dnl
 dnl This program is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -224,7 +224,7 @@ __EOF__
   for fc in ${sim_mips_multi_configs}; do
 
     dnl Split up the entry.  ${c} contains the first three elements.
-    dnl Note: outer sqaure brackets are m4 quotes.
+    dnl Note: outer square brackets are m4 quotes.
     c=`echo ${fc} | sed ['s/:[^:]*$//']`
     bfdmachs=`echo ${fc} | sed 's/.*://'`
     name=`echo ${c} | sed 's/:.*//'`
@@ -319,8 +319,6 @@ __EOF__
 }
 __EOF__
 ], [dnl
-  dnl For clean-extra target.
-  SIM_MIPS_MULTI_SRC=mips/doesnt-exist.c
   SIM_MIPS_IGEN_ITABLE_FLAGS='$(SIM_MIPS_SINGLE_FLAGS)'
   AS_VAR_IF([SIM_MIPS_GEN], ["M16"], [AS_VAR_APPEND([SIM_MIPS_IGEN_ITABLE_FLAGS], [' $(SIM_MIPS_M16_FLAGS)'])])
 ])

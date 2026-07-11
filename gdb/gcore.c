@@ -1,6 +1,6 @@
 /* Generate a core file for the inferior process.
 
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "elf-bfd.h"
 #include "infcall.h"
 #include "inferior.h"
@@ -33,20 +32,32 @@
 #include "regcache.h"
 #include "regset.h"
 #include "gdb_bfd.h"
-#include "readline/tilde.h"
 #include <algorithm>
 #include "gdbsupport/gdb_unlinker.h"
 #include "gdbsupport/byte-vector.h"
 #include "gdbsupport/scope-exit.h"
+#include "auxv.h"
+#include "cli/cli-style.h"
+
+/* To generate sparse cores, we look at the data to write in chunks of
+   this size when considering whether to skip the write.  Only if we
+   have a full block of this size with all zeros do we skip writing
+   it.  A simpler algorithm that would try to skip all zeros would
+   result in potentially many more write/lseek syscalls, as normal
+   data is typically sprinkled with many small holes of zeros.  Also,
+   it's much more efficient to memcmp a block of data against an
+   all-zero buffer than to check each and every data byte against zero
+   one by one.  */
+#define SPARSE_BLOCK_SIZE 0x1000
 
 /* The largest amount of memory to read from the target at once.  We
    must throttle it to limit the amount of memory used by GDB during
    generate-core-file for programs with large resident data.  */
-#define MAX_COPY_BYTES (1024 * 1024)
+#define MAX_COPY_BYTES (256 * SPARSE_BLOCK_SIZE)
 
 static const char *default_gcore_target (void);
 static enum bfd_architecture default_gcore_arch (void);
-static int gcore_memory_sections (bfd *);
+static bool gcore_memory_sections (bfd *);
 
 /* create_gcore_bfd -- helper for gcore_command (exported).
    Open a new bfd core file for output, and return the handle.  */
@@ -57,7 +68,8 @@ create_gcore_bfd (const char *filename)
   gdb_bfd_ref_ptr obfd (gdb_bfd_openw (filename, default_gcore_target ()));
 
   if (obfd == NULL)
-    error (_("Failed to open '%s' for output."), filename);
+    error (_("Failed to open '%ps' for output."),
+	   styled_string (file_name_style.style (), filename));
   bfd_set_format (obfd.get (), bfd_core);
   bfd_set_arch_mach (obfd.get (), default_gcore_arch (), 0);
   return obfd;
@@ -71,16 +83,16 @@ write_gcore_file_1 (bfd *obfd)
   gdb::unique_xmalloc_ptr<char> note_data;
   int note_size = 0;
   asection *note_sec = NULL;
+  gdbarch *arch = current_inferior ()->arch ();
 
   /* An external target method must build the notes section.  */
   /* FIXME: uweigand/2011-10-06: All architectures that support core file
      generation should be converted to gdbarch_make_corefile_notes; at that
      point, the target vector method can be removed.  */
-  if (!gdbarch_make_corefile_notes_p (target_gdbarch ()))
+  if (!gdbarch_make_corefile_notes_p (arch))
     note_data = target_make_corefile_notes (obfd, &note_size);
   else
-    note_data = gdbarch_make_corefile_notes (target_gdbarch (), obfd,
-					     &note_size);
+    note_data = gdbarch_make_corefile_notes (arch, obfd, &note_size);
 
   if (note_data == NULL || note_size == 0)
     error (_("Target does not support core file generation."));
@@ -91,15 +103,21 @@ write_gcore_file_1 (bfd *obfd)
 						 | SEC_READONLY
 						 | SEC_ALLOC);
   if (note_sec == NULL)
-    error (_("Failed to create 'note' section for corefile: %s"),
-	   bfd_errmsg (bfd_get_error ()));
+    error (_("Failed to create 'note' section for corefile: %ps"),
+	   styled_string (file_name_style.style (),
+			  bfd_errmsg (bfd_get_error ())));
 
   bfd_set_section_vma (note_sec, 0);
   bfd_set_section_alignment (note_sec, 0);
   bfd_set_section_size (note_sec, note_size);
 
-  /* Now create the memory/load sections.  */
-  if (gcore_memory_sections (obfd) == 0)
+  /* Now create the memory/load sections.  Note
+     gcore_memory_sections's sparse logic is assuming that we'll
+     always write something afterwards, which we do: just below, we
+     write the note section.  So there's no need for an ftruncate-like
+     call to grow the file to the right size if the last memory
+     sections were zeros and we skipped writing them.  */
+  if (!gcore_memory_sections (obfd))
     error (_("gcore: failed to get corefile memory sections from target."));
 
   /* Write out the contents of the note section.  */
@@ -132,7 +150,7 @@ gcore_command (const char *args, int from_tty)
     noprocess ();
 
   if (args && *args)
-    corefilename.reset (tilde_expand (args));
+    corefilename = gdb_rl_tilde_expand (args);
   else
     {
       /* Default corefile name is "core.PID".  */
@@ -166,7 +184,8 @@ gcore_command (const char *args, int from_tty)
 static enum bfd_architecture
 default_gcore_arch (void)
 {
-  const struct bfd_arch_info *bfdarch = gdbarch_bfd_arch_info (target_gdbarch ());
+  const bfd_arch_info *bfdarch
+    = gdbarch_bfd_arch_info (current_inferior ()->arch ());
 
   if (bfdarch != NULL)
     return bfdarch->arch;
@@ -179,9 +198,10 @@ default_gcore_arch (void)
 static const char *
 default_gcore_target (void)
 {
+  gdbarch *arch = current_inferior ()->arch ();
   /* The gdbarch may define a target to use for core files.  */
-  if (gdbarch_gcore_bfd_target_p (target_gdbarch ()))
-    return gdbarch_gcore_bfd_target (target_gdbarch ());
+  if (gdbarch_gcore_bfd_target_p (arch))
+    return gdbarch_gcore_bfd_target (arch);
 
   /* Otherwise, try to fall back to the exec target.  This will probably
      not work for non-ELF targets.  */
@@ -252,13 +272,14 @@ call_target_sbrk (int sbrk_arg)
   struct value *sbrk_fn, *ret;
   bfd_vma tmp;
 
-  if (lookup_minimal_symbol ("sbrk", NULL, NULL).minsym != NULL)
+  if (lookup_minimal_symbol (current_program_space, "sbrk").minsym != nullptr)
     {
       sbrk_fn = find_function_in_inferior ("sbrk", &sbrk_objf);
       if (sbrk_fn == NULL)
 	return (bfd_vma) 0;
     }
-  else if (lookup_minimal_symbol ("_sbrk", NULL, NULL).minsym != NULL)
+  else if (lookup_minimal_symbol (current_program_space, "_sbrk").minsym
+	   != nullptr)
     {
       sbrk_fn = find_function_in_inferior ("_sbrk", &sbrk_objf);
       if (sbrk_fn == NULL)
@@ -268,7 +289,7 @@ call_target_sbrk (int sbrk_arg)
     return (bfd_vma) 0;
 
   gdbarch = sbrk_objf->arch ();
-  target_sbrk_arg = value_from_longest (builtin_type (gdbarch)->builtin_int, 
+  target_sbrk_arg = value_from_longest (builtin_type (gdbarch)->builtin_int,
 					sbrk_arg);
   gdb_assert (target_sbrk_arg);
   ret = call_function_by_hand (sbrk_fn, NULL, target_sbrk_arg);
@@ -318,7 +339,7 @@ derive_heap_segment (bfd *abfd, bfd_vma *bottom, bfd_vma *top)
   for (sec = abfd->sections; sec; sec = sec->next)
     {
       if (bfd_section_flags (sec) & SEC_DATA
-	  || strcmp (".bss", bfd_section_name (sec)) == 0)
+	  || streq (".bss", bfd_section_name (sec)))
 	{
 	  sec_vaddr = bfd_section_vma (sec);
 	  sec_size = bfd_section_size (sec);
@@ -372,49 +393,50 @@ make_output_phdrs (bfd *obfd, asection *osec)
   bfd_record_phdr (obfd, p_type, 1, p_flags, 0, 0, 0, 0, 1, &osec);
 }
 
-/* find_memory_region_ftype implementation.
+/* Helper for gcore_memory_sections's gdbarch_find_memory_regions
+   find_memory_region_ftype callback.
 
-   MEMORY_TAGGED is true if the memory region contains memory tags, false
-   otherwise.
+   Extra arguments compared to find_memory_region_ftype:
 
-   DATA is 'bfd *' for the core file GDB is creating.  */
+   OBFD is the core file GDB is creating.  */
 
-static int
-gcore_create_callback (CORE_ADDR vaddr, unsigned long size, int read,
-		       int write, int exec, int modified, bool memory_tagged,
-		       void *data)
+static bool
+gcore_create_callback (CORE_ADDR vaddr, unsigned long size, bool read,
+		       bool write, bool exec, bool modified,
+		       bool memory_tagged, bool hole, bfd *obfd)
 {
-  bfd *obfd = (bfd *) data;
   asection *osec;
-  flagword flags = SEC_ALLOC | SEC_HAS_CONTENTS | SEC_LOAD;
+  flagword flags = SEC_ALLOC;
+
+  if (!hole)
+    flags |= SEC_HAS_CONTENTS | SEC_LOAD;
 
   /* If the memory segment has no permissions set, ignore it, otherwise
      when we later try to access it for read/write, we'll get an error
      or jam the kernel.  */
-  if (read == 0 && write == 0 && exec == 0 && modified == 0)
+  if (!read && !write && !exec && !modified)
     {
       if (info_verbose)
-	{
-	  gdb_printf ("Ignore segment, %s bytes at %s\n",
-		      plongest (size), paddress (target_gdbarch (), vaddr));
-	}
+	gdb_printf ("Ignore segment, %s bytes at %s\n",
+		    plongest (size), paddress (current_inferior ()->arch (),
+		    vaddr));
 
-      return 0;
+      return true;
     }
 
-  if (write == 0 && modified == 0 && !solib_keep_data_in_core (vaddr, size))
+  if (!hole && !write && !modified && !solib_keep_data_in_core (vaddr, size))
     {
       /* See if this region of memory lies inside a known file on disk.
 	 If so, we can avoid copying its contents by clearing SEC_LOAD.  */
 
-      for (objfile *objfile : current_program_space->objfiles ())
-	for (obj_section *objsec : objfile->sections ())
+      for (objfile &objfile : current_program_space->objfiles ())
+	for (obj_section &objsec : objfile.sections ())
 	  {
-	    bfd *abfd = objfile->obfd.get ();
-	    asection *asec = objsec->the_bfd_section;
+	    bfd *abfd = objfile.obfd.get ();
+	    asection *asec = objsec.the_bfd_section;
 	    bfd_vma align = (bfd_vma) 1 << bfd_section_alignment (asec);
-	    bfd_vma start = objsec->addr () & -align;
-	    bfd_vma end = (objsec->endaddr () + align - 1) & -align;
+	    bfd_vma start = objsec.addr () & -align;
+	    bfd_vma end = (objsec.endaddr () + align - 1) & -align;
 
 	    /* Match if either the entire memory region lies inside the
 	       section (i.e. a mapping covering some pages of a large
@@ -423,7 +445,7 @@ gcore_create_callback (CORE_ADDR vaddr, unsigned long size, int read,
 
 	       This BFD was synthesized from reading target memory,
 	       we don't want to omit that.  */
-	    if (objfile->separate_debug_objfile_backlink == NULL
+	    if (objfile.separate_debug_objfile_backlink == NULL
 		&& ((vaddr >= start && vaddr + size <= end)
 		    || (start >= vaddr && end <= vaddr + size))
 		&& !(bfd_get_file_flags (abfd) & BFD_IN_MEMORY))
@@ -436,7 +458,7 @@ gcore_create_callback (CORE_ADDR vaddr, unsigned long size, int read,
     keep:;
     }
 
-  if (write == 0)
+  if (!write)
     flags |= SEC_READONLY;
 
   if (exec)
@@ -449,51 +471,50 @@ gcore_create_callback (CORE_ADDR vaddr, unsigned long size, int read,
     {
       warning (_("Couldn't make gcore segment: %s"),
 	       bfd_errmsg (bfd_get_error ()));
-      return 1;
+      return false;
     }
 
   if (info_verbose)
-    {
-      gdb_printf ("Save segment, %s bytes at %s\n",
-		  plongest (size), paddress (target_gdbarch (), vaddr));
-    }
+    gdb_printf ("Save segment, %s bytes at %s\n",
+		plongest (size), paddress (current_inferior ()->arch (),
+		vaddr));
 
   bfd_set_section_size (osec, size);
   bfd_set_section_vma (osec, vaddr);
   bfd_set_section_lma (osec, 0);
-  return 0;
+  return true;
 }
 
-/* gdbarch_find_memory_region callback for creating a memory tag section.
+/* Helper for gcore_memory_sections's gdbarch_find_memory_regions
+   find_memory_region_ftype callback, for creating a memory tag
+   section.
 
-   MEMORY_TAGGED is true if the memory region contains memory tags, false
-   otherwise.
+   Extra arguments compared to find_memory_region_ftype:
 
-   DATA is 'bfd *' for the core file GDB is creating.  */
+   OBFD is the core file GDB is creating.  */
 
-static int
+static bool
 gcore_create_memtag_section_callback (CORE_ADDR vaddr, unsigned long size,
-				      int read, int write, int exec,
-				      int modified, bool memory_tagged,
-				      void *data)
+				      bool read, bool write, bool exec,
+				      bool modified, bool memory_tagged,
+				      bool hole, bfd *obfd)
 {
   /* Are there memory tags in this particular memory map entry?  */
   if (!memory_tagged)
-    return 0;
-
-  bfd *obfd = (bfd *) data;
+    return true;
 
   /* Ask the architecture to create a memory tag section for this particular
      memory map entry.  It will be populated with contents later, as we can't
      start writing the contents before we have all the sections sorted out.  */
+  gdbarch *arch = current_inferior ()->arch ();
   asection *memtag_section
-    = gdbarch_create_memtag_section (target_gdbarch (), obfd, vaddr, size);
+    = gdbarch_create_memtag_section (arch, obfd, vaddr, size);
 
   if (memtag_section == nullptr)
     {
       warning (_("Couldn't make gcore memory tag segment: %s"),
 	       bfd_errmsg (bfd_get_error ()));
-      return 1;
+      return false;
     }
 
   if (info_verbose)
@@ -501,70 +522,237 @@ gcore_create_memtag_section_callback (CORE_ADDR vaddr, unsigned long size,
       gdb_printf (gdb_stdout, "Saved memory tag segment, %s bytes "
 			      "at %s\n",
 		  plongest (bfd_section_size (memtag_section)),
-		  paddress (target_gdbarch (), vaddr));
+		  paddress (arch, vaddr));
     }
 
-  return 0;
+  return true;
 }
 
-int
+bool
 objfile_find_memory_regions (struct target_ops *self,
-			     find_memory_region_ftype func, void *obfd)
+			     find_memory_region_ftype func)
 {
   /* Use objfile data to create memory sections.  */
-  bfd_vma temp_bottom, temp_top;
+  bfd_vma temp_bottom = 0, temp_top = 0;
 
   /* Call callback function for each objfile section.  */
-  for (objfile *objfile : current_program_space->objfiles ())
-    for (obj_section *objsec : objfile->sections ())
+  for (objfile &objfile : current_program_space->objfiles ())
+    for (obj_section &objsec : objfile.sections ())
       {
-	asection *isec = objsec->the_bfd_section;
+	asection *isec = objsec.the_bfd_section;
 	flagword flags = bfd_section_flags (isec);
 
 	/* Separate debug info files are irrelevant for gcore.  */
-	if (objfile->separate_debug_objfile_backlink != NULL)
+	if (objfile.separate_debug_objfile_backlink != NULL)
 	  continue;
 
 	if ((flags & SEC_ALLOC) || (flags & SEC_LOAD))
 	  {
 	    int size = bfd_section_size (isec);
-	    int ret;
-
-	    ret = (*func) (objsec->addr (), size,
-			   1, /* All sections will be readable.  */
-			   (flags & SEC_READONLY) == 0, /* Writable.  */
-			   (flags & SEC_CODE) != 0, /* Executable.  */
-			   1, /* MODIFIED is unknown, pass it as true.  */
-			   false, /* No memory tags in the object file.  */
-			   obfd);
-	    if (ret != 0)
+	    bool ret = func (objsec.addr (), size,
+			     true, /* All sections will be readable.  */
+			     (flags & SEC_READONLY) == 0, /* Writable.  */
+			     (flags & SEC_CODE) != 0, /* Executable.  */
+			     true, /* MODIFIED is unknown, pass it as true.  */
+			     false, /* No memory tags in the object file.  */
+			     false  /* Not known to be an all-zeroes hole.  */);
+	    if (!ret)
 	      return ret;
 	  }
       }
 
   /* Make a stack segment.  */
-  if (derive_stack_segment (&temp_bottom, &temp_top))
-    (*func) (temp_bottom, temp_top - temp_bottom,
-	     1, /* Stack section will be readable.  */
-	     1, /* Stack section will be writable.  */
-	     0, /* Stack section will not be executable.  */
-	     1, /* Stack section will be modified.  */
-	     false, /* No memory tags in the object file.  */
-	     obfd);
+  if (derive_stack_segment (&temp_bottom, &temp_top)
+      && !func (temp_bottom, temp_top - temp_bottom,
+		true,  /* Stack section will be readable.  */
+		true,  /* Stack section will be writable.  */
+		false, /* Stack section will not be executable.  */
+		true,  /* Stack section will be modified.  */
+		false, /* No memory tags in the object file.  */
+		false  /* Not known to be an all-zeroes hole.  */))
+    return false;
 
   /* Make a heap segment.  */
   if (derive_heap_segment (current_program_space->exec_bfd (), &temp_bottom,
-			   &temp_top))
-    (*func) (temp_bottom, temp_top - temp_bottom,
-	     1, /* Heap section will be readable.  */
-	     1, /* Heap section will be writable.  */
-	     0, /* Heap section will not be executable.  */
-	     1, /* Heap section will be modified.  */
-	     false, /* No memory tags in the object file.  */
-	     obfd);
+			   &temp_top)
+      && !func (temp_bottom, temp_top - temp_bottom,
+		true,  /* Heap section will be readable.  */
+		true,  /* Heap section will be writable.  */
+		false, /* Heap section will not be executable.  */
+		true,  /* Heap section will be modified.  */
+		false, /* No memory tags in the object file.  */
+		false  /* Not known to be an all-zeroes hole.  */))
+    return false;
 
+  return true;
+}
+
+/* Check if we have a block full of zeros at DATA within the [DATA,
+   DATA+SIZE) buffer.  Returns the size of the all-zero block found.
+   Returns at most the minimum between SIZE and SPARSE_BLOCK_SIZE.  */
+
+static size_t
+get_all_zero_block_size (const gdb_byte *data, size_t size)
+{
+  size = std::min (size, (size_t) SPARSE_BLOCK_SIZE);
+
+  /* A memcmp of a whole block is much faster than a simple for loop.
+     This makes a big difference, as with a for loop, this code would
+     dominate the performance and result in doubling the time to
+     generate a core, at the time of writing.  With an optimized
+     memcmp, this doesn't even show up in the perf trace.  */
+  static const gdb_byte all_zero_block[SPARSE_BLOCK_SIZE] = {};
+  if (memcmp (data, all_zero_block, size) == 0)
+    return size;
   return 0;
 }
+
+/* Basically a named-elements pair, used as return type of
+   find_next_all_zero_block.  */
+
+struct offset_and_size
+{
+  size_t offset;
+  size_t size;
+};
+
+/* Find the next all-zero block at DATA+OFFSET within the [DATA,
+   DATA+SIZE) buffer.  Returns the offset and the size of the all-zero
+   block if found, or zero if not found.  */
+
+static offset_and_size
+find_next_all_zero_block (const gdb_byte *data, size_t offset, size_t size)
+{
+  for (; offset < size; offset += SPARSE_BLOCK_SIZE)
+    {
+      size_t zero_block_size
+	= get_all_zero_block_size (data + offset, size - offset);
+      if (zero_block_size != 0)
+	return {offset, zero_block_size};
+    }
+  return {0, 0};
+}
+
+/* Wrapper around bfd_set_section_contents that avoids writing
+   all-zero blocks to disk, so we create a sparse core file.
+   SKIP_ALIGN is a recursion helper -- if true, we'll skip aligning
+   the file position to SPARSE_BLOCK_SIZE.  */
+
+static bool
+sparse_bfd_set_section_contents (bfd *obfd, asection *osec,
+				 const gdb_byte *data,
+				 size_t sec_offset,
+				 size_t size,
+				 bool skip_align = false)
+{
+  /* Note, we don't have to have special handling for the case of the
+     last memory region ending with zeros, because our caller always
+     writes out the note section after the memory/load sections.  If
+     it didn't, we'd have to seek+write the last byte to make the file
+     size correct.  (Or add an ftruncate abstraction to bfd and call
+     that.)  */
+
+  if (size == 0)
+    return true;
+
+  size_t data_offset = 0;
+
+  if (!skip_align)
+    {
+      /* Align the all-zero block search with SPARSE_BLOCK_SIZE, to
+	 better align with filesystem blocks.  If we find we're
+	 misaligned, then write/skip the bytes needed to make us
+	 aligned.  We do that with (one level) recursion.  */
+
+      /* We need to know the section's file offset on disk.  We can
+	 only look at it after the bfd's 'output_has_begun' flag has
+	 been set, as bfd hasn't computed the file offsets
+	 otherwise.  */
+      if (!obfd->output_has_begun)
+	{
+	  gdb_byte dummy = 0;
+
+	  /* A write forces BFD to compute the bfd's section file
+	     positions.  Zero size works for that too.  */
+	  if (!bfd_set_section_contents (obfd, osec, &dummy, 0, 0))
+	    return false;
+
+	  gdb_assert (obfd->output_has_begun);
+	}
+
+      /* How much after the last aligned offset are we writing at.  */
+      size_t aligned_offset_remainder
+	= (osec->filepos + sec_offset) % SPARSE_BLOCK_SIZE;
+
+      /* Do we need to align?  */
+      if (aligned_offset_remainder != 0)
+	{
+	  /* How much we need to advance in order to find the next
+	     SPARSE_BLOCK_SIZE filepos-aligned block.  */
+	  size_t distance_to_next_aligned
+	    = SPARSE_BLOCK_SIZE - aligned_offset_remainder;
+
+	  /* How much we'll actually write in the recursion call.  The
+	     caller may want us to write fewer bytes than
+	     DISTANCE_TO_NEXT_ALIGNED.  */
+	  size_t align_write_size = std::min (size, distance_to_next_aligned);
+
+	  /* Recurse, skipping the alignment code.  */
+	  if (!sparse_bfd_set_section_contents (obfd, osec, data,
+						sec_offset,
+						align_write_size, true))
+	    return false;
+
+	  /* Skip over what we've written, and proceed with
+	     assumes-aligned logic.  */
+	  data_offset += align_write_size;
+	}
+    }
+
+  while (data_offset < size)
+    {
+      size_t all_zero_block_size
+	= get_all_zero_block_size (data + data_offset, size - data_offset);
+      if (all_zero_block_size != 0)
+	{
+	  /* Skip writing all-zero blocks.  */
+	  data_offset += all_zero_block_size;
+	  continue;
+	}
+
+      /* We have some non-zero data to write to file.  Find the next
+	 all-zero block within the data, and only write up to it.  */
+
+      offset_and_size next_all_zero_block
+	= find_next_all_zero_block (data,
+				    data_offset + SPARSE_BLOCK_SIZE,
+				    size);
+      size_t next_data_offset = (next_all_zero_block.offset == 0
+				 ? size
+				 : next_all_zero_block.offset);
+
+      if (!bfd_set_section_contents (obfd, osec, data + data_offset,
+				     sec_offset + data_offset,
+				     next_data_offset - data_offset))
+	return false;
+
+      data_offset = next_data_offset;
+
+      /* If we already know we have an all-zero block at the next
+	 offset, we can skip calling get_all_zero_block_size for
+	 it again.  */
+      if (next_all_zero_block.offset != 0)
+	data_offset += next_all_zero_block.size;
+    }
+
+  return true;
+}
+
+/* Fallback page size to use when target_read_memory fails when attempting
+   to read MAX_COPY_BYTES in gcore_copy_callback.  4KB is the correct size
+   to use for x86 and most other architectures.  Some may have larger pages,
+   but this size will still work at the cost of more syscalls.  */
+#define FALLBACK_PAGE_SIZE 0x1000
 
 static void
 gcore_copy_callback (bfd *obfd, asection *osec)
@@ -583,22 +771,58 @@ gcore_copy_callback (bfd *obfd, asection *osec)
   size = std::min (total_size, (bfd_size_type) MAX_COPY_BYTES);
   gdb::byte_vector memhunk (size);
 
+  bfd_size_type page_size = FALLBACK_PAGE_SIZE;
+  CORE_ADDR at_pagesz;
+  if (target_auxv_search (AT_PAGESZ, &at_pagesz) > 0)
+    page_size = (bfd_size_type) at_pagesz;
+
   while (total_size > 0)
     {
       if (size > total_size)
 	size = total_size;
 
-      if (target_read_memory (bfd_section_vma (osec) + offset,
-			      memhunk.data (), size) != 0)
+      CORE_ADDR vma = bfd_section_vma (osec) + offset;
+
+      if (target_read_memory (vma, memhunk.data (), size) != 0)
 	{
-	  warning (_("Memory read failed for corefile "
-		     "section, %s bytes at %s."),
-		   plongest (size),
-		   paddress (target_gdbarch (), bfd_section_vma (osec)));
-	  break;
+	  /* Large read failed.  This can happen when the memory region
+	     contains unreadable pages (such as guard pages embedded within
+	     a larger mapping).  Fall back to reading page by page, filling
+	     unreadable pages with zeros.  */
+	  gdb_byte *p = memhunk.data ();
+	  bfd_size_type remaining = size;
+	  CORE_ADDR addr = vma;
+	  bool at_least_one_page_read = false;
+
+	  while (remaining > 0)
+	    {
+	      bfd_size_type chunk_size = std::min (remaining, page_size);
+
+	      if (target_read_memory (addr, p, chunk_size) != 0)
+		{
+		  /* Failed to read this page.  Fill with zeros.  This
+		     handles guard pages and other unreadable regions
+		     that may exist within a larger readable mapping.  */
+		  memset (p, 0, chunk_size);
+		}
+	      else
+		at_least_one_page_read = true;
+
+	      p += chunk_size;
+	      addr += chunk_size;
+	      remaining -= chunk_size;
+	    }
+	  /* Warn only if the entire region was unreadable - this
+	     indicates a real problem, not just embedded guard pages. */
+	  if (!at_least_one_page_read)
+	    warning (_("Memory read failed for corefile "
+		       "section, %s bytes at %s."),
+		     plongest (size),
+		     paddress (current_inferior ()->arch (), vma));
 	}
-      if (!bfd_set_section_contents (obfd, osec, memhunk.data (),
-				     offset, size))
+
+      if (!sparse_bfd_set_section_contents (obfd, osec, memhunk.data (),
+					    offset, size))
 	{
 	  warning (_("Failed to write corefile contents (%s)."),
 		   bfd_errmsg (bfd_get_error ()));
@@ -620,31 +844,44 @@ gcore_copy_memtag_section_callback (bfd *obfd, asection *osec)
     return;
 
   /* Fill the section with memory tag contents.  */
-  if (!gdbarch_fill_memtag_section (target_gdbarch (), osec))
+  if (!gdbarch_fill_memtag_section (current_inferior ()->arch (), osec))
     error (_("Failed to fill memory tag section for core file."));
 }
 
-static int
+static bool
 gcore_memory_sections (bfd *obfd)
 {
-  /* Try gdbarch method first, then fall back to target method.  */
-  if (!gdbarch_find_memory_regions_p (target_gdbarch ())
-      || gdbarch_find_memory_regions (target_gdbarch (),
-				      gcore_create_callback, obfd) != 0)
+  auto cb = [obfd] (CORE_ADDR vaddr, unsigned long size, bool read, bool write,
+		    bool exec, bool modified, bool memory_tagged, bool hole)
     {
-      if (target_find_memory_regions (gcore_create_callback, obfd) != 0)
-	return 0;			/* FIXME: error return/msg?  */
+      return gcore_create_callback (vaddr, size, read, write, exec, modified,
+				    memory_tagged, hole, obfd);
+    };
+
+  /* Try gdbarch method first, then fall back to target method.  */
+  gdbarch *arch = current_inferior ()->arch ();
+  if (!gdbarch_find_memory_regions_p (arch)
+      || !gdbarch_find_memory_regions (arch, cb))
+    {
+      if (!target_find_memory_regions (cb))
+	return false;			/* FIXME: error return/msg?  */
     }
 
-  /* Take care of dumping memory tags, if there are any.  */
-  if (!gdbarch_find_memory_regions_p (target_gdbarch ())
-      || gdbarch_find_memory_regions (target_gdbarch (),
-				      gcore_create_memtag_section_callback,
-				      obfd) != 0)
+  auto cb_memtag = [obfd] (CORE_ADDR vaddr, unsigned long size, bool read,
+			   bool write, bool exec, bool modified,
+			   bool memory_tagged, bool hole)
     {
-      if (target_find_memory_regions (gcore_create_memtag_section_callback,
-				      obfd) != 0)
-	return 0;
+      return gcore_create_memtag_section_callback (vaddr, size, read, write,
+						   exec, modified,
+						   memory_tagged, hole, obfd);
+    };
+
+  /* Take care of dumping memory tags, if there are any.  */
+  if (!gdbarch_find_memory_regions_p (arch)
+      || !gdbarch_find_memory_regions (arch, cb_memtag))
+    {
+      if (!target_find_memory_regions (cb_memtag))
+	return false;
     }
 
   /* Record phdrs for section-to-segment mapping.  */
@@ -658,7 +895,7 @@ gcore_memory_sections (bfd *obfd)
       gcore_copy_memtag_section_callback (obfd, sect);
     }
 
-  return 1;
+  return true;
 }
 
 /* See gcore.h.  */
@@ -667,24 +904,22 @@ thread_info *
 gcore_find_signalled_thread ()
 {
   thread_info *curr_thr = inferior_thread ();
-  if (curr_thr->state != THREAD_EXITED
+  if (curr_thr->state () != THREAD_EXITED
       && curr_thr->stop_signal () != GDB_SIGNAL_0)
     return curr_thr;
 
-  for (thread_info *thr : current_inferior ()->non_exited_threads ())
-    if (thr->stop_signal () != GDB_SIGNAL_0)
-      return thr;
+  for (thread_info &thr : current_inferior ()->non_exited_threads ())
+    if (thr.stop_signal () != GDB_SIGNAL_0)
+      return &thr;
 
   /* Default to the current thread, unless it has exited.  */
-  if (curr_thr->state != THREAD_EXITED)
+  if (curr_thr->state () != THREAD_EXITED)
     return curr_thr;
 
   return nullptr;
 }
 
-void _initialize_gcore ();
-void
-_initialize_gcore ()
+INIT_GDB_FILE (gcore)
 {
   cmd_list_element *generate_core_file_cmd
     = add_com ("generate-core-file", class_files, gcore_command, _("\

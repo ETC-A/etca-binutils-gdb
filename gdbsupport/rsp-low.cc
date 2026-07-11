@@ -1,6 +1,6 @@
 /* Low-level RSP routines for GDB, the GNU debugger.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common-defs.h"
 #include "rsp-low.h"
 
 /* See rsp-low.h.  */
@@ -143,6 +142,14 @@ bin2hex (const gdb_byte *bin, char *hex, int count)
 
 /* See rsp-low.h.  */
 
+int
+bin2hex (gdb::array_view<gdb_byte> bin, char *hex)
+{
+  return bin2hex (bin.data (), hex, bin.size ());
+}
+
+/* See rsp-low.h.  */
+
 std::string
 bin2hex (const gdb_byte *bin, int count)
 {
@@ -255,4 +262,3 @@ remote_unescape_input (const gdb_byte *buffer, int len,
 
   return output_index;
 }
-

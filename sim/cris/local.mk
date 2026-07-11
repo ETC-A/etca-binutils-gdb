@@ -1,6 +1,6 @@
 ## See sim/Makefile.am
 ##
-## Copyright (C) 2004-2023 Free Software Foundation, Inc.
+## Copyright (C) 2004-2026 Free Software Foundation, Inc.
 ## Contributed by Axis Communications.
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -15,6 +15,12 @@
 ##
 ## You should have received a copy of the GNU General Public License
 ## along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+## Some CGEN kludges are causing build-time warnings.  See cris.cpu for details.
+AM_CFLAGS_%C%_mloopv10f.o = $(SIM_CFLAG_WNO_UNUSED_BUT_SET_VARIABLE)
+AM_CFLAGS_%C%_mloopv32f.o = $(SIM_CFLAG_WNO_UNUSED_BUT_SET_VARIABLE)
+## Some CGEN assignments use variable names that are nested & repeated.
+AM_CFLAGS_%C%_mloopv10f.o += $(SIM_CFLAG_WNO_SHADOW_LOCAL)
 
 nodist_%C%_libsim_a_SOURCES = \
 	%D%/modules.c
@@ -87,11 +93,10 @@ BUILT_SOURCES += \
 ## FIXME: What is mono and what does "Use of `mono' is wip" mean (other
 ## than the apparent; some "mono" feature is work in progress)?
 %D%/mloopv10f.c %D%/engv10.h: %D%/stamp-mloop-v10f ; @true
-%D%/stamp-mloop-v10f: $(srccom)/genmloop.sh %D%/mloop.in
-	$(AM_V_GEN)$(SHELL) $(srccom)/genmloop.sh -shell $(SHELL) \
+%D%/stamp-mloop-v10f: %D%/mloop.in $(srccom)/genmloop.sh
+	$(AM_V_GEN)$(CGEN_GEN_MLOOP) \
 		-mono -no-fast -pbb -switch semcrisv10f-switch.c \
-		-cpu crisv10f \
-		-infile $(srcdir)/%D%/mloop.in -outfile-prefix %D%/ -outfile-suffix -v10f
+		-cpu crisv10f -outfile-suffix -v10f
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/eng-v10f.hin %D%/engv10.h
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/mloop-v10f.cin %D%/mloopv10f.c
 	$(AM_V_at)touch $@
@@ -99,15 +104,15 @@ BUILT_SOURCES += \
 ## FIXME: What is mono and what does "Use of `mono' is wip" mean (other
 ## than the apparent; some "mono" feature is work in progress)?
 %D%/mloopv32f.c %D%/engv32.h: %D%/stamp-mloop-v32f ; @true
-%D%/stamp-mloop-v32f: $(srccom)/genmloop.sh %D%/mloop.in
-	$(AM_V_GEN)$(SHELL) $(srccom)/genmloop.sh -shell $(SHELL) \
+%D%/stamp-mloop-v32f: %D%/mloop.in $(srccom)/genmloop.sh
+	$(AM_V_GEN)$(CGEN_GEN_MLOOP) \
 		-mono -no-fast -pbb -switch semcrisv32f-switch.c \
-		-cpu crisv32f \
-		-infile $(srcdir)/%D%/mloop.in -outfile-prefix %D%/ -outfile-suffix -v32f
+		-cpu crisv32f -outfile-suffix -v32f
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/eng-v32f.hin %D%/engv32.h
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change %D%/mloop-v32f.cin %D%/mloopv32f.c
 	$(AM_V_at)touch $@
 
+CLEANFILES += %D%/engv10.h %D%/engv32.h
 MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 ## Target that triggers all cgen targets that works when --disable-cgen-maint.
@@ -115,14 +120,14 @@ MOSTLYCLEANFILES += $(%C%_BUILD_OUTPUTS)
 
 %D%/cgen-arch:
 	$(AM_V_GEN)mach=crisv10,crisv32 FLAGS="with-scache with-profile=fn"; $(CGEN_GEN_ARCH)
-%D%/arch.h %D%/arch.c %D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
+$(srcdir)/%D%/arch.h $(srcdir)/%D%/arch.c $(srcdir)/%D%/cpuall.h: @CGEN_MAINT@ %D%/cgen-arch
 
 %D%/cgen-cpu-decode-v10f:
 	$(AM_V_GEN)cpu=crisv10f mach=crisv10 SUFFIX=v10 FLAGS="with-scache with-profile=fn" EXTRAFILES="$(CGEN_CPU_SEMSW)"; $(CGEN_GEN_CPU_DECODE)
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change $(srcdir)/%D%/semv10-switch.c $(srcdir)/%D%/semcrisv10f-switch.c
-%D%/cpuv10.h %D%/cpuv10.c %D%/semcrisv10f-switch.c %D%/modelv10.c %D%/decodev10.c %D%/decodev10.h: @CGEN_MAINT@ %D%/cgen-cpu-decode-v10f
+$(srcdir)/%D%/cpuv10.h $(srcdir)/%D%/cpuv10.c $(srcdir)/%D%/semcrisv10f-switch.c $(srcdir)/%D%/modelv10.c $(srcdir)/%D%/decodev10.c $(srcdir)/%D%/decodev10.h: @CGEN_MAINT@ %D%/cgen-cpu-decode-v10f
 
 %D%/cgen-cpu-decode-v32f:
 	$(AM_V_GEN)cpu=crisv32f mach=crisv32 SUFFIX=v32 FLAGS="with-scache with-profile=fn" EXTRAFILES="$(CGEN_CPU_SEMSW)"; $(CGEN_GEN_CPU_DECODE)
 	$(AM_V_at)$(SHELL) $(srcroot)/move-if-change $(srcdir)/%D%/semv32-switch.c $(srcdir)/%D%/semcrisv32f-switch.c
-%D%/cpuv32.h %D%/cpuv32.c %D%/semcrisv32f-switch.c %D%/modelv32.c %D%/decodev32.c %D%/decodev32.h: @CGEN_MAINT@ %D%/cgen-cpu-decode-v32f
+$(srcdir)/%D%/cpuv32.h $(srcdir)/%D%/cpuv32.c $(srcdir)/%D%/semcrisv32f-switch.c $(srcdir)/%D%/modelv32.c $(srcdir)/%D%/decodev32.c $(srcdir)/%D%/decodev32.h: @CGEN_MAINT@ %D%/cgen-cpu-decode-v32f

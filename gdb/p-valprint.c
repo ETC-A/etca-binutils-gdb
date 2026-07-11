@@ -1,6 +1,6 @@
 /* Support for printing Pascal values for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,14 +19,14 @@
 
 /* This file is derived from c-valprint.c */
 
-#include "defs.h"
+#include "extract-store-integer.h"
 #include "gdbsupport/gdb_obstack.h"
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "expression.h"
 #include "value.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "demangle.h"
 #include "valprint.h"
@@ -179,7 +179,8 @@ pascal_language::value_print_inner (struct value *val,
 
       if (options->addressprint && options->format != 's')
 	{
-	  gdb_puts (paddress (gdbarch, addr), stream);
+	  fputs_styled (paddress (gdbarch, addr), address_style.style (),
+			stream);
 	  want_space = 1;
 	}
 
@@ -225,8 +226,8 @@ pascal_language::value_print_inner (struct value *val,
 	{
 	  /* Print vtbl's nicely.  */
 	  CORE_ADDR vt_address = unpack_pointer (type, valaddr);
-	  struct bound_minimal_symbol msymbol =
-	    lookup_minimal_symbol_by_pc (vt_address);
+	  bound_minimal_symbol msymbol
+	    = lookup_minimal_symbol_by_pc (vt_address);
 
 	  /* If 'symbol_print' is set, we did the work above.  */
 	  if (!options->symbol_print
@@ -253,7 +254,7 @@ pascal_language::value_print_inner (struct value *val,
 		{
 		  const char *search_name = msymbol.minsym->search_name ();
 		  wsym = lookup_symbol_search_name (search_name, NULL,
-						    VAR_DOMAIN).symbol;
+						    SEARCH_VFT).symbol;
 		}
 
 	      if (wsym)
@@ -298,7 +299,7 @@ pascal_language::value_print_inner (struct value *val,
 	  gdb_printf (stream, "{...}");
 	  break;
 	}
-      /* Fall through.  */
+      [[fallthrough]];
     case TYPE_CODE_STRUCT:
       if (options->vtblprint && pascal_object_is_vtbl_ptr_type (type))
 	{
@@ -425,9 +426,9 @@ pascal_language::value_print (struct value *val, struct ui_file *stream,
       /* Hack:  remove (char *) for char strings.  Their
 	 type is indicated by the quoted string anyway.  */
       if (type->code () == TYPE_CODE_PTR
-	  && type->name () == NULL
-	  && type->target_type ()->name () != NULL
-	  && strcmp (type->target_type ()->name (), "char") == 0)
+	  && type->name () == nullptr
+	  && type->target_type ()->name () != nullptr
+	  && streq (type->target_type ()->name (), "char"))
 	{
 	  /* Print nothing.  */
 	}
@@ -473,8 +474,7 @@ pascal_object_is_vtbl_ptr_type (struct type *type)
 {
   const char *type_name = type->name ();
 
-  return (type_name != NULL
-	  && strcmp (type_name, pascal_vtbl_ptr_name) == 0);
+  return type_name != nullptr && streq (type_name, pascal_vtbl_ptr_name);
 }
 
 /* Return truth value for the assertion that TYPE is of the type
@@ -598,20 +598,20 @@ pascal_object_print_value_fields (struct value *val, struct ui_file *stream,
 	  annotate_field_value ();
 
 	  if (!type->field (i).is_static ()
-	      && TYPE_FIELD_PACKED (type, i))
+	      && type->field (i).is_packed ())
 	    {
 	      struct value *v;
 
 	      /* Bitfields require special handling, especially due to byte
 		 order problems.  */
-	      if (TYPE_FIELD_IGNORE (type, i))
+	      if (type->field (i).is_ignored ())
 		{
 		  fputs_styled ("<optimized out or zero length>",
 				metadata_style.style (), stream);
 		}
 	      else if (val->bits_synthetic_pointer
 		       (type->field (i).loc_bitpos (),
-			TYPE_FIELD_BITSIZE (type, i)))
+			type->field (i).bitsize ()))
 		{
 		  fputs_styled (_("<synthetic pointer>"),
 				metadata_style.style (), stream);
@@ -629,7 +629,7 @@ pascal_object_print_value_fields (struct value *val, struct ui_file *stream,
 	    }
 	  else
 	    {
-	      if (TYPE_FIELD_IGNORE (type, i))
+	      if (type->field (i).is_ignored ())
 		{
 		  fputs_styled ("<optimized out or zero length>",
 				metadata_style.style (), stream);
@@ -860,9 +860,7 @@ pascal_object_print_static_field (struct value *val,
   common_val_print (val, stream, recurse, &opts, current_language);
 }
 
-void _initialize_pascal_valprint ();
-void
-_initialize_pascal_valprint ()
+INIT_GDB_FILE (pascal_valprint)
 {
   add_setshow_boolean_cmd ("pascal_static-members", class_support,
 			   &user_print_options.pascal_static_field_print, _("\

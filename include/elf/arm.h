@@ -1,5 +1,5 @@
 /* ARM ELF support for BFD.
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -35,8 +35,9 @@
 #define EF_ARM_OLD_ABI     0x100
 #define EF_ARM_SOFT_FLOAT  0x200
 #define EF_ARM_VFP_FLOAT   0x400
-#define EF_ARM_MAVERICK_FLOAT 0x800
+/* Removed, was EF_ARM_MAVERICK_FLOAT 0x800  */
 
+#define PT_ARM_ARCHEXT (PT_LOPROC + 0)
 /* Frame unwind information */
 #define PT_ARM_EXIDX (PT_LOPROC + 1)
 
@@ -76,11 +77,11 @@
 #define STT_ARM_16BIT      STT_HIPROC   /* A Thumb label.  */
 
 /* Additional section types.  */
-#define SHT_ARM_EXIDX	       0x70000001	/* Section holds ARM unwind info.  */
-#define SHT_ARM_PREEMPTMAP     0x70000002	/* Section pre-emption details.  */
-#define SHT_ARM_ATTRIBUTES     0x70000003	/* Section holds attributes.  */
-#define SHT_ARM_DEBUGOVERLAY   0x70000004	/* Section holds overlay debug info.  */
-#define SHT_ARM_OVERLAYSECTION 0x70000005	/* Section holds GDB and overlay integration info.  */
+#define SHT_ARM_EXIDX	       (SHT_LOPROC + 1)	/* Section holds ARM unwind info.  */
+#define SHT_ARM_PREEMPTMAP     (SHT_LOPROC + 2)	/* Section pre-emption details.  */
+#define SHT_ARM_ATTRIBUTES     (SHT_LOPROC + 3) /* Section holds attributes.  */
+#define SHT_ARM_DEBUGOVERLAY   (SHT_LOPROC + 4)	/* Section holds overlay debug info.  */
+#define SHT_ARM_OVERLAYSECTION (SHT_LOPROC + 5)	/* Section holds GDB and overlay integration info.  */
 
 /* ARM-specific values for sh_flags.  */
 #define SHF_ENTRYSECT      0x10000000   /* Section contains an entry point.  */
@@ -107,16 +108,16 @@
 #define TAG_CPU_ARCH_V6_M	11
 #define TAG_CPU_ARCH_V6S_M	12
 #define TAG_CPU_ARCH_V7E_M	13
-#define TAG_CPU_ARCH_V8		14
+#define TAG_CPU_ARCH_V8A	14
 #define TAG_CPU_ARCH_V8R	15
 #define TAG_CPU_ARCH_V8M_BASE	16
 #define TAG_CPU_ARCH_V8M_MAIN	17
-#define TAG_CPU_ARCH_8_1A       18
-#define TAG_CPU_ARCH_8_2A       19
-#define TAG_CPU_ARCH_8_3A       20
+#define TAG_CPU_ARCH_V8_1A      18
+#define TAG_CPU_ARCH_V8_2A      19
+#define TAG_CPU_ARCH_V8_3A      20
 #define TAG_CPU_ARCH_V8_1M_MAIN 21
-#define TAG_CPU_ARCH_V9         22
-#define MAX_TAG_CPU_ARCH	TAG_CPU_ARCH_V9
+#define TAG_CPU_ARCH_V9A        22
+#define MAX_TAG_CPU_ARCH	TAG_CPU_ARCH_V9A
 /* Pseudo-architecture to allow objects to be compatible with the subset of
    armv4t and armv6-m.  This value should never be stored in object files.  */
 #define TAG_CPU_ARCH_V4T_PLUS_V6_M (MAX_TAG_CPU_ARCH + 1)

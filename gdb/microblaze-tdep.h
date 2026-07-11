@@ -1,6 +1,6 @@
 /* Target-dependent code for Xilinx MicroBlaze.
 
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,20 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef MICROBLAZE_TDEP_H
-#define MICROBLAZE_TDEP_H 1
+#ifndef GDB_MICROBLAZE_TDEP_H
+#define GDB_MICROBLAZE_TDEP_H
 
 #include "gdbarch.h"
 
 /* Microblaze architecture-specific information.  */
+
 struct microblaze_gdbarch_tdep : gdbarch_tdep_base
 {
+  /* Register sets.  */
+  struct regset *gregset = nullptr;
+  size_t sizeof_gregset = 0;
+  struct regset *fpregset = nullptr;
+  size_t sizeof_fpregset = 0;
 };
 
 /* Register numbers.  */
@@ -45,11 +51,11 @@ enum microblaze_regnum
   MICROBLAZE_R12_REGNUM,
   MICROBLAZE_R13_REGNUM,
   MICROBLAZE_R14_REGNUM,
-  MICROBLAZE_R15_REGNUM,
+  MICROBLAZE_R15_REGNUM,MICROBLAZE_PREV_PC_REGNUM = MICROBLAZE_R15_REGNUM,
   MICROBLAZE_R16_REGNUM,
   MICROBLAZE_R17_REGNUM,
   MICROBLAZE_R18_REGNUM,
-  MICROBLAZE_R19_REGNUM,
+  MICROBLAZE_R19_REGNUM,MICROBLAZE_FP_REGNUM = MICROBLAZE_R19_REGNUM,
   MICROBLAZE_R20_REGNUM,
   MICROBLAZE_R21_REGNUM,
   MICROBLAZE_R22_REGNUM,
@@ -98,6 +104,7 @@ struct microblaze_frame_cache
   CORE_ADDR base;
   CORE_ADDR pc;
 
+  CORE_ADDR saved_sp;
   /* Do we have a frame?  */
   int frameless_p;
 
@@ -118,6 +125,10 @@ struct microblaze_frame_cache
 
 /* MICROBLAZE_BREAKPOINT defines the breakpoint that should be used.
    Only used for native debugging.  */
-#define MICROBLAZE_BREAKPOINT {0xb9, 0xcc, 0x00, 0x60}
+#define MICROBLAZE_BREAKPOINT {0xba, 0x0c, 0x00, 0x18}
 
-#endif /* microblaze-tdep.h */
+extern void microblaze_supply_gregset (const struct regset *regset,
+				       struct regcache *regcache, int regnum,
+				       const void *gregs, size_t size);
+
+#endif /* GDB_MICROBLAZE_TDEP_H */

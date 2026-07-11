@@ -1,5 +1,5 @@
 /* Functions for manipulating expressions designed to be executed on the agent
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,7 +21,6 @@
    dependencies, since we want to be able to use them in contexts
    outside of GDB (test suites, the stub, etc.)  */
 
-#include "defs.h"
 #include "ax.h"
 #include "gdbarch.h"
 
@@ -233,7 +232,8 @@ ax_reg (struct agent_expr *x, int reg)
 	error (_("'%s' is a pseudo-register; "
 		 "GDB cannot yet trace its contents."),
 	       user_reg_map_regnum_to_name (x->gdbarch, reg));
-      if (gdbarch_ax_pseudo_register_push_stack (x->gdbarch, x, reg))
+
+      if (!gdbarch_ax_pseudo_register_push_stack (x->gdbarch, x, reg))
 	error (_("Trace '%s' failed."),
 	       user_reg_map_regnum_to_name (x->gdbarch, reg));
     }
@@ -403,9 +403,8 @@ ax_reg_mask (struct agent_expr *ax, int reg)
 	error (_("'%s' is a pseudo-register; "
 		 "GDB cannot yet trace its contents."),
 	       user_reg_map_regnum_to_name (ax->gdbarch, reg));
-      if (gdbarch_ax_pseudo_register_collect (ax->gdbarch, ax, reg))
-	error (_("Trace '%s' failed."),
-	       user_reg_map_regnum_to_name (ax->gdbarch, reg));
+
+      gdbarch_ax_pseudo_register_collect (ax->gdbarch, ax, reg);
     }
   else
     {

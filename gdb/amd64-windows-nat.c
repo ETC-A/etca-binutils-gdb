@@ -1,4 +1,4 @@
-/* Copyright (C) 2008-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -15,7 +15,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "windows-nat.h"
 #include "x86-nat.h"
 #include "amd64-tdep.h"
@@ -95,9 +94,7 @@ amd64_windows_segment_register_p (int regnum)
   return regnum >= AMD64_CS_REGNUM && regnum <= AMD64_GS_REGNUM;
 }
 
-void _initialize_amd64_windows_nat ();
-void
-_initialize_amd64_windows_nat ()
+INIT_GDB_FILE (amd64_windows_nat)
 {
   x86_set_debug_register_length (8);
 }

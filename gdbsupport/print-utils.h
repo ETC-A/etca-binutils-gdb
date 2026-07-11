@@ -1,6 +1,6 @@
 /* Cell-based print utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef COMMON_PRINT_UTILS_H
-#define COMMON_PRINT_UTILS_H
+#ifndef GDBSUPPORT_PRINT_UTILS_H
+#define GDBSUPPORT_PRINT_UTILS_H
 
 /* How many characters (including the terminating null byte) fit in a
    cell.  */
@@ -27,44 +27,64 @@
 /* %u for ULONGEST.  The result is stored in a circular static buffer,
    NUMCELLS deep.  */
 
-extern char *pulongest (ULONGEST u);
+extern const char *pulongest (ULONGEST u);
 
 /* %d for LONGEST.  The result is stored in a circular static buffer,
    NUMCELLS deep.  */
 
-extern char *plongest (LONGEST l);
+extern const char *plongest (LONGEST l);
 
-/* Convert a ULONGEST into a HEX string, like %lx, with leading zeros.
+/* Convert L (of type ULONGEST) into a hex string, like %lx, with leading
+   zeros.  The result is stored in a circular static buffer, NUMCELLS
+   deep.  */
+
+extern const char *phex_ulongest (ULONGEST l, int sizeof_l);
+
+/* Convert L into a HEX string, like %lx, with leading zeros.
    The result is stored in a circular static buffer, NUMCELLS deep.  */
 
-extern char *phex (ULONGEST l, int sizeof_l);
+template<typename T>
+const char *phex (T l, int sizeof_l = sizeof (T))
+{
+  return phex_ulongest (l, sizeof_l);
+}
 
-/* Convert a ULONGEST into a HEX string, like %lx, without leading zeros.
-   The result is  stored in a circular static buffer, NUMCELLS deep.  */
+/* Convert L (of type ULONGEST) into a hex string, like %lx, without leading
+   zeros.  The result is stored in a circular static buffer, NUMCELLS
+   deep.  */
 
-extern char *phex_nz (ULONGEST l, int sizeof_l);
+extern const char *phex_nz_ulongest (ULONGEST l, int sizeof_l);
+
+/* Convert L into a hex string, like %lx, without leading zeros.
+   The result is stored in a circular static buffer, NUMCELLS deep.  */
+
+template<typename T>
+const char *phex_nz (T l, int sizeof_l = sizeof (T))
+{
+  return phex_nz_ulongest (l, sizeof_l);
+}
 
 /* Converts a LONGEST to a C-format hexadecimal literal and stores it
    in a static string.  Returns a pointer to this string.  */
 
-extern char *hex_string (LONGEST num);
+extern const char *hex_string (LONGEST num);
 
 /* Converts a LONGEST number to a C-format hexadecimal literal and
    stores it in a static string.  Returns a pointer to this string
    that is valid until the next call.  The number is padded on the
    left with 0s to at least WIDTH characters.  */
 
-extern char *hex_string_custom (LONGEST num, int width);
+extern const char *hex_string_custom (LONGEST num, int width);
 
 /* Convert VAL to a numeral in the given radix.  For
  * radix 10, IS_SIGNED may be true, indicating a signed quantity;
- * otherwise VAL is interpreted as unsigned.  If WIDTH is supplied, 
+ * otherwise VAL is interpreted as unsigned.  If WIDTH is supplied,
  * it is the minimum width (0-padded if needed).  USE_C_FORMAT means
- * to use C format in all cases.  If it is false, then 'x' 
+ * to use C format in all cases.  If it is false, then 'x'
  * and 'o' formats do not include a prefix (0x or leading 0).  */
 
-extern char *int_string (LONGEST val, int radix, int is_signed, int width, 
-			 int use_c_format);	
+extern const char *int_string (LONGEST val, int radix, int is_signed, int width,
+			       int use_c_format);
 
 /* Convert a CORE_ADDR into a string.  */
 
@@ -82,4 +102,4 @@ extern const char *host_address_to_string_1 (const void *addr);
 
 extern char *get_print_cell (void);
 
-#endif /* COMMON_PRINT_UTILS_H */
+#endif /* GDBSUPPORT_PRINT_UTILS_H */

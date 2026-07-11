@@ -146,7 +146,7 @@ static int maskl = 0;
 
 /* Alternate bank of registers r0-r7 */
 
-/* Note: code controling SR handles flips between BANK0 and BANK1 */
+/* Note: code controlling SR handles flips between BANK0 and BANK1 */
 #define Rn_BANK(n) (saved_state.asregs.bank[(n)])
 #define SET_Rn_BANK(n, EXP) do { saved_state.asregs.bank[(n)] = (EXP); } while (0)
 
@@ -726,7 +726,7 @@ static int nsamples;
 #define SSR1 (0x05FFFECC)	/* Channel 1  serial status register */
 #define RDR1 (0x05FFFECD)	/* Channel 1  receive data register */
 
-#define SCI_RDRF  	 0x40	/* Recieve data register full */
+#define SCI_RDRF  	 0x40	/* Receive data register full */
 #define SCI_TDRE	0x80	/* Transmit data register empty */
 
 static int
@@ -822,7 +822,7 @@ static int
 strswaplen (int str)
 {
   unsigned char *memory = saved_state.asregs.memory;
-  int start, end;
+  int end;
   int endian = endianb;
 
   if (! endian)
@@ -1046,8 +1046,8 @@ trap (SIM_DESC sd, int i, int *regs, unsigned char *insn_ptr,
 	    if (regs[5] < countargv (prog_argv))
 	      {
 		/* Include the termination byte.  */
-		int i = strlen (prog_argv[regs[5]]) + 1;
-		regs[0] = sim_write (0, regs[6], prog_argv[regs[5]], i);
+		int len = strlen (prog_argv[regs[5]]) + 1;
+		regs[0] = sim_write (0, regs[6], prog_argv[regs[5]], len);
 	      }
 	    else
 	      regs[0] = -1;
@@ -1238,7 +1238,7 @@ macl (int *regs, unsigned char *memory, int n, int m)
           mach |= 0xffff8000; /* Sign extend higher 16 bits */
         }
       else
-        mach = mach & 0x00007fff; /* Postive Result */
+        mach = mach & 0x00007fff; /* Positive Result */
     }
 
   MACL = macl;
@@ -1499,8 +1499,6 @@ get_loop_bounds (int rs, int re, unsigned char *memory, unsigned char *mem_end,
 static void *
 mcalloc (size_t nmemb, size_t size)
 {
-  void *page;
-
   if (nmemb != 1)
     size *= nmemb;
   return mmap (0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
@@ -1667,10 +1665,8 @@ dump_profile (void)
 {
   unsigned int minpc;
   unsigned int maxpc;
-  unsigned short *p;
   int i;
 
-  p = saved_state.asregs.profile_hist;
   minpc = 0;
   maxpc = (1 << sim_profile_size);
 
@@ -1716,7 +1712,7 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
   register int endianw = global_endianw;
 
   int tick_start = get_now ();
-  void (*prev_fpe) ();
+  void (*prev_fpe) (int);
 
   register unsigned short *jump_table = sh_jump_table;
 

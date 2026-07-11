@@ -1,6 +1,6 @@
 /* Caching code for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+   Copyright (C) 1992-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,9 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "dcache.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "gdbcore.h"
 #include "target-dcache.h"
 #include "inferior.h"
@@ -392,7 +391,7 @@ dcache_alloc (DCACHE *dcache, CORE_ADDR addr)
 }
 
 /* Using the data cache DCACHE, store in *PTR the contents of the byte at
-   address ADDR in the remote machine.  
+   address ADDR in the remote machine.
 
    Returns 1 for success, 0 for error.  */
 
@@ -572,11 +571,12 @@ dcache_print_line (DCACHE *dcache, int index)
       gdb_printf (_("No such cache line exists.\n"));
       return;
     }
-    
+
   db = (struct dcache_block *) n->value;
 
   gdb_printf (_("Line %d: address %s [%d hits]\n"),
-	      index, paddress (target_gdbarch (), db->addr), db->refs);
+	      index, paddress (current_inferior ()->arch (), db->addr),
+	      db->refs);
 
   for (j = 0; j < dcache->line_size; j++)
     {
@@ -636,7 +636,8 @@ dcache_info_1 (DCACHE *dcache, const char *exp)
       struct dcache_block *db = (struct dcache_block *) n->value;
 
       gdb_printf (_("Line %d: address %s [%d hits]\n"),
-		  i, paddress (target_gdbarch (), db->addr), db->refs);
+		  i, paddress (current_inferior ()->arch (), db->addr),
+		  db->refs);
       i++;
       refcount += db->refs;
 
@@ -649,7 +650,7 @@ dcache_info_1 (DCACHE *dcache, const char *exp)
 static void
 info_dcache_command (const char *exp, int tty)
 {
-  dcache_info_1 (target_dcache_get (), exp);
+  dcache_info_1 (target_dcache_get (current_program_space->aspace), exp);
 }
 
 static void
@@ -661,7 +662,7 @@ set_dcache_size (const char *args, int from_tty,
       dcache_size = DCACHE_DEFAULT_SIZE;
       error (_("Dcache size must be greater than 0."));
     }
-  target_dcache_invalidate ();
+  target_dcache_invalidate (current_program_space->aspace);
 }
 
 static void
@@ -675,12 +676,10 @@ set_dcache_line_size (const char *args, int from_tty,
       dcache_line_size = DCACHE_DEFAULT_LINE_SIZE;
       error (_("Invalid dcache line size: %u (must be power of 2)."), d);
     }
-  target_dcache_invalidate ();
+  target_dcache_invalidate (current_program_space->aspace);
 }
 
-void _initialize_dcache ();
-void
-_initialize_dcache ()
+INIT_GDB_FILE (dcache)
 {
   add_setshow_boolean_cmd ("remotecache", class_support,
 			   &dcache_enabled_p, _("\

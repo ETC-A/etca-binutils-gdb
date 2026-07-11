@@ -1,6 +1,6 @@
 /* Target-dependent code for SDE on MIPS processors.
 
-   Copyright (C) 2014-2023 Free Software Foundation, Inc.
+   Copyright (C) 2014-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,7 +17,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "osabi.h"
 #include "elf-bfd.h"
 #include "symtab.h"
@@ -33,7 +32,7 @@
    in the SDE frame unwinder.  */
 
 static struct trad_frame_cache *
-mips_sde_frame_cache (frame_info_ptr this_frame, void **this_cache)
+mips_sde_frame_cache (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   const struct mips_regnum *regs = mips_regnum (gdbarch);
@@ -121,7 +120,7 @@ mips_sde_frame_cache (frame_info_ptr this_frame, void **this_cache)
 /* Implement the this_id function for the SDE frame unwinder.  */
 
 static void
-mips_sde_frame_this_id (frame_info_ptr this_frame, void **this_cache,
+mips_sde_frame_this_id (const frame_info_ptr &this_frame, void **this_cache,
 			struct frame_id *this_id)
 {
   struct trad_frame_cache *this_trad_cache
@@ -133,7 +132,7 @@ mips_sde_frame_this_id (frame_info_ptr this_frame, void **this_cache,
 /* Implement the prev_register function for the SDE frame unwinder.  */
 
 static struct value *
-mips_sde_frame_prev_register (frame_info_ptr this_frame,
+mips_sde_frame_prev_register (const frame_info_ptr &this_frame,
 			      void **this_cache,
 			      int prev_regnum)
 {
@@ -147,36 +146,35 @@ mips_sde_frame_prev_register (frame_info_ptr this_frame,
 
 static int
 mips_sde_frame_sniffer (const struct frame_unwind *self,
-			frame_info_ptr this_frame,
+			const frame_info_ptr &this_frame,
 			void **this_cache)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
   const char *name;
 
   find_pc_partial_function (pc, &name, NULL, NULL);
-  return (name
-	  && (strcmp (name, "_xcptcall") == 0
-	      || strcmp (name, "_sigtramp") == 0));
+  return (name != nullptr
+	  && (streq (name, "_xcptcall") || streq (name, "_sigtramp")));
 }
 
 /* Data structure for the SDE frame unwinder.  */
 
-static const struct frame_unwind mips_sde_frame_unwind =
-{
+static const struct frame_unwind_legacy mips_sde_frame_unwind (
   "mips sde sigtramp",
   SIGTRAMP_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   mips_sde_frame_this_id,
   mips_sde_frame_prev_register,
   NULL,
   mips_sde_frame_sniffer
-};
+);
 
 /* Implement the this_base, this_locals, and this_args hooks
    for the normal unwinder.  */
 
 static CORE_ADDR
-mips_sde_frame_base_address (frame_info_ptr this_frame, void **this_cache)
+mips_sde_frame_base_address (const frame_info_ptr &this_frame, void **this_cache)
 {
   struct trad_frame_cache *this_trad_cache
     = mips_sde_frame_cache (this_frame, this_cache);
@@ -193,7 +191,7 @@ static const struct frame_base mips_sde_frame_base =
 };
 
 static const struct frame_base *
-mips_sde_frame_base_sniffer (frame_info_ptr this_frame)
+mips_sde_frame_base_sniffer (const frame_info_ptr &this_frame)
 {
   if (mips_sde_frame_sniffer (&mips_sde_frame_unwind, this_frame, NULL))
     return &mips_sde_frame_base;
@@ -201,19 +199,20 @@ mips_sde_frame_base_sniffer (frame_info_ptr this_frame)
     return NULL;
 }
 
-static void
-mips_sde_elf_osabi_sniff_abi_tag_sections (bfd *abfd, asection *sect,
-					   void *obj)
+static gdb_osabi
+mips_sde_elf_osabi_sniff_abi_tag_sections (bfd *abfd)
 {
-  enum gdb_osabi *os_ident_ptr = (enum gdb_osabi *) obj;
-  const char *name;
+  for (asection *sect : gdb_bfd_sections (abfd))
+    {
+      const char *name = bfd_section_name (sect);
 
-  name = bfd_section_name (sect);
+      /* The presence of a section with a ".sde" prefix is indicative
+	 of an SDE binary.  */
+      if (startswith (name, ".sde"))
+	return GDB_OSABI_SDE;
+    }
 
-  /* The presence of a section with a ".sde" prefix is indicative
-     of an SDE binary.  */
-  if (startswith (name, ".sde"))
-    *os_ident_ptr = GDB_OSABI_SDE;
+  return GDB_OSABI_UNKNOWN;
 }
 
 /* OSABI sniffer for MIPS SDE.  */
@@ -241,9 +240,7 @@ mips_sde_elf_osabi_sniffer (bfd *abfd)
 	 real OS in use we must look for OS notes that have been added.
 
 	 For SDE, we simply look for sections named with .sde as prefixes.  */
-      bfd_map_over_sections (abfd,
-			     mips_sde_elf_osabi_sniff_abi_tag_sections,
-			     &osabi);
+      osabi = mips_sde_elf_osabi_sniff_abi_tag_sections (abfd);
     }
   return osabi;
 }
@@ -255,9 +252,7 @@ mips_sde_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   frame_base_append_sniffer (gdbarch, mips_sde_frame_base_sniffer);
 }
 
-void _initialize_mips_sde_tdep ();
-void
-_initialize_mips_sde_tdep ()
+INIT_GDB_FILE (mips_sde_tdep)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_mips,
 				  bfd_target_elf_flavour,

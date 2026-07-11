@@ -1,6 +1,6 @@
 /* Convenience functions implemented in Python.
 
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,18 +18,16 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 
-#include "defs.h"
 #include "value.h"
 #include "python-internal.h"
 #include "charset.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "cli/cli-decode.h"
 #include "completer.h"
 #include "expression.h"
 #include "language.h"
 
-extern PyTypeObject fnpy_object_type
-    CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("PyObject");
+extern PyTypeObject fnpy_object_type;
 
 
 
@@ -47,10 +45,11 @@ convert_values_to_python (int argc, struct value **argv)
 
   for (i = 0; i < argc; ++i)
     {
-      gdbpy_ref<> elt (value_to_value_object (argv[i]));
+      gdbpy_ref<> elt = value_to_value_object (argv[i]);
       if (elt == NULL)
 	return NULL;
-      PyTuple_SetItem (result.get (), i, elt.release ());
+      if (PyTuple_SetItem (result.get (), i, elt.release ()) < 0)
+	return nullptr;
     }
   return result;
 }
@@ -121,11 +120,13 @@ fnpy_init (PyObject *self, PyObject *args, PyObject *kwds)
 	      docstring = python_string_to_host_string (ds_obj.get ());
 	      if (docstring == NULL)
 		return -1;
+	      docstring
+		= gdbpy_fix_doc_string_indentation (std::move (docstring));
 	    }
 	}
     }
   if (! docstring)
-    docstring.reset (xstrdup (_("This function is not documented.")));
+    docstring = make_unique_xstrdup (_("This function is not documented."));
 
   add_internal_function (make_unique_xstrdup (name), std::move (docstring),
 			 fnpy_call, self_ref.release ());
@@ -134,15 +135,11 @@ fnpy_init (PyObject *self, PyObject *args, PyObject *kwds)
 
 /* Initialize internal function support.  */
 
-static int CPYCHECKER_NEGATIVE_RESULT_SETS_EXCEPTION
-gdbpy_initialize_functions (void)
+static int
+gdbpy_initialize_functions ()
 {
   fnpy_object_type.tp_new = PyType_GenericNew;
-  if (PyType_Ready (&fnpy_object_type) < 0)
-    return -1;
-
-  return gdb_pymodule_addobject (gdb_module, "Function",
-				 (PyObject *) &fnpy_object_type);
+  return gdbpy_type_ready (&fnpy_object_type);
 }
 
 GDBPY_INITIALIZE_FILE (gdbpy_initialize_functions);

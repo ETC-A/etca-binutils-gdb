@@ -1,7 +1,7 @@
 /* Target-dependent code for the Texas Instruments MSP430 for GDB, the
    GNU debugger.
 
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2026 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -20,8 +20,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "arch-utils.h"
+#include "extract-store-integer.h"
 #include "prologue-value.h"
 #include "target.h"
 #include "regcache.h"
@@ -35,6 +35,7 @@
 #include "dwarf2/frame.h"
 #include "reggroups.h"
 #include "gdbarch.h"
+#include "inferior.h"
 
 #include "elf/msp430.h"
 #include "opcode/msp430-decode.h"
@@ -196,19 +197,19 @@ msp430_register_name (struct gdbarch *gdbarch, int regnr)
     "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
   };
 
-  gdb_static_assert (ARRAY_SIZE (reg_names) == (MSP430_NUM_REGS
+  static_assert (ARRAY_SIZE (reg_names) == (MSP430_NUM_REGS
 						+ MSP430_NUM_PSEUDO_REGS));
   return reg_names[regnr];
 }
 
 /* Implement the "register_reggroup_p" gdbarch method.  */
 
-static int
+static bool
 msp430_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 			    const struct reggroup *group)
 {
   if (group == all_reggroup)
-    return 1;
+    return true;
 
   /* All other registers are saved and restored.  */
   if (group == save_reggroup || group == restore_reggroup)
@@ -280,7 +281,7 @@ msp430_register_sim_regno (struct gdbarch *gdbarch, int regnum)
 
 constexpr gdb_byte msp430_break_insn[] = { 0x43, 0x43 };
 
-typedef BP_MANIPULATION (msp430_break_insn) msp430_breakpoint;
+using msp430_breakpoint = BP_MANIPULATION (msp430_break_insn);
 
 /* Define a "handle" struct for fetching the next opcode.  */
 
@@ -328,7 +329,7 @@ check_for_saved (void *result_untyped, pv_t addr, CORE_ADDR size, pv_t value)
   if (value.kind == pvk_register
       && value.k == 0
       && pv_is_register (addr, MSP430_SP_REGNUM)
-      && size == register_size (target_gdbarch (), value.reg))
+      && size == register_size (current_inferior ()->arch  (), value.reg))
     result->reg_offset[value.reg] = addr.k;
 }
 
@@ -457,14 +458,14 @@ msp430_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
    return that struct as the value of this function.  */
 
 static struct msp430_prologue *
-msp430_analyze_frame_prologue (frame_info_ptr this_frame,
+msp430_analyze_frame_prologue (const frame_info_ptr &this_frame,
 			       void **this_prologue_cache)
 {
   if (!*this_prologue_cache)
     {
       CORE_ADDR func_start, stop_addr;
 
-      *this_prologue_cache = FRAME_OBSTACK_ZALLOC (struct msp430_prologue);
+      *this_prologue_cache = frame_obstack_zalloc<msp430_prologue> ();
 
       func_start = get_frame_func (this_frame);
       stop_addr = get_frame_pc (this_frame);
@@ -485,7 +486,7 @@ msp430_analyze_frame_prologue (frame_info_ptr this_frame,
 /* Given a frame and a prologue cache, return this frame's base.  */
 
 static CORE_ADDR
-msp430_frame_base (frame_info_ptr this_frame, void **this_prologue_cache)
+msp430_frame_base (const frame_info_ptr &this_frame, void **this_prologue_cache)
 {
   struct msp430_prologue *p
     = msp430_analyze_frame_prologue (this_frame, this_prologue_cache);
@@ -497,7 +498,7 @@ msp430_frame_base (frame_info_ptr this_frame, void **this_prologue_cache)
 /* Implement the "frame_this_id" method for unwinding frames.  */
 
 static void
-msp430_this_id (frame_info_ptr this_frame,
+msp430_this_id (const frame_info_ptr &this_frame,
 		void **this_prologue_cache, struct frame_id *this_id)
 {
   *this_id = frame_id_build (msp430_frame_base (this_frame,
@@ -508,7 +509,7 @@ msp430_this_id (frame_info_ptr this_frame,
 /* Implement the "frame_prev_register" method for unwinding frames.  */
 
 static struct value *
-msp430_prev_register (frame_info_ptr this_frame,
+msp430_prev_register (const frame_info_ptr &this_frame,
 		      void **this_prologue_cache, int regnum)
 {
   struct msp430_prologue *p
@@ -541,15 +542,16 @@ msp430_prev_register (frame_info_ptr this_frame,
     return frame_unwind_got_register (this_frame, regnum, regnum);
 }
 
-static const struct frame_unwind msp430_unwind = {
+static const struct frame_unwind_legacy msp430_unwind (
   "msp430 prologue",
   NORMAL_FRAME,
+  FRAME_UNWIND_ARCH,
   default_frame_unwind_stop_reason,
   msp430_this_id,
   msp430_prev_register,
   NULL,
   default_frame_sniffer
-};
+);
 
 /* Implement the "dwarf2_reg_to_regnum" gdbarch method.  */
 
@@ -794,7 +796,7 @@ static const char msp430_epilog_name_prefix[] = "__mspabi_func_epilog_";
 
 /* Implement the "in_return_stub" gdbarch method.  */
 
-static int
+static bool
 msp430_in_return_stub (struct gdbarch *gdbarch, CORE_ADDR pc,
 		       const char *name)
 {
@@ -804,13 +806,12 @@ msp430_in_return_stub (struct gdbarch *gdbarch, CORE_ADDR pc,
 
 /* Implement the "skip_trampoline_code" gdbarch method.  */
 static CORE_ADDR
-msp430_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
+msp430_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR pc)
 {
-  struct bound_minimal_symbol bms;
   const char *stub_name;
   struct gdbarch *gdbarch = get_frame_arch (frame);
 
-  bms = lookup_minimal_symbol_by_pc (pc);
+  bound_minimal_symbol bms = lookup_minimal_symbol_by_pc (pc);
   if (!bms.minsym)
     return pc;
 
@@ -885,7 +886,7 @@ msp430_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	      break;
 	    }
 	}
-	/* Fall through.  */
+	[[fallthrough]];
       default:
 	error (_("Unknown msp430 isa"));
 	break;
@@ -936,12 +937,13 @@ msp430_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_sp_regnum (gdbarch, MSP430_SP_REGNUM);
   set_gdbarch_register_reggroup_p (gdbarch, msp430_register_reggroup_p);
   set_gdbarch_pseudo_register_read (gdbarch, msp430_pseudo_register_read);
-  set_gdbarch_pseudo_register_write (gdbarch, msp430_pseudo_register_write);
+  set_gdbarch_deprecated_pseudo_register_write (gdbarch,
+						msp430_pseudo_register_write);
   set_gdbarch_dwarf2_reg_to_regnum (gdbarch, msp430_dwarf2_reg_to_regnum);
   set_gdbarch_register_sim_regno (gdbarch, msp430_register_sim_regno);
 
   /* Data types.  */
-  set_gdbarch_char_signed (gdbarch, 0);
+  set_gdbarch_char_signed (gdbarch, false);
   set_gdbarch_short_bit (gdbarch, 16);
   set_gdbarch_int_bit (gdbarch, 16);
   set_gdbarch_long_bit (gdbarch, 32);
@@ -986,17 +988,12 @@ msp430_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_in_solib_return_trampoline (gdbarch, msp430_in_return_stub);
   set_gdbarch_skip_trampoline_code (gdbarch, msp430_skip_trampoline_code);
 
-  /* Virtual tables.  */
-  set_gdbarch_vbit_in_delta (gdbarch, 0);
-
   return gdbarch;
 }
 
 /* Register the initialization routine.  */
 
-void _initialize_msp430_tdep ();
-void
-_initialize_msp430_tdep ()
+INIT_GDB_FILE (msp430_tdep)
 {
   gdbarch_register (bfd_arch_msp430, msp430_gdbarch_init);
 }

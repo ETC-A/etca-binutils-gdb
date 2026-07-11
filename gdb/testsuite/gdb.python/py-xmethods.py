@@ -1,4 +1,4 @@
-# Copyright 2014-2023 Free Software Foundation, Inc.
+# Copyright 2014-2026 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,12 +16,10 @@
 # This file is part of the GDB testsuite.  It test the xmethods support
 # in the Python extension language.
 
-import gdb
 import re
 
-from gdb.xmethod import XMethod
-from gdb.xmethod import XMethodMatcher, XMethodWorker
-from gdb.xmethod import SimpleXMethodMatcher
+import gdb
+from gdb.xmethod import SimpleXMethodMatcher, XMethod, XMethodMatcher, XMethodWorker
 
 
 def A_plus_A(obj, opr):

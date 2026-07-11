@@ -1,28 +1,33 @@
 # Check 64bit instructions with optimized encoding
 
-	.allow_index_reg
 	.text
 _start:
 	testq	$0x7f, %rax
 	testl	$0x7f, %eax
 	testw	$0x7f, %ax
 	testb	$0x7f, %al
-	test	$0x7f, %rbx
-	test	$0x7f, %ebx
-	test	$0x7f, %bx
-	test	$0x7f, %bl
-	test	$0x7f, %rdi
-	test	$0x7f, %edi
-	test	$0x7f, %di
-	test	$0x7f, %dil
-	test	$0x7f, %r9
-	test	$0x7f, %r9d
-	test	$0x7f, %r9w
-	test	$0x7f, %r9b
-	test	$0x7f, %r12
-	test	$0x7f, %r12d
-	test	$0x7f, %r12w
-	test	$0x7f, %r12b
+	.irp tst, test, "{evex} test", ctestc
+	\tst	$0x7f, %rbx
+	\tst	$0x7f, %ebx
+	\tst	$0x7f, %bx
+	\tst	$0x7f, %bl
+	\tst	$0x7f, %rdi
+	\tst	$0x7f, %edi
+	\tst	$0x7f, %di
+	\tst	$0x7f, %dil
+	\tst	$0x7f, %r9
+	\tst	$0x7f, %r9d
+	\tst	$0x7f, %r9w
+	\tst	$0x7f, %r9b
+	\tst	$0x7f, %r12
+	\tst	$0x7f, %r12d
+	\tst	$0x7f, %r12w
+	\tst	$0x7f, %r12b
+	\tst	$0x7f, %r22
+	\tst	$0x7f, %r22d
+	\tst	$0x7f, %r22w
+	\tst	$0x7f, %r22b
+	.endr
 
 	and	%cl, %cl
 	and	%dx, %dx
@@ -33,6 +38,32 @@ _start:
 	or	%si, %si
 	or	%edi, %edi
 	or	%r8, %r8
+
+	xchg	%r17b, %r17b
+	{load} xchg %r8w, %r8w
+	xchg	%eax, %eax
+	xchg	%r15, %r15
+
+	movsb	%al, %ax
+	movsbw	%al, %ax
+
+	movsw	%ax, %eax
+	movswl	%ax, %eax
+
+	movsl	%eax, %rax
+	movslq	%eax, %rax
+	movsxd	%eax, %rax
+
+	.intel_syntax noprefix
+	movsx	ax, al
+	movsx	eax, ax
+	movsx	rax, eax
+	.att_syntax prefix
+
+	xadd	%r17b, %r17b
+	xadd	%r8w, %r8w
+	xadd	%eax, %eax
+	xadd	%r15, %r15
 
 	vandnpd	%zmm1, %zmm1, %zmm5
 

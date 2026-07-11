@@ -1,5 +1,5 @@
 /* YACC parser for Pascal expressions, for GDB.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -43,8 +43,6 @@
    Probably also lots of other problems, less well defined PM.  */
 %{
 
-#include "defs.h"
-#include <ctype.h>
 #include "expression.h"
 #include "value.h"
 #include "parser-defs.h"
@@ -75,6 +73,8 @@ static int yylex (void);
 static void yyerror (const char *);
 
 static char *uptok (const char *, int);
+
+static const char *pascal_skip_string (const char *str);
 
 using namespace expr;
 %}
@@ -222,7 +222,7 @@ exp	:	exp '^'   %prec UNARY
 exp	:	'@' exp    %prec UNARY
 			{ pstate->wrap<unop_addr_operation> ();
 			  if (current_type)
-			    current_type = TYPE_POINTER_TYPE (current_type); }
+			    current_type = current_type->pointer_type; }
 	;
 
 exp	:	'-' exp    %prec UNARY
@@ -540,8 +540,8 @@ exp	:	DOLLAR_VARIABLE
 							intvar);
 			      current_type = val->type ();
 			    }
- 			}
- 	;
+			}
+	;
 
 exp	:	SIZEOF '(' type ')'	%prec UNARY
 			{
@@ -613,9 +613,9 @@ block	:	BLOCKNAME
 			    {
 			      std::string copy = copy_name ($1.stoken);
 			      struct symtab *tem =
-				  lookup_symtab (copy.c_str ());
+				  lookup_symtab (current_program_space, copy.c_str ());
 			      if (tem)
-				$$ = (tem->compunit ()->blockvector ()
+				$$ = (tem->compunit ().blockvector ()
 				      ->static_block ());
 			      else
 				error (_("No file or function \"%s\"."),
@@ -629,9 +629,10 @@ block	:	block COLONCOLON name
 			  std::string copy = copy_name ($3);
 			  struct symbol *tem
 			    = lookup_symbol (copy.c_str (), $1,
-					     VAR_DOMAIN, NULL).symbol;
+					     SEARCH_FUNCTION_DOMAIN,
+					     nullptr).symbol;
 
-			  if (!tem || tem->aclass () != LOC_BLOCK)
+			  if (tem == nullptr)
 			    error (_("No function \"%s\" in specified context."),
 				   copy.c_str ());
 			  $$ = tem->value_block (); }
@@ -642,7 +643,7 @@ variable:	block COLONCOLON name
 
 			  std::string copy = copy_name ($3);
 			  sym = lookup_symbol (copy.c_str (), $1,
-					       VAR_DOMAIN, NULL);
+					       SEARCH_VFT, NULL);
 			  if (sym.symbol == 0)
 			    error (_("No symbol \"%s\" in specified context."),
 				   copy.c_str ());
@@ -672,7 +673,7 @@ variable:	qualified_name
 
 			  struct block_symbol sym
 			    = lookup_symbol (name.c_str (), nullptr,
-					     VAR_DOMAIN, nullptr);
+					     SEARCH_VFT, nullptr);
 			  pstate->push_symbol (name.c_str (), sym);
 			}
 	;
@@ -715,16 +716,15 @@ variable:	name_not_typename
 			    }
 			  else
 			    {
-			      struct bound_minimal_symbol msymbol;
 			      std::string arg = copy_name ($1.stoken);
 
-			      msymbol =
-				lookup_bound_minimal_symbol (arg.c_str ());
+			      bound_minimal_symbol msymbol
+				= lookup_minimal_symbol (current_program_space, arg.c_str ());
 			      if (msymbol.minsym != NULL)
 				pstate->push_new<var_msym_value_operation>
 				  (msymbol);
-			      else if (!have_full_symbols ()
-				       && !have_partial_symbols ())
+			      else if (!current_program_space->has_full_symbols ()
+				       && !current_program_space->has_partial_symbols ())
 				error (_("No symbol table is loaded.  "
 				       "Use the \"file\" command."));
 			      else
@@ -764,7 +764,7 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 			    = lookup_struct (copy_name ($2).c_str (),
 					     pstate->expression_context_block);
 			}
-	/* "const" and "volatile" are curently ignored.  A type qualifier
+	/* "const" and "volatile" are currently ignored.  A type qualifier
 	   after the type is handled in the ptype rule.  I think these could
 	   be too.  */
 	;
@@ -782,7 +782,7 @@ name_not_typename :	NAME
    the parser can't tell whether NAME_OR_INT is a name_not_typename (=variable,
    =exp) or just an exp.  If name_not_typename was ever used in an lvalue
    context where only a name could occur, this might be useful.
-  	|	NAME_OR_INT
+	|	NAME_OR_INT
  */
 	;
 
@@ -816,13 +816,13 @@ parse_number (struct parser_state *par_state,
     {
       /* Handle suffixes: 'f' for float, 'l' for long double.
 	 FIXME: This appears to be an extension -- do we want this?  */
-      if (len >= 1 && tolower (p[len - 1]) == 'f')
+      if (len >= 1 && c_tolower (p[len - 1]) == 'f')
 	{
 	  putithere->typed_val_float.type
 	    = parse_type (par_state)->builtin_float;
 	  len--;
 	}
-      else if (len >= 1 && tolower (p[len - 1]) == 'l')
+      else if (len >= 1 && c_tolower (p[len - 1]) == 'l')
 	{
 	  putithere->typed_val_float.type
 	    = parse_type (par_state)->builtin_long_double;
@@ -994,14 +994,14 @@ pop_current_type (void)
     }
 }
 
-struct token
+struct p_token
 {
   const char *oper;
   int token;
   enum exp_opcode opcode;
 };
 
-static const struct token tokentab3[] =
+static const struct p_token tokentab3[] =
   {
     {"shr", RSH, OP_NULL},
     {"shl", LSH, OP_NULL},
@@ -1014,7 +1014,7 @@ static const struct token tokentab3[] =
     {"xor", XOR, OP_NULL}
   };
 
-static const struct token tokentab2[] =
+static const struct p_token tokentab2[] =
   {
     {"or", OR, OP_NULL},
     {"<>", NOTEQUAL, OP_NULL},
@@ -1039,6 +1039,28 @@ uptok (const char *tokstart, int namelen)
     }
   uptokstart[namelen]='\0';
   return uptokstart;
+}
+
+/* Skip over a Pascal string.  STR must point to the opening single quote
+   character.  This function returns a pointer to the character after the
+   closing single quote character.
+
+   This function does not support embedded, escaped single quotes, which
+   is done by placing two consecutive single quotes into a string.
+   Support for this would be easy to add, but this function is only used
+   from the Python expression parser, and if we did skip over escaped
+   quotes then the rest of the expression parser wouldn't handle them
+   correctly.  */
+static const char *
+pascal_skip_string (const char *str)
+{
+  gdb_assert (*str == '\'');
+
+  do
+    ++str;
+  while (*str != '\0' && *str != '\'');
+
+  return str;
 }
 
 /* Read one token, getting characters through lexptr.  */
@@ -1066,9 +1088,9 @@ yylex (void)
   if (explen > 2)
     for (const auto &token : tokentab3)
       if (strncasecmp (tokstart, token.oper, 3) == 0
-	  && (!isalpha (token.oper[0]) || explen == 3
-	      || (!isalpha (tokstart[3])
-		  && !isdigit (tokstart[3]) && tokstart[3] != '_')))
+	  && (!c_isalpha (token.oper[0]) || explen == 3
+	      || (!c_isalpha (tokstart[3])
+		  && !c_isdigit (tokstart[3]) && tokstart[3] != '_')))
 	{
 	  pstate->lexptr += 3;
 	  yylval.opcode = token.opcode;
@@ -1079,9 +1101,9 @@ yylex (void)
   if (explen > 1)
     for (const auto &token : tokentab2)
       if (strncasecmp (tokstart, token.oper, 2) == 0
-	  && (!isalpha (token.oper[0]) || explen == 2
-	      || (!isalpha (tokstart[2])
-		  && !isdigit (tokstart[2]) && tokstart[2] != '_')))
+	  && (!c_isalpha (token.oper[0]) || explen == 2
+	      || (!c_isalpha (tokstart[2])
+		  && !c_isdigit (tokstart[2]) && tokstart[2] != '_')))
 	{
 	  pstate->lexptr += 2;
 	  yylval.opcode = token.opcode;
@@ -1119,7 +1141,7 @@ yylex (void)
       c = *pstate->lexptr++;
       if (c != '\'')
 	{
-	  namelen = skip_quoted (tokstart) - tokstart;
+	  namelen = pascal_skip_string (tokstart) - tokstart;
 	  if (namelen > 2)
 	    {
 	      pstate->lexptr = tokstart + namelen;
@@ -1159,7 +1181,7 @@ yylex (void)
 	  goto symbol;		/* Nope, must be a symbol.  */
 	}
 
-      /* FALL THRU.  */
+      [[fallthrough]];
 
     case '0':
     case '1':
@@ -1215,13 +1237,8 @@ yylex (void)
 	toktype = parse_number (pstate, tokstart,
 				p - tokstart, got_dot | got_e, &yylval);
 	if (toktype == ERROR)
-	  {
-	    char *err_copy = (char *) alloca (p - tokstart + 1);
-
-	    memcpy (err_copy, tokstart, p - tokstart);
-	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
-	  }
+	  error (_("Invalid number \"%.*s\"."), (int) (p - tokstart),
+		 tokstart);
 	pstate->lexptr = p;
 	return toktype;
       }
@@ -1357,29 +1374,29 @@ yylex (void)
   switch (namelen)
     {
     case 6:
-      if (strcmp (uptokstart, "OBJECT") == 0)
+      if (streq (uptokstart, "OBJECT"))
 	{
 	  free (uptokstart);
 	  return CLASS;
 	}
-      if (strcmp (uptokstart, "RECORD") == 0)
+      if (streq (uptokstart, "RECORD"))
 	{
 	  free (uptokstart);
 	  return STRUCT;
 	}
-      if (strcmp (uptokstart, "SIZEOF") == 0)
+      if (streq (uptokstart, "SIZEOF"))
 	{
 	  free (uptokstart);
 	  return SIZEOF;
 	}
       break;
     case 5:
-      if (strcmp (uptokstart, "CLASS") == 0)
+      if (streq (uptokstart, "CLASS"))
 	{
 	  free (uptokstart);
 	  return CLASS;
 	}
-      if (strcmp (uptokstart, "FALSE") == 0)
+      if (streq (uptokstart, "FALSE"))
 	{
 	  yylval.lval = 0;
 	  free (uptokstart);
@@ -1387,20 +1404,20 @@ yylex (void)
 	}
       break;
     case 4:
-      if (strcmp (uptokstart, "TRUE") == 0)
+      if (streq (uptokstart, "TRUE"))
 	{
 	  yylval.lval = 1;
 	  free (uptokstart);
-  	  return TRUEKEYWORD;
+	  return TRUEKEYWORD;
 	}
-      if (strcmp (uptokstart, "SELF") == 0)
+      if (streq (uptokstart, "SELF"))
 	{
 	  /* Here we search for 'this' like
 	     inserted in FPC stabs debug info.  */
 	  static const char this_name[] = "this";
 
 	  if (lookup_symbol (this_name, pstate->expression_context_block,
-			     VAR_DOMAIN, NULL).symbol)
+			     SEARCH_VFT, NULL).symbol)
 	    {
 	      free (uptokstart);
 	      return THIS;
@@ -1440,7 +1457,7 @@ yylex (void)
       sym = NULL;
     else
       sym = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
-			   VAR_DOMAIN, &is_a_field_of_this).symbol;
+			   SEARCH_VFT, &is_a_field_of_this).symbol;
     /* second chance uppercased (as Free Pascal does).  */
     if (!sym && is_a_field_of_this.type == NULL && !is_a_field)
       {
@@ -1456,7 +1473,7 @@ yylex (void)
 	 sym = NULL;
        else
 	 sym = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
-			      VAR_DOMAIN, &is_a_field_of_this).symbol;
+			      SEARCH_VFT, &is_a_field_of_this).symbol;
       }
     /* Third chance Capitalized (as GPC does).  */
     if (!sym && is_a_field_of_this.type == NULL && !is_a_field)
@@ -1479,7 +1496,7 @@ yylex (void)
 	 sym = NULL;
        else
 	 sym = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
-			      VAR_DOMAIN, &is_a_field_of_this).symbol;
+			      SEARCH_VFT, &is_a_field_of_this).symbol;
       }
 
     if (is_a_field || (is_a_field_of_this.type != NULL))
@@ -1501,8 +1518,8 @@ yylex (void)
     /* Call lookup_symtab, not lookup_partial_symtab, in case there are
        no psymtabs (coff, xcoff, or some future change to blow away the
        psymtabs once once symbols are read).  */
-    if ((sym && sym->aclass () == LOC_BLOCK)
-	|| lookup_symtab (tmp.c_str ()))
+    if ((sym && sym->loc_class () == LOC_BLOCK)
+	|| lookup_symtab (current_program_space, tmp.c_str ()))
       {
 	yylval.ssym.sym.symbol = sym;
 	yylval.ssym.sym.block = NULL;
@@ -1510,7 +1527,7 @@ yylex (void)
 	free (uptokstart);
 	return BLOCKNAME;
       }
-    if (sym && sym->aclass () == LOC_TYPEDEF)
+    if (sym && sym->loc_class () == LOC_TYPEDEF)
 	{
 #if 1
 	  /* Despite the following flaw, we need to keep this code enabled.
@@ -1542,15 +1559,13 @@ yylex (void)
 	  while (1)
 	    {
 	      /* Skip whitespace.  */
-	      while (*p == ' ' || *p == '\t' || *p == '\n')
-		++p;
+	      p = skip_spaces (p);
 	      if (*p == ':' && p[1] == ':')
 		{
 		  /* Skip the `::'.  */
 		  p += 2;
 		  /* Skip whitespace.  */
-		  while (*p == ' ' || *p == '\t' || *p == '\n')
-		    ++p;
+		  p = skip_spaces (p);
 		  namestart = p;
 		  while (*p == '_' || *p == '$' || (*p >= '0' && *p <= '9')
 			 || (*p >= 'a' && *p <= 'z')
@@ -1576,10 +1591,10 @@ yylex (void)
 		      cur_sym
 			= lookup_symbol (ncopy,
 					 pstate->expression_context_block,
-					 VAR_DOMAIN, NULL).symbol;
+					 SEARCH_VFT, NULL).symbol;
 		      if (cur_sym)
 			{
-			  if (cur_sym->aclass () == LOC_TYPEDEF)
+			  if (cur_sym->loc_class () == LOC_TYPEDEF)
 			    {
 			      best_sym = cur_sym;
 			      pstate->lexptr = p;
@@ -1620,7 +1635,7 @@ yylex (void)
 	&& ((tokstart[0] >= 'a' && tokstart[0] < 'a' + input_radix - 10)
 	    || (tokstart[0] >= 'A' && tokstart[0] < 'A' + input_radix - 10)))
       {
- 	YYSTYPE newlval;	/* Its value is ignored.  */
+	YYSTYPE newlval;	/* Its value is ignored.  */
 	hextype = parse_number (pstate, tokstart, namelen, 0, &newlval);
 	if (hextype == INT)
 	  {
@@ -1660,8 +1675,5 @@ pascal_language::parser (struct parser_state *par_state) const
 static void
 yyerror (const char *msg)
 {
-  if (pstate->prev_lexptr)
-    pstate->lexptr = pstate->prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), msg, pstate->lexptr);
+  pstate->parse_error (msg);
 }

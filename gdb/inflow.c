@@ -1,5 +1,5 @@
 /* Low level interface to ptrace, for GDB when running under Unix.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "frame.h"
 #include "inferior.h"
 #include "command.h"
@@ -29,7 +28,7 @@
 #include <fcntl.h>
 #include "gdbsupport/gdb_select.h"
 
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
@@ -40,17 +39,39 @@
 #include <sys/ioctl.h>
 #endif
 
+#ifdef __CYGWIN__
+#include <sys/cygwin.h>
+#endif
+
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
 #endif
 
 static void pass_signal (int);
 
+static int gdb_has_a_terminal (void);
+
 static void child_terminal_ours_1 (target_terminal_state);
 
 /* Record terminal status separately for debugger and inferior.  */
 
 static struct serial *stdin_serial;
+
+/* See terminal.h.  */
+
+scoped_restore_tty_state::scoped_restore_tty_state ()
+{
+  if (gdb_has_a_terminal ())
+    m_ttystate = serial_get_tty_state (stdin_serial);
+}
+
+/* See terminal.h.  */
+
+scoped_restore_tty_state::~scoped_restore_tty_state ()
+{
+  if (m_ttystate != nullptr)
+    serial_set_tty_state (stdin_serial, m_ttystate);
+}
 
 /* Terminal related info we need to keep track of.  Each inferior
    holds an instance of this structure --- we save it whenever the
@@ -113,9 +134,9 @@ static struct terminal_info *get_inflow_inferior_data (struct inferior *);
    we save our handlers in these two variables and set SIGINT and SIGQUIT
    to SIG_IGN.  */
 
-static gdb::optional<sighandler_t> sigint_ours;
+static std::optional<sighandler_t> sigint_ours;
 #ifdef SIGQUIT
-static gdb::optional<sighandler_t> sigquit_ours;
+static std::optional<sighandler_t> sigquit_ours;
 #endif
 
 /* The name of the tty (from the `tty' command) that we're giving to
@@ -158,6 +179,15 @@ set_initial_gdb_ttystate (void)
       our_terminal_info.process_group = tcgetpgrp (0);
 #endif
     }
+}
+
+/* See terminal.h.  */
+
+void
+restore_initial_gdb_ttystate ()
+{
+  if (initial_gdb_ttystate != nullptr)
+    serial_set_tty_state (stdin_serial, initial_gdb_ttystate);
 }
 
 /* Does GDB have a terminal (on stdin)?  */
@@ -345,11 +375,25 @@ child_terminal_inferior (struct target_ops *self)
 	     then restore whatever was the foreground pgrp the last
 	     time the inferior was running.  See also comments
 	     describing terminal_state::process_group.  */
-#ifdef HAVE_GETPGID
-	  result = tcsetpgrp (0, getpgid (inf->pid));
-#else
-	  result = tcsetpgrp (0, tinfo->process_group);
+	  pid_t pgrp = tinfo->process_group;
+#ifdef __CYGWIN__
+	  /* The Windows native target uses Win32 routines to run or
+	     attach to processes (CreateProcess / DebugActiveProcess),
+	     so a Cygwin inferior has a Windows PID, rather than a
+	     Cygwin PID.  We want to pass the Cygwin PID to Cygwin
+	     tcsetpgrp if we have a Cygwin inferior, so try to convert
+	     first.  If we have a non-Cygwin inferior, we'll end up
+	     passing down the WINPID to tcsetpgrp, stored in
+	     terminal_state::process_group.  tcsetpgrp still succeeds
+	     in that case, and it seems preferable to switch the
+	     foreground pgrp away from GDB, for consistency.  */
+	  pid_t cygpid = cygwin_internal (CW_WINPID_TO_CYGWIN_PID, inf->pid);
+	  if (cygpid <= cygwin_internal (CW_MAX_CYGWIN_PID))
+	    pgrp = getpgid (cygpid);
+#elif defined (HAVE_GETPGID)
+	  pgrp = getpgid (inf->pid);
 #endif
+	  result = tcsetpgrp (0, pgrp);
 	  if (result == -1)
 	    {
 #if 0
@@ -506,15 +550,15 @@ child_interrupt (struct target_ops *self)
 {
   /* Interrupt the first inferior that has a resumed thread.  */
   thread_info *resumed = NULL;
-  for (thread_info *thr : all_non_exited_threads ())
+  for (thread_info &thr : all_non_exited_threads ())
     {
-      if (thr->executing ())
+      if (thr.internal_state () == THREAD_INT_RUNNING)
 	{
-	  resumed = thr;
+	  resumed = &thr;
 	  break;
 	}
-      if (thr->has_pending_waitstatus ())
-	resumed = thr;
+      if (thr.has_pending_waitstatus ())
+	resumed = &thr;
     }
 
   if (resumed != NULL)
@@ -595,13 +639,7 @@ terminal_info::~terminal_info ()
 static struct terminal_info *
 get_inflow_inferior_data (struct inferior *inf)
 {
-  struct terminal_info *info;
-
-  info = inflow_inferior_data.get (inf);
-  if (info == NULL)
-    info = inflow_inferior_data.emplace (inf);
-
-  return info;
+  return &inflow_inferior_data.try_emplace (inf);
 }
 
 /* This is a "inferior_exit" observer.  Releases the TERMINAL_INFO member
@@ -766,7 +804,8 @@ check_syscall (const char *msg, int result)
 {
   if (result < 0)
     {
-      print_sys_errmsg (msg, errno);
+      gdb_printf (gdb_stderr, "%s:%s.\n", msg,
+		  safe_strerror (errno));
       _exit (1);
     }
 }
@@ -926,9 +965,7 @@ initialize_stdin_serial (void)
   stdin_serial = serial_fdopen (0);
 }
 
-void _initialize_inflow ();
-void
-_initialize_inflow ()
+INIT_GDB_FILE (inflow)
 {
   add_info ("terminal", info_terminal_command,
 	    _("Print inferior's saved terminal status."));

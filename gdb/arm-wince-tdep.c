@@ -1,7 +1,7 @@
 /* Target-dependent code for Windows CE running on ARM processors,
    for GDB.
 
-   Copyright (C) 2007-2023 Free Software Foundation, Inc.
+   Copyright (C) 2007-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "osabi.h"
 #include "gdbcore.h"
 #include "target.h"
@@ -36,12 +35,11 @@ static const gdb_byte arm_wince_thumb_le_breakpoint[] = { 0xfe, 0xdf };
 #define ARM_WINCE_JB_PC			10
 
 static CORE_ADDR
-arm_pe_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
+arm_pe_skip_trampoline_code (const frame_info_ptr &frame, CORE_ADDR pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   ULONGEST indirect;
-  struct bound_minimal_symbol indsym;
   const char *symname;
   CORE_ADDR next_pc;
 
@@ -62,7 +60,7 @@ arm_pe_skip_trampoline_code (frame_info_ptr frame, CORE_ADDR pc)
   if (indirect == 0)
     return 0;
 
-  indsym = lookup_minimal_symbol_by_pc (indirect);
+  bound_minimal_symbol indsym = lookup_minimal_symbol_by_pc (indirect);
   if (indsym.minsym == NULL)
     return 0;
 
@@ -101,11 +99,11 @@ arm_wince_skip_main_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
       long offset = sign_extend (this_instr & 0x000fffff, 23) << 2;
       CORE_ADDR call_dest = (pc + 8 + offset) & 0xffffffffU;
-      struct bound_minimal_symbol s = lookup_minimal_symbol_by_pc (call_dest);
+      bound_minimal_symbol s = lookup_minimal_symbol_by_pc (call_dest);
 
       if (s.minsym != NULL
 	  && s.minsym->linkage_name () != NULL
-	  && strcmp (s.minsym->linkage_name (), "__gccmain") == 0)
+	  && streq (s.minsym->linkage_name (), "__gccmain"))
 	pc += 4;
     }
 
@@ -130,14 +128,11 @@ arm_wince_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->jb_pc = ARM_WINCE_JB_PC;
   tdep->jb_elt_size = ARM_WINCE_JB_ELEMENT_SIZE;
 
-  /* On ARM WinCE char defaults to signed.  */
-  set_gdbarch_char_signed (gdbarch, 1);
-
   /* Shared library handling.  */
   set_gdbarch_skip_trampoline_code (gdbarch, arm_pe_skip_trampoline_code);
 
   /* Single stepping.  */
-  set_gdbarch_software_single_step (gdbarch, arm_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, arm_software_single_step);
 
   /* Skip call to __gccmain that gcc places in main.  */
   set_gdbarch_skip_main_prologue (gdbarch, arm_wince_skip_main_prologue);
@@ -148,15 +143,13 @@ arm_wince_osabi_sniffer (bfd *abfd)
 {
   const char *target_name = bfd_get_target (abfd);
 
-  if (strcmp (target_name, "pei-arm-wince-little") == 0)
+  if (streq (target_name, "pei-arm-wince-little"))
     return GDB_OSABI_WINCE;
 
   return GDB_OSABI_UNKNOWN;
 }
 
-void _initialize_arm_wince_tdep ();
-void
-_initialize_arm_wince_tdep ()
+INIT_GDB_FILE (arm_wince_tdep)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_arm, bfd_target_coff_flavour,
 				  arm_wince_osabi_sniffer);

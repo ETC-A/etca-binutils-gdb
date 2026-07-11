@@ -1,4 +1,4 @@
-/* Copyright (C) 2020-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,10 +18,9 @@
 /* Support classes to wrap up the process of iterating over a
    multi-dimensional Fortran array.  */
 
-#ifndef F_ARRAY_WALKER_H
-#define F_ARRAY_WALKER_H
+#ifndef GDB_F_ARRAY_WALKER_H
+#define GDB_F_ARRAY_WALKER_H
 
-#include "defs.h"
 #include "gdbtypes.h"
 #include "f-lang.h"
 
@@ -43,7 +42,7 @@ public:
     /* Get the range, and extract the bounds.  */
     struct type *range_type = type->index_type ();
     if (!get_discrete_bounds (range_type, &m_lowerbound, &m_upperbound))
-      error ("unable to read array bounds");
+      error (_("unable to read array bounds"));
 
     /* Figure out the stride for this array.  */
     struct type *elt_type = check_typedef (type->target_type ());
@@ -96,7 +95,7 @@ private:
 
 /* A base class used by fortran_array_walker.  There's no virtual methods
    here, sub-classes should just override the functions they want in order
-   to specialise the behaviour to their needs.  The functionality
+   to specialise the behavior to their needs.  The functionality
    provided in these default implementations will visit every array
    element, but do nothing for each element.  */
 
@@ -187,7 +186,7 @@ class fortran_array_walker
   /* Ensure that Impl is derived from the required base class.  This just
      ensures that all of the required API methods are available and have a
      sensible default implementation.  */
-  gdb_static_assert ((std::is_base_of<fortran_array_walker_base_impl,Impl>::value));
+  static_assert ((std::is_base_of<fortran_array_walker_base_impl,Impl>::value));
 
 public:
   /* Create a new array walker.  TYPE is the type of the array being walked
@@ -222,7 +221,7 @@ private:
     struct type *range_type = check_typedef (type)->index_type ();
     LONGEST lowerbound, upperbound;
     if (!get_discrete_bounds (range_type, &lowerbound, &upperbound))
-      error ("failed to get range bounds");
+      error (_("failed to get range bounds"));
 
     /* CALC is used to calculate the offsets for each element in this
        dimension.  */
@@ -268,13 +267,16 @@ private:
 	  {
 	    LONGEST elt_off = offset + calc.index_offset (i);
 
-	    if (is_dynamic_type (elt_type))
+	    struct type *this_elt_type = elt_type;
+	    if (is_dynamic_type (this_elt_type))
 	      {
 		CORE_ADDR e_address = m_address + elt_off;
-		elt_type = resolve_dynamic_type (elt_type, {}, e_address);
+		this_elt_type = resolve_dynamic_type (this_elt_type, {},
+						      e_address);
 	      }
 
-	    m_impl.process_element (elt_type, elt_off, i, i == upperbound);
+	    m_impl.process_element (this_elt_type, elt_off, i,
+				    i == upperbound);
 	  }
       }
 
@@ -299,4 +301,4 @@ private:
   int m_nss;
 };
 
-#endif /* F_ARRAY_WALKER_H */
+#endif /* GDB_F_ARRAY_WALKER_H */

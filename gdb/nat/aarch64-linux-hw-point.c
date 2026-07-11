@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2026 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GDB.
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "gdbsupport/common-defs.h"
 #include "gdbsupport/break-common.h"
 #include "gdbsupport/common-regcache.h"
 #include "nat/linux-nat.h"
@@ -44,7 +43,7 @@ bool kernel_supports_any_contiguous_range = true;
    N.B.  The actual updating of hardware debug registers is not
    carried out until the moment the thread is resumed.  */
 
-static int
+static void
 debug_reg_change_callback (struct lwp_info *lwp, int is_watchpoint,
 			   unsigned int idx)
 {
@@ -93,8 +92,6 @@ debug_reg_change_callback (struct lwp_info *lwp, int is_watchpoint,
 		    phex (info->dr_changed_bp, 8),
 		    phex (info->dr_changed_wp, 8));
     }
-
-  return 0;
 }
 
 /* Notify each thread that their IDXth breakpoint/watchpoint register
@@ -106,14 +103,11 @@ void
 aarch64_notify_debug_reg_change (ptid_t ptid,
 				 int is_watchpoint, unsigned int idx)
 {
-  ptid_t pid_ptid = ptid_t (ptid.pid ());
-
-  iterate_over_lwps (pid_ptid, [=] (struct lwp_info *info)
-			       {
-				 return debug_reg_change_callback (info,
-								   is_watchpoint,
-								   idx);
-			       });
+  for_each_lwp (ptid.pid (), [=] (struct lwp_info *info)
+			     {
+			       debug_reg_change_callback (info, is_watchpoint,
+							  idx);
+			     });
 }
 
 /* Reconfigure STATE to be compatible with Linux kernels with the PR

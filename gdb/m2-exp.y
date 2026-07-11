@@ -1,5 +1,5 @@
 /* YACC grammar for Modula-2 expressions, for GDB.
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
    Generated from expread.y (now c-exp.y) and contributed by the Department
    of Computer Science at the State University of New York at Buffalo, 1991.
 
@@ -34,10 +34,9 @@
    with include files (<malloc.h> and <stdlib.h> for example) just became
    too messy, particularly when such includes can be inserted at random
    times by the parser generator.  */
-   
+
 %{
 
-#include "defs.h"
 #include "expression.h"
 #include "language.h"
 #include "value.h"
@@ -97,8 +96,8 @@ using namespace expr;
 %type <voidval> exp type_exp start set
 %type <voidval> variable
 %type <tval> type
-%type <bval> block 
-%type <sym> fblock 
+%type <bval> block
+%type <sym> fblock
 
 %token <lval> INT HEX ERROR
 %token <ulval> UINT M2_TRUE M2_FALSE CHAR
@@ -118,7 +117,7 @@ using namespace expr;
 %token <sval> TYPENAME
 
 %token SIZE CAP ORD HIGH ABS MIN_FUNC MAX_FUNC FLOAT_FUNC VAL CHR ODD TRUNC
-%token TSIZE
+%token TSIZE ADR
 %token INC DEC INCL EXCL
 
 /* The GDB scope operator */
@@ -140,7 +139,7 @@ using namespace expr;
 %right '^' DOT '[' '('
 %right NOT '~'
 %left COLONCOLON QID
-/* This is not an actual token ; it is used for precedence. 
+/* This is not an actual token ; it is used for precedence.
 %right QID
 */
 
@@ -190,6 +189,10 @@ exp	:	ORD '(' exp ')'
 
 exp	:	ABS '(' exp ')'
 			{ error (_("ABS function is not implemented")); }
+	;
+
+exp	:	ADR '(' exp ')'
+			{ pstate->wrap<unop_addr_operation> (); }
 	;
 
 exp	: 	HIGH '(' exp ')'
@@ -335,8 +338,8 @@ non_empty_arglist
 
 non_empty_arglist
 	:       non_empty_arglist ',' exp %prec ABOVE_COMMA
-     	       	    	{ pstate->arglist_len++; }
-     	;
+			{ pstate->arglist_len++; }
+	;
 
 /* GDB construct */
 exp	:	'{' type '}' exp  %prec UNARY
@@ -486,7 +489,7 @@ exp	:	STRING
 	;
 
 /* This will be used for extensions later.  Like adding modules.  */
-block	:	fblock	
+block	:	fblock
 			{ $$ = $1->value_block (); }
 	;
 
@@ -494,17 +497,17 @@ fblock	:	BLOCKNAME
 			{ struct symbol *sym
 			    = lookup_symbol (copy_name ($1).c_str (),
 					     pstate->expression_context_block,
-					     VAR_DOMAIN, 0).symbol;
+					     SEARCH_VFT, 0).symbol;
 			  $$ = sym;}
 	;
-			     
+
 
 /* GDB scope operator */
 fblock	:	block COLONCOLON BLOCKNAME
 			{ struct symbol *tem
 			    = lookup_symbol (copy_name ($3).c_str (), $1,
-					     VAR_DOMAIN, 0).symbol;
-			  if (!tem || tem->aclass () != LOC_BLOCK)
+					     SEARCH_VFT, 0).symbol;
+			  if (!tem || tem->loc_class () != LOC_BLOCK)
 			    error (_("No function \"%s\" in specified context."),
 				   copy_name ($3).c_str ());
 			  $$ = tem;
@@ -528,7 +531,7 @@ variable:	DOLLAR_VARIABLE
 variable:	block COLONCOLON NAME
 			{ struct block_symbol sym
 			    = lookup_symbol (copy_name ($3).c_str (), $1,
-					     VAR_DOMAIN, 0);
+					     SEARCH_VFT, 0);
 
 			  if (sym.symbol == 0)
 			    error (_("No symbol \"%s\" in specified context."),
@@ -549,7 +552,7 @@ variable:	NAME
 			  sym
 			    = lookup_symbol (name.c_str (),
 					     pstate->expression_context_block,
-					     VAR_DOMAIN,
+					     SEARCH_VFT,
 					     &is_a_field_of_this);
 
 			  pstate->push_symbol (name.c_str (), sym);
@@ -700,6 +703,7 @@ static struct keyword keytab[] =
     {"IN",    IN         },/* Note space after IN */
     {"AND",   LOGICAL_AND},
     {"ABS",   ABS	 },
+    {"ADR",   ADR	 },
     {"CHR",   CHR	 },
     {"DEC",   DEC	 },
     {"NOT",   NOT	 },
@@ -870,13 +874,8 @@ yylex (void)
 	}
 	toktype = parse_number (p - tokstart);
 	if (toktype == ERROR)
-	  {
-	    char *err_copy = (char *) alloca (p - tokstart + 1);
-
-	    memcpy (err_copy, tokstart, p - tokstart);
-	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
-	  }
+	  error (_("Invalid number \"%.*s\"."), (int) (p - tokstart),
+		 tokstart);
 	pstate->lexptr = p;
 	return toktype;
     }
@@ -924,11 +923,12 @@ yylex (void)
     std::string tmp = copy_name (yylval.sval);
     struct symbol *sym;
 
-    if (lookup_symtab (tmp.c_str ()))
+    if (lookup_symtab (current_program_space, tmp.c_str ()) != nullptr)
       return BLOCKNAME;
+
     sym = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
-			 VAR_DOMAIN, 0).symbol;
-    if (sym && sym->aclass () == LOC_BLOCK)
+			 SEARCH_VFT, 0).symbol;
+    if (sym && sym->loc_class () == LOC_BLOCK)
       return BLOCKNAME;
     if (lookup_typename (pstate->language (),
 			 tmp.c_str (), pstate->expression_context_block, 1))
@@ -936,7 +936,7 @@ yylex (void)
 
     if(sym)
     {
-      switch(sym->aclass ())
+      switch(sym->loc_class ())
        {
        case LOC_STATIC:
        case LOC_REGISTER:
@@ -961,7 +961,7 @@ yylex (void)
 
        case LOC_LABEL:
        case LOC_UNRESOLVED:
-	  error (_("internal:  Unforseen case in m2lex()"));
+	  error (_("internal:  Unforeseen case in m2lex()"));
 
        default:
 	  error (_("unhandled token in m2lex()"));
@@ -1006,8 +1006,5 @@ m2_language::parser (struct parser_state *par_state) const
 static void
 yyerror (const char *msg)
 {
-  if (pstate->prev_lexptr)
-    pstate->lexptr = pstate->prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), msg, pstate->lexptr);
+  pstate->parse_error (msg);
 }

@@ -1,5 +1,5 @@
 /* Generic memory read/write for hardware simulator models.
-   Copyright (C) 1997-2023 Free Software Foundation, Inc.
+   Copyright (C) 1997-2026 Free Software Foundation, Inc.
    Contributed by Cygnus Support.
 
 This file is part of GDB, the GNU debugger.
@@ -27,17 +27,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
    modeling real hardware */
 
 uint64_t
-sim_read (SIM_DESC sd, uint64_t mem, void *buffer, uint64_t length)
+sim_read (SIM_DESC sd, uint64_t addr, void *buffer, uint64_t length)
 {
   SIM_ASSERT (STATE_MAGIC (sd) == SIM_MAGIC_NUMBER);
   return sim_core_read_buffer (sd, NULL, read_map,
-			       buffer, mem, length);
+			       buffer, addr, length);
 }
 
 uint64_t
-sim_write (SIM_DESC sd, uint64_t mem, const void *buffer, uint64_t length)
+sim_write (SIM_DESC sd, uint64_t addr, const void *buffer, uint64_t length)
 {
   SIM_ASSERT (STATE_MAGIC (sd) == SIM_MAGIC_NUMBER);
   return sim_core_write_buffer (sd, NULL, write_map,
-				buffer, mem, length);
+				buffer, addr, length);
 }

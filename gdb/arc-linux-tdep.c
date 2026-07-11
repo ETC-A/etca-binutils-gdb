@@ -1,6 +1,6 @@
 /* Target dependent code for GNU/Linux ARC.
 
-   Copyright 2020-2023 Free Software Foundation, Inc.
+   Copyright 2020-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,8 +18,8 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* GDB header files.  */
-#include "defs.h"
 #include "linux-tdep.h"
+#include "solib-svr4-linux.h"
 #include "objfiles.h"
 #include "opcode/arc.h"
 #include "osabi.h"
@@ -159,7 +159,7 @@ static const int arc_linux_core_reg_offsets[] = {
    Returns TRUE if this is a sigtramp frame.  */
 
 static bool
-arc_linux_is_sigtramp (frame_info_ptr this_frame)
+arc_linux_is_sigtramp (const frame_info_ptr &this_frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   CORE_ADDR pc = get_frame_pc (this_frame);
@@ -174,6 +174,9 @@ arc_linux_is_sigtramp (frame_info_ptr this_frame)
     0x20, 0x8a, 0x12, 0xc2,	/* mov  r8,nr_rt_sigreturn */
     0x22, 0x6f, 0x00, 0x3f	/* swi */
   };
+
+  constexpr size_t max_insn_sz = std::max (sizeof (insns_be_hs),
+					   sizeof (insns_be_700));
 
   gdb_byte arc_sigtramp_insns[sizeof (insns_be_700)];
   size_t insns_sz;
@@ -201,25 +204,26 @@ arc_linux_is_sigtramp (frame_info_ptr this_frame)
 	std::swap (arc_sigtramp_insns[i], arc_sigtramp_insns[i+1]);
     }
 
-  gdb_byte buf[insns_sz];
+  gdb_assert (insns_sz <= max_insn_sz);
+  gdb_byte buf[max_insn_sz];
 
   /* Read the memory at the PC.  Since we are stopped, any breakpoint must
      have been removed.  */
   if (!safe_frame_unwind_memory (this_frame, pc, {buf, insns_sz}))
     {
       /* Failed to unwind frame.  */
-      return FALSE;
+      return false;
     }
 
   /* Is that code the sigtramp instruction sequence?  */
   if (memcmp (buf, arc_sigtramp_insns, insns_sz) == 0)
-    return TRUE;
+    return true;
 
   /* No - look one instruction earlier in the code...  */
   if (!safe_frame_unwind_memory (this_frame, pc - 4, {buf, insns_sz}))
     {
       /* Failed to unwind frame.  */
-      return FALSE;
+      return false;
     }
 
   return (memcmp (buf, arc_sigtramp_insns, insns_sz) == 0);
@@ -257,7 +261,7 @@ arc_linux_is_sigtramp (frame_info_ptr this_frame)
    etc) in GDB hardcode values.  */
 
 static CORE_ADDR
-arc_linux_sigcontext_addr (frame_info_ptr this_frame)
+arc_linux_sigcontext_addr (const frame_info_ptr &this_frame)
 {
   const int ucontext_offset = 0x80;
   const int sigcontext_offset = 0x14;
@@ -266,7 +270,7 @@ arc_linux_sigcontext_addr (frame_info_ptr this_frame)
 
 /* Implement the "cannot_fetch_register" gdbarch method.  */
 
-static int
+static bool
 arc_linux_cannot_fetch_register (struct gdbarch *gdbarch, int regnum)
 {
   /* Assume that register is readable if it is unknown.  */
@@ -286,7 +290,7 @@ arc_linux_cannot_fetch_register (struct gdbarch *gdbarch, int regnum)
 
 /* Implement the "cannot_store_register" gdbarch method.  */
 
-static int
+static bool
 arc_linux_cannot_store_register (struct gdbarch *gdbarch, int regnum)
 {
   /* Assume that register is writable if it is unknown.  */
@@ -332,6 +336,8 @@ arc_linux_sw_breakpoint_from_kind (struct gdbarch *gdbarch,
 	  ? arc_linux_trap_s_be
 	  : arc_linux_trap_s_le);
 }
+
+/* codespell:ignore-begin.  Ignore SCOND.  */
 
 /* Check for an atomic sequence of instructions beginning with an
    LLOCK instruction and ending with a SCOND instruction.
@@ -405,6 +411,8 @@ handle_atomic_sequence (arc_instruction insn, disassemble_info *di)
   return next_pcs;
 }
 
+/* codespell:ignore-end.  */
+
 /* Implement the "software_single_step" gdbarch method.  */
 
 static std::vector<CORE_ADDR>
@@ -425,7 +433,7 @@ arc_linux_software_single_step (struct regcache *regcache)
   CORE_ADDR next_pc = arc_insn_get_linear_next_pc (curr_insn);
   std::vector<CORE_ADDR> next_pcs;
 
-  /* For instructions with delay slots, the fall thru is not the
+  /* For instructions with delay slots, the fall through is not the
      instruction immediately after the current instruction, but the one
      after that.  */
   if (curr_insn.has_delay_slot)
@@ -503,8 +511,8 @@ arc_linux_skip_solib_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
 
      So we look for the symbol `_dl_linux_resolver', and if we are there,
      gdb sets a breakpoint at the return address, and continues.  */
-  struct bound_minimal_symbol resolver
-    = lookup_minimal_symbol ("_dl_linux_resolver", NULL, NULL);
+  bound_minimal_symbol resolver
+    = lookup_minimal_symbol (current_program_space, "_dl_linux_resolver");
 
   if (arc_debug)
     {
@@ -549,7 +557,7 @@ arc_linux_supply_gregset (const struct regset *regset,
 			  struct regcache *regcache,
 			  int regnum, const void *gregs, size_t size)
 {
-  gdb_static_assert (ARC_LAST_REGNUM
+  static_assert (ARC_LAST_REGNUM
 		     < ARRAY_SIZE (arc_linux_core_reg_offsets));
 
   const bfd_byte *buf = (const bfd_byte *) gregs;
@@ -612,7 +620,7 @@ arc_linux_collect_gregset (const struct regset *regset,
 			   const struct regcache *regcache,
 			   int regnum, void *gregs, size_t size)
 {
-  gdb_static_assert (ARC_LAST_REGNUM
+  static_assert (ARC_LAST_REGNUM
 		     < ARRAY_SIZE (arc_linux_core_reg_offsets));
 
   gdb_byte *buf = (gdb_byte *) gregs;
@@ -724,7 +732,7 @@ arc_linux_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
 				       arc_linux_sw_breakpoint_from_kind);
   set_gdbarch_fetch_tls_load_module_address (gdbarch,
 					     svr4_fetch_objfile_link_map);
-  set_gdbarch_software_single_step (gdbarch, arc_linux_software_single_step);
+  set_gdbarch_get_next_pcs (gdbarch, arc_linux_software_single_step);
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
   set_gdbarch_skip_solib_resolver (gdbarch, arc_linux_skip_solib_resolver);
   set_gdbarch_iterate_over_regset_sections
@@ -733,15 +741,10 @@ arc_linux_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* GNU/Linux uses SVR4-style shared libraries, with 32-bit ints, longs
      and pointers (ILP32).  */
-  set_solib_svr4_fetch_link_map_offsets (gdbarch,
-					 linux_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_ops (gdbarch, make_linux_ilp32_svr4_solib_ops);
 }
 
-/* Suppress warning from -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_arc_linux_tdep;
-
-void
-_initialize_arc_linux_tdep ()
+INIT_GDB_FILE (arc_linux_tdep)
 {
   gdbarch_register_osabi (bfd_arch_arc, 0, GDB_OSABI_LINUX,
 			  arc_linux_init_osabi);

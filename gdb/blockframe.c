@@ -1,7 +1,7 @@
 /* Get info from stack frames; convert between frames, blocks,
    functions and pc values.
 
-   Copyright (C) 1986-2023 Free Software Foundation, Inc.
+   Copyright (C) 1986-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "symtab.h"
 #include "bfd.h"
 #include "objfiles.h"
@@ -31,7 +30,7 @@
 #include "regcache.h"
 #include "dummy-frame.h"
 #include "command.h"
-#include "gdbcmd.h"
+#include "cli/cli-cmds.h"
 #include "block.h"
 #include "inline-frame.h"
 
@@ -52,7 +51,7 @@
    slot instruction.  */
 
 const struct block *
-get_frame_block (frame_info_ptr frame, CORE_ADDR *addr_in_block)
+get_frame_block (const frame_info_ptr &frame, CORE_ADDR *addr_in_block)
 {
   CORE_ADDR pc;
   const struct block *bl;
@@ -86,7 +85,6 @@ CORE_ADDR
 get_pc_function_start (CORE_ADDR pc)
 {
   const struct block *bl;
-  struct bound_minimal_symbol msymbol;
 
   bl = block_for_pc (pc);
   if (bl)
@@ -100,7 +98,7 @@ get_pc_function_start (CORE_ADDR pc)
 	}
     }
 
-  msymbol = lookup_minimal_symbol_by_pc (pc);
+  bound_minimal_symbol msymbol = lookup_minimal_symbol_by_pc (pc);
   if (msymbol.minsym)
     {
       CORE_ADDR fstart = msymbol.value_address ();
@@ -115,17 +113,13 @@ get_pc_function_start (CORE_ADDR pc)
 /* Return the symbol for the function executing in frame FRAME.  */
 
 struct symbol *
-get_frame_function (frame_info_ptr frame)
+get_frame_function (const frame_info_ptr &frame)
 {
   const struct block *bl = get_frame_block (frame, 0);
+  if (bl == nullptr)
+    return nullptr;
 
-  if (bl == NULL)
-    return NULL;
-
-  while (bl->function () == NULL && bl->superblock () != NULL)
-    bl = bl->superblock ();
-
-  return bl->function ();
+  return bl->containing_function ();
 }
 
 
@@ -133,7 +127,7 @@ get_frame_function (frame_info_ptr frame)
    Returns 0 if function is not known.  */
 
 struct symbol *
-find_pc_sect_function (CORE_ADDR pc, struct obj_section *section)
+find_symbol_for_pc_sect (CORE_ADDR pc, struct obj_section *section)
 {
   const struct block *b = block_for_pc_sect (pc, section);
 
@@ -143,19 +137,27 @@ find_pc_sect_function (CORE_ADDR pc, struct obj_section *section)
 }
 
 /* Return the function containing pc value PC.
-   Returns 0 if function is not known.  
+   Returns 0 if function is not known.
    Backward compatibility, no section */
 
 struct symbol *
-find_pc_function (CORE_ADDR pc)
+find_symbol_for_pc (CORE_ADDR pc)
 {
-  return find_pc_sect_function (pc, find_pc_mapped_section (pc));
+  return find_symbol_for_pc_sect (pc, find_pc_mapped_section (pc));
 }
 
 /* See symtab.h.  */
 
 struct symbol *
-find_pc_sect_containing_function (CORE_ADDR pc, struct obj_section *section)
+find_symbol_for_pc_maybe_inline (CORE_ADDR pc)
+{
+  return find_symbol_for_pc_sect_maybe_inline (pc, find_pc_mapped_section (pc));
+}
+
+/* See symtab.h.  */
+
+struct symbol *
+find_symbol_for_pc_sect_maybe_inline (CORE_ADDR pc, struct obj_section *section)
 {
   const block *bl = block_for_pc_sect (pc, section);
 
@@ -217,9 +219,9 @@ find_pc_partial_function_sym (CORE_ADDR pc,
 {
   struct obj_section *section;
   struct symbol *f;
-  struct bound_minimal_symbol msymbol;
   struct compunit_symtab *compunit_symtab = NULL;
   CORE_ADDR mapped_pc;
+  bound_minimal_symbol msymbol;
 
   /* To ensure that the symbol returned belongs to the correct section
      (and that the last [random] symbol from the previous section
@@ -238,7 +240,7 @@ find_pc_partial_function_sym (CORE_ADDR pc,
     goto return_cached_value;
 
   msymbol = lookup_minimal_symbol_by_pc_section (mapped_pc, section);
-  compunit_symtab = find_pc_sect_compunit_symtab (mapped_pc, section);
+  compunit_symtab = find_compunit_symtab_for_pc_sect (mapped_pc, section);
 
   if (compunit_symtab != NULL)
     {
@@ -251,7 +253,7 @@ find_pc_partial_function_sym (CORE_ADDR pc,
 	 address of the function.  This will happen when the function
 	 has more than one range and the entry pc is not within the
 	 lowest range of addresses.  */
-      f = find_pc_sect_function (mapped_pc, section);
+      f = find_symbol_for_pc_sect (mapped_pc, section);
       if (f != NULL
 	  && (msymbol.minsym == NULL
 	      || (f->value_block ()->entry_pc ()
@@ -421,7 +423,7 @@ find_function_entry_range_from_pc (CORE_ADDR pc, const char **name,
 struct type *
 find_function_type (CORE_ADDR pc)
 {
-  struct symbol *sym = find_pc_function (pc);
+  struct symbol *sym = find_symbol_for_pc (pc);
 
   if (sym != NULL && sym->value_block ()->entry_pc () == pc)
     return sym->type ();

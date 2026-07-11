@@ -1,6 +1,6 @@
 /* Perform an inferior function call, for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,8 +17,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#ifndef INFCALL_H
-#define INFCALL_H
+#ifndef GDB_INFCALL_H
+#define GDB_INFCALL_H
 
 #include "dummy-frame.h"
 #include "gdbsupport/array-view.h"
@@ -32,7 +32,7 @@ struct type;
    type, and *RETVAL_TYPE to the target function's return type.
    Calls error() if the function is not valid for calling.  */
 
-extern CORE_ADDR find_function_addr (struct value *function, 
+extern CORE_ADDR find_function_addr (struct value *function,
 				     struct type **retval_type,
 				     struct type **function_type = NULL);
 
@@ -69,6 +69,7 @@ extern struct value *
    function to be included in the error message; may be NULL, in which
    case the error message doesn't include a function name.  */
 
-extern void error_call_unknown_return_type (const char *func_name);
+[[noreturn]] extern void error_call_unknown_return_type
+     (const char *func_name);
 
-#endif
+#endif /* GDB_INFCALL_H */

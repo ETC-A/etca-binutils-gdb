@@ -1,5 +1,5 @@
 /* Agent expression code for remote server.
-   Copyright (C) 2009-2023 Free Software Foundation, Inc.
+   Copyright (C) 2009-2026 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -16,7 +16,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "server.h"
 #include "ax.h"
 #include "gdbsupport/format.h"
 #include "tracepoint.h"
@@ -818,7 +817,6 @@ ax_printf (CORE_ADDR fn, CORE_ADDR chan, const char *format,
 {
   const char *f = format;
   int i;
-  const char *current_substring;
   int nargs_wanted;
 
   ax_debug ("Printf of \"%s\" with %d args", format, nargs);
@@ -836,7 +834,8 @@ ax_printf (CORE_ADDR fn, CORE_ADDR chan, const char *format,
   i = 0;
   for (auto &&piece : fpieces)
     {
-      current_substring = piece.string;
+      const char *current_substring = fpieces.piece_str (piece);
+
       ax_debug ("current substring is '%s', class is %d",
 		current_substring, piece.argclass);
       switch (piece.argclass)
@@ -904,6 +903,14 @@ ax_printf (CORE_ADDR fn, CORE_ADDR chan, const char *format,
 	case size_t_arg:
 	  {
 	    size_t val = args[i];
+
+	    printf (current_substring, val);
+	    break;
+	  }
+
+	case ptrdiff_t_arg:
+	  {
+	    ptrdiff_t val = args[i];
 
 	    printf (current_substring, val);
 	    break;

@@ -1,6 +1,6 @@
 /* DWARF stringify code
 
-   Copyright (C) 1994-2023 Free Software Foundation, Inc.
+   Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
    Adapted by Gary Funck (gary@intrepid.com), Intrepid Technology,
    Inc.  with support from Florida State University (under contract
@@ -24,8 +24,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "dwarf2.h"
+#include "dwarf2/read-gdb-index.h"
 #include "dwarf2/stringify.h"
 
 /* A convenience function that returns an "unknown" DWARF name,
@@ -45,6 +45,11 @@ dwarf_unknown (const char *str, unsigned v)
 const char *
 dwarf_tag_name (unsigned tag)
 {
+  if (tag == DW_TAG_GDB_INDEX_OTHER)
+    return "DW_TAG_GDB_INDEX_OTHER";
+  else if (tag == DW_TAG_GDB_INDEX_TYPE)
+    return "DW_TAG_GDB_INDEX_TYPE";
+
   const char *name = get_DW_TAG_name (tag);
 
   if (name == NULL)
