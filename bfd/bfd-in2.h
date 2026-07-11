@@ -7323,7 +7323,7 @@ enum bfd_reloc_code_real
   BFD_RELOC_LARCH_TLS_DESC_PCADD_HI20,
   BFD_RELOC_LARCH_TLS_DESC_PCADD_LO12,
 
-/* ETCa ELF relocations.  */
+  /* ETCa ELF relocations.  */
   BFD_RELOC_ETCA_BASE_JMP,
   BFD_RELOC_ETCA_EXABS_8,
   BFD_RELOC_ETCA_EXABS_16,
