@@ -75,3 +75,7 @@ stamp-*
 /gmp*
 /isl*
 /gettext*
+
+
+/.idea
+/build
